@@ -18,6 +18,9 @@ public class GameManager : MonoBehaviour
     private Map map;
     public Sprite tileSprite; 
     private Kingdom[] kingdoms = new Kingdom[4];
+    
+    [Header("UI")]
+    public ResourceDisplay resourceDisplay;
 
     void Start()
     {
@@ -26,7 +29,13 @@ public class GameManager : MonoBehaviour
 
      GenerateKingdoms();
 
-     RenderMap();   
+     RenderMap();
+     
+     // Set up resource display for the first kingdom (player's kingdom)
+     if (resourceDisplay != null && kingdoms[0] != null)
+     {
+         resourceDisplay.SetKingdom(kingdoms[0]);
+     }
     }
 
      void InitializeMap()
