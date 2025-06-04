@@ -1,8 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
-using EmpireGame;
 
-public class ResourceDisplay : MonoBehaviour
+namespace EmpireGame
+{
+    public class ResourceDisplay : MonoBehaviour
 {
     [Header("Resource Text Elements")]
     public Text woodText;
@@ -38,4 +39,5 @@ public class ResourceDisplay : MonoBehaviour
         if (stoneText != null) stoneText.text = $"Stone: {playerKingdom.StoneStock}";
         if (waterText != null) waterText.text = $"Water: {playerKingdom.WaterStock}";
     }
+}
 }
