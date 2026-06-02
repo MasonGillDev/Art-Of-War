@@ -1,5 +1,13 @@
 # Project Conventions
 
+## Start here
+
+**`docs/architecture.md` is the authoritative engineering reference for this project.** Read it before making non-trivial changes. It covers: the determinism contract, the reusable patterns (pure-read walls, lazy catch-up, fencing tokens, anchors for in-flight state), what you must do, what you must NOT do, the testing standards, the milestone workflow, and the roadmap.
+
+The current state of any in-flight milestone work lives in a `docs/m*-status.md` file (see `docs/m4-status.md` for the persistence milestone, currently paused after Phase B).
+
+The game's design vision is in `persistent-rts-design.md` at the repo root — that's the *what*. `docs/architecture.md` is the *how*.
+
 ## Architectural decisions are documented in `docs/`
 
 When an architectural decision is made — a choice between approaches that will

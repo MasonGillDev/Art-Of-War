@@ -29,7 +29,7 @@ public sealed class MoveIntent : Intent
             unit.BumpEpoch();                // explicit bump for Idle→Idle move so
                                              // any prior move chain's MoveArrivalEvents fence out
 
-        ScheduleNextStep(sim, unit, Destination);
+        BeginMove(sim, unit, Destination);
         return IntentOutcome.Applied;
     }
 
@@ -62,20 +62,29 @@ public sealed class MoveIntent : Intent
         }
     }
 
-    // Shared by MoveIntent.Resolve, MoveArrivalEvent.Apply, and HaulIntent:
-    // re-path from the unit's current tile to the final destination, schedule
-    // the next arrival. The optional onFinalArrival hook is carried by every
-    // intermediate MoveArrivalEvent so it fires when the chain reaches the end.
-    internal static void ScheduleNextStep(
-        Simulation sim,
-        Unit unit,
-        TileCoord finalDest,
-        ScheduledEvent? onFinalArrival = null)
+    // M4 Phase A: start a new movement chain to `finalDest`. Computes the full
+    // committed path once, stores it on the unit, and schedules the first
+    // MoveArrivalEvent. Called by:
+    //   * MoveIntent.Resolve (player-issued move)
+    //   * HaulIntent.Resolve (move to source)
+    //   * HaulPickupEvent.Apply (after pickup, move to dest)
+    //
+    // The path is STORED on the unit (Unit.PathRemaining) rather than
+    // recomputed per hop or per restore. Recomputing against current road
+    // conditions could yield a different path than the live sim took,
+    // breaking determinism.
+    internal static void BeginMove(Simulation sim, Unit unit, TileCoord finalDest)
     {
-        if (unit.Position == finalDest) return;
-        // Road-aware cost: A* prefers high-condition routes when their
-        // effective cost wins. Pure read — captures sim.World and sim.Now in
-        // the closure but never mutates road state. See Roads/Road.cs.
+        if (unit.Position == finalDest)
+        {
+            // Already at destination — clear any stale path anchors.
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            return;
+        }
+
         var world = sim.World;
         var now = sim.Now;
         var path = Pathfinding.FindPath(
@@ -83,15 +92,34 @@ public sealed class MoveIntent : Intent
             unit.Position,
             finalDest,
             tile => Road.EffectiveCost(world, tile, now));
-        if (path is null || path.Count < 2) return;
-        var next = path[1];
-        // Per-step arrival time uses the same effective cost so the unit
-        // actually moves faster along the road, not just chooses to walk it.
-        var arrival = sim.Now + Road.EffectiveCost(world, next, now);
-        sim.Schedule(arrival, new MoveArrivalEvent(unit.Id, next, finalDest, unit.AssignmentEpoch)
+        if (path is null || path.Count < 2)
         {
-            OnFinalArrival = onFinalArrival,
-        });
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            return;
+        }
+
+        // path[0] == unit.Position; the rest is the committed itinerary.
+        unit.PathRemaining = path.Skip(1).ToList();
+        unit.PathFinalDest = finalDest;
+        ScheduleNextHop(sim, unit);
+    }
+
+    // Pop nothing — just schedule the arrival for PathRemaining[0]. Used by
+    // BeginMove (initial schedule) and MoveArrivalEvent.Apply (per-hop
+    // continuation after popping the head).
+    internal static void ScheduleNextHop(Simulation sim, Unit unit)
+    {
+        if (unit.PathRemaining is null || unit.PathRemaining.Count == 0 || unit.PathFinalDest is null)
+            return;
+        var next = unit.PathRemaining[0];
+        var world = sim.World;
+        var arrival = sim.Now + Road.EffectiveCost(world, next, sim.Now);
+        unit.NextArrivalTick = arrival;
+        unit.NextArrivalSeq  = sim.Schedule(arrival,
+            new MoveArrivalEvent(unit.Id, next, unit.PathFinalDest.Value, unit.AssignmentEpoch));
     }
 
     public override string Describe() =>

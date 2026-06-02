@@ -88,6 +88,8 @@ public sealed class HaulDepositEvent : ScheduledEvent
             site.StartOrResume(sim);
         }
 
+        // M4 Phase A: haul complete; clear the on-unit anchor.
+        hauler.HaulPlan = null;
         hauler.TrySetActivity(Activity.Idle);
     }
 

@@ -103,17 +103,23 @@ public sealed class HaulPickupEvent : ScheduledEvent
         hauler.CargoResource = Resource;
         hauler.CargoAmount = pickup;
 
-        // Second leg: walk to destination, deposit on arrival. Capture the
-        // hauler's *current* epoch so the deposit event fences against future
-        // retasking too.
-        var deposit = new HaulDepositEvent(HaulerId, DestTile, hauler.AssignmentEpoch);
+        // M4 Phase A: switch the on-unit haul anchor from "going to source"
+        // to "going to dest". MoveArrivalEvent will see Phase == ToDest at
+        // final arrival and dispatch the HaulDepositEvent — no event payload
+        // to chain.
+        if (hauler.HaulPlan is { } plan)
+            plan.Phase = HaulPhase.ToDest;
+
+        // Second leg: walk to destination. On arrival, MoveArrivalEvent's
+        // DispatchOnFinalArrival reads HaulPlan and schedules deposit.
         if (hauler.Position == DestTile)
         {
-            sim.Schedule(sim.Now, deposit);
+            sim.Schedule(sim.Now,
+                new HaulDepositEvent(HaulerId, DestTile, hauler.AssignmentEpoch));
         }
         else
         {
-            MoveIntent.ScheduleNextStep(sim, hauler, DestTile, onFinalArrival: deposit);
+            MoveIntent.BeginMove(sim, hauler, DestTile);
         }
     }
 

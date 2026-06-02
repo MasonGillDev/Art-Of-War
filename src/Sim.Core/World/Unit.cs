@@ -42,6 +42,26 @@ public sealed class Unit
     public Resource CargoResource { get; set; }
     public int CargoAmount { get; set; }
 
+    // ---- M4 in-flight movement anchor (Phase A) ----
+    // The committed remaining steps of the current movement chain. Null when
+    // not moving. Set by MoveIntent.Resolve at command time, consumed step
+    // by step by MoveArrivalEvent.Apply. Stored on the unit so RegenerateQueue
+    // (M4 recovery) can rebuild the next MoveArrivalEvent purely from state.
+    //
+    // Storing the committed path (not recomputing on restore) is deliberate:
+    // recomputing against current road conditions could yield a different
+    // path than the live sim took, breaking determinism.
+    public List<TileCoord>? PathRemaining { get; set; }
+    public TileCoord? PathFinalDest { get; set; }
+    public long? NextArrivalTick { get; set; }
+    public long? NextArrivalSeq  { get; set; }
+
+    // ---- M4 in-flight haul anchor (Phase A) ----
+    // Drives the pickup/deposit dispatch at the end of the move chain in
+    // place of MoveArrivalEvent.OnFinalArrival. Mutated by haul events;
+    // cleared on completion. See HaulPlan.cs.
+    public HaulPlan? HaulPlan { get; set; }
+
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 
     // The single mutation path for Activity. Intents call this rather than

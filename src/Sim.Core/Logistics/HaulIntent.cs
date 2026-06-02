@@ -50,17 +50,20 @@ public sealed class HaulIntent : Intent
 
         hauler.TrySetActivity(Activity.Hauling);
 
-        // Capture epoch AFTER the activity transition (which bumped it) so the
-        // pickup event fences against any FUTURE retasking but not against the
-        // bump we just did.
-        var pickup = new HaulPickupEvent(HaulerId, SourceTile, DestTile, Resource, hauler.AssignmentEpoch);
+        // M4 Phase A: state-anchored haul orchestration. HaulPlan carries the
+        // route shape; MoveArrivalEvent dispatches pickup/deposit on final
+        // arrival by reading the plan. No OnFinalArrival event field.
+        hauler.HaulPlan = new HaulPlan(SourceTile, DestTile, Resource, HaulPhase.ToSource);
+
         if (hauler.Position == SourceTile)
         {
-            sim.Schedule(sim.Now, pickup);
+            // Already at source — go straight to pickup.
+            sim.Schedule(sim.Now,
+                new HaulPickupEvent(HaulerId, SourceTile, DestTile, Resource, hauler.AssignmentEpoch));
         }
         else
         {
-            MoveIntent.ScheduleNextStep(sim, hauler, SourceTile, onFinalArrival: pickup);
+            MoveIntent.BeginMove(sim, hauler, SourceTile);
         }
 
         return IntentOutcome.Applied;

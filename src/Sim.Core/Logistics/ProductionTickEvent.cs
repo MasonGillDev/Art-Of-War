@@ -31,6 +31,7 @@ public sealed class ProductionTickEvent : ScheduledEvent
         if (extractor.Workers.Count == 0)
         {
             extractor.TickArmed = false;
+            extractor.NextProductionTickSeq = null;
             Outcome = IntentOutcome.Reject("no workers");
             return;
         }
@@ -38,6 +39,7 @@ public sealed class ProductionTickEvent : ScheduledEvent
         if (extractor.BufferFull())
         {
             extractor.TickArmed = false;
+            extractor.NextProductionTickSeq = null;
             Outcome = IntentOutcome.Reject("buffer full");
             return;
         }
@@ -60,12 +62,15 @@ public sealed class ProductionTickEvent : ScheduledEvent
 
         if (extractor.Workers.Count > 0 && !extractor.BufferFull())
         {
-            sim.Schedule(sim.Now + spec.ProductionPeriodTicks, new ProductionTickEvent(ExtractorTile));
+            extractor.NextProductionTickSeq = sim.Schedule(
+                sim.Now + spec.ProductionPeriodTicks,
+                new ProductionTickEvent(ExtractorTile));
             extractor.TickArmed = true;
         }
         else
         {
             extractor.TickArmed = false;
+            extractor.NextProductionTickSeq = null;
         }
     }
 

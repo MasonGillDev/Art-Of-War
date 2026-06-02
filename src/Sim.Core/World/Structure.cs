@@ -96,6 +96,12 @@ public sealed class Extractor : Structure
     // tick and setting this true again.
     public bool TickArmed { get; set; }
 
+    // M4 Phase A — Seq of the currently-scheduled ProductionTickEvent. Lets
+    // RegenerateQueue rebuild the queued tick with its original Seq so
+    // same-tick ordering survives recovery (M1 Phase F fairness contract).
+    // Null iff TickArmed is false.
+    public long? NextProductionTickSeq { get; set; }
+
     public Extractor(StructureKind kind, TileCoord at) : base(at)
     {
         _kind = kind;
@@ -120,7 +126,8 @@ public sealed class Extractor : Structure
         if (Workers.Count == 0) return;
         if (BufferFull()) return;
         TickArmed = true;
-        sim.Schedule(sim.Now + Spec.ProductionPeriodTicks,
+        NextProductionTickSeq = sim.Schedule(
+            sim.Now + Spec.ProductionPeriodTicks,
             new ProductionTickEvent(At));
     }
 }
@@ -160,6 +167,12 @@ public sealed class ConstructionSite : Structure
     public bool BuildPaused { get; set; }
     public long? LastActiveAtTick { get; set; }
     public long? ScheduledCompletion { get; set; }
+
+    // M4 Phase A — Seq of the currently-scheduled BuildCompleteEvent. Same
+    // recovery contract as Extractor.NextProductionTickSeq: lets
+    // RegenerateQueue rebuild the queued completion with its original Seq.
+    // Null iff ScheduledCompletion is null (paused or pending).
+    public long? BuildCompleteSeq { get; set; }
 
     public ConstructionSite(TileCoord at, StructureKind targetKind)
         : base(at)
@@ -235,7 +248,7 @@ public sealed class ConstructionSite : Structure
         LastActiveAtTick = sim.Now;
         BuildPaused = false;
         ScheduledCompletion = sim.Now + remaining;
-        sim.Schedule(ScheduledCompletion.Value, new BuildCompleteEvent(At));
+        BuildCompleteSeq = sim.Schedule(ScheduledCompletion.Value, new BuildCompleteEvent(At));
     }
 
     // Transition ACTIVE → PAUSED. Banks the live progress, clears the fencing
@@ -247,6 +260,7 @@ public sealed class ConstructionSite : Structure
         if (ProgressTicks > BuildDurationTicks) ProgressTicks = BuildDurationTicks;
         LastActiveAtTick = null;
         ScheduledCompletion = null;
+        BuildCompleteSeq = null;
         BuildPaused = true;
     }
 }

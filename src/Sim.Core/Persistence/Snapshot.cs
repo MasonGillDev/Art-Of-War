@@ -32,6 +32,12 @@ public static class Snapshot
 {
     private const uint Magic = 0xA0FA0FA0; // "Art of War"
 
+    // M4 Phase B — format version byte. Bumped whenever the serialized layout
+    // changes incompatibly. Restore refuses mismatched versions; the operator
+    // path is snapshot-on-deploy under the producing code's version, then
+    // deploy and restore under the new code (see docs/persistence-model.md).
+    public const int FormatVersion = 1;
+
     public static string Hash(Simulation sim)
     {
         var bytes = Serialize(sim);
@@ -44,6 +50,7 @@ public static class Snapshot
         using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
         {
             bw.Write(Magic);
+            bw.Write(FormatVersion);
             WriteClocks(bw, sim);
             WriteGrid(bw, sim.World.Grid);
             WritePlayers(bw, sim.World);
@@ -62,6 +69,12 @@ public static class Snapshot
 
         var magic = br.ReadUInt32();
         if (magic != Magic) throw new InvalidDataException("Snapshot magic mismatch.");
+        var version = br.ReadInt32();
+        if (version != FormatVersion)
+            throw new InvalidDataException(
+                $"Snapshot format version {version} not supported by this build " +
+                $"(current = {FormatVersion}). Run snapshot-on-deploy under the " +
+                $"producing code version; see docs/persistence-model.md.");
 
         var (now, rngState, nextSeq) = ReadClocks(br);
         var grid = ReadGrid(br);
@@ -75,6 +88,9 @@ public static class Snapshot
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
         sim.RestoreClocks(now, nextSeq);
+        // M4 Phase B: reconstruct the in-flight event queue from per-entity
+        // next-event anchors. See Persistence/RegenerateQueue.cs.
+        RegenerateQueue.From(sim);
         return sim;
     }
 
@@ -163,7 +179,59 @@ public static class Snapshot
             bw.Write(u.CargoAmount);
             bw.Write(u.AssignmentEpoch);
             bw.Write(u.OwnerId);
+            // M4: in-flight movement anchor.
+            WritePathRemaining(bw, u.PathRemaining);
+            WriteNullableTileCoord(bw, u.PathFinalDest);
+            WriteNullableLong(bw, u.NextArrivalTick);
+            WriteNullableLong(bw, u.NextArrivalSeq);
+            // M4: in-flight haul anchor.
+            WriteHaulPlan(bw, u.HaulPlan);
         }
+    }
+
+    private static void WritePathRemaining(BinaryWriter bw, List<TileCoord>? path)
+    {
+        if (path is null) { bw.Write(-1); return; }
+        bw.Write(path.Count);
+        foreach (var t in path) { bw.Write(t.X); bw.Write(t.Y); }
+    }
+
+    private static List<TileCoord>? ReadPathRemaining(BinaryReader br)
+    {
+        var n = br.ReadInt32();
+        if (n < 0) return null;
+        var list = new List<TileCoord>(capacity: n);
+        for (var i = 0; i < n; i++) list.Add(new TileCoord(br.ReadInt32(), br.ReadInt32()));
+        return list;
+    }
+
+    private static void WriteNullableTileCoord(BinaryWriter bw, TileCoord? coord)
+    {
+        if (coord is { } c) { bw.Write((byte)1); bw.Write(c.X); bw.Write(c.Y); }
+        else { bw.Write((byte)0); }
+    }
+
+    private static TileCoord? ReadNullableTileCoord(BinaryReader br) =>
+        br.ReadByte() == 1 ? new TileCoord(br.ReadInt32(), br.ReadInt32()) : null;
+
+    private static void WriteHaulPlan(BinaryWriter bw, HaulPlan? plan)
+    {
+        if (plan is null) { bw.Write((byte)0); return; }
+        bw.Write((byte)1);
+        bw.Write(plan.SourceTile.X); bw.Write(plan.SourceTile.Y);
+        bw.Write(plan.DestTile.X);   bw.Write(plan.DestTile.Y);
+        bw.Write((byte)plan.Resource);
+        bw.Write((byte)plan.Phase);
+    }
+
+    private static HaulPlan? ReadHaulPlan(BinaryReader br)
+    {
+        if (br.ReadByte() == 0) return null;
+        var src   = new TileCoord(br.ReadInt32(), br.ReadInt32());
+        var dest  = new TileCoord(br.ReadInt32(), br.ReadInt32());
+        var res   = (Resource)br.ReadByte();
+        var phase = (HaulPhase)br.ReadByte();
+        return new HaulPlan(src, dest, res, phase);
     }
 
     private static void ReadUnits(BinaryReader br, GameWorld world)
@@ -183,10 +251,20 @@ public static class Snapshot
             var cargoA = br.ReadInt32();
             var epoch = br.ReadByte();
             var ownerId = br.ReadInt32();
+            var pathRem = ReadPathRemaining(br);
+            var pathDest = ReadNullableTileCoord(br);
+            var nextArrAt = ReadNullableLong(br);
+            var nextArrSeq = ReadNullableLong(br);
+            var haulPlan = ReadHaulPlan(br);
 
             var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId };
             u.CargoResource = cargoR;
             u.CargoAmount = cargoA;
+            u.PathRemaining = pathRem;
+            u.PathFinalDest = pathDest;
+            u.NextArrivalTick = nextArrAt;
+            u.NextArrivalSeq  = nextArrSeq;
+            u.HaulPlan = haulPlan;
             if (activity != Activity.Idle)
             {
                 // Idle is the default; only call TrySet if we actually move off it.
@@ -287,6 +365,8 @@ public static class Snapshot
         bw.Write(e.Buffer);
         bw.Write(e.LastProductionTick);
         bw.Write(e.TickArmed);
+        // M4: queued ProductionTickEvent anchor.
+        WriteNullableLong(bw, e.NextProductionTickSeq);
     }
 
     private static Extractor ReadExtractor(BinaryReader br, Extractor e)
@@ -296,6 +376,7 @@ public static class Snapshot
         e.Buffer = br.ReadInt32();
         e.LastProductionTick = br.ReadInt64();
         e.TickArmed = br.ReadBoolean();
+        e.NextProductionTickSeq = ReadNullableLong(br);
         return e;
     }
 
@@ -312,6 +393,8 @@ public static class Snapshot
         bw.Write(c.BuildPaused);
         WriteNullableLong(bw, c.LastActiveAtTick);
         WriteNullableLong(bw, c.ScheduledCompletion);
+        // M4: queued BuildCompleteEvent anchor.
+        WriteNullableLong(bw, c.BuildCompleteSeq);
     }
 
     private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at, int ownerId)
@@ -344,6 +427,7 @@ public static class Snapshot
         c.BuildPaused = br.ReadBoolean();
         c.LastActiveAtTick = ReadNullableLong(br);
         c.ScheduledCompletion = ReadNullableLong(br);
+        c.BuildCompleteSeq = ReadNullableLong(br);
         return c;
     }
 
