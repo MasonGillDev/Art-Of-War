@@ -6,4 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Tests reach internal hooks (e.g. Extractor.ArmIfDormant, Rng.SetState)
+         that aren't part of the public sim contract. -->
+    <InternalsVisibleTo Include="Sim.Tests" />
+  </ItemGroup>
+
 </Project>

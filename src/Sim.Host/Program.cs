@@ -4,17 +4,23 @@ using Sim.Core.Movement;
 using Sim.Core.Persistence;
 using Sim.Core.World;
 
-// Phase-C smoke: in addition to the M0 move loop, place a LumberCamp
-// construction site on a Forest tile, pre-deposit its build cost
-// (the haul that would do this lives in Phase E), assign a builder, and
-// let the build run to completion. Verify twin runs match and the result
-// round-trips through Serialize/Restore.
+// Phase-D smoke: M0 walk + Phase-C build + Phase-D production.
+//
+// Genesis seeds: Builder (unit 2) and Lumberjack (unit 4) both on the Forest
+// tile we'll build the LumberCamp on. The scenario:
+//   1. Place a LumberCamp construction site at (3,3).
+//   2. Pre-deposit build materials (Phase E will haul this for real).
+//   3. Assign builder, build completes.
+//   4. Assign the Lumberjack as worker — production arms.
+//   5. Run until the camp's buffer caps and production goes dormant.
+//
+// Twin runs must produce identical hashes; the final state must round-trip
+// through Serialize/Restore.
 
 static GenesisSpec MakeSpec()
 {
     var biomes = new Dictionary<TileCoord, Biome>();
     for (var i = 1; i < 9; i++) biomes[new TileCoord(i, i)] = Biome.Forest;
-
     return new GenesisSpec
     {
         Width = 10,
@@ -30,60 +36,68 @@ static GenesisSpec MakeSpec()
         Units = new[]
         {
             new UnitSpawn(Id: 1, new TileCoord(0, 0), UnitRole.Builder),
-            new UnitSpawn(Id: 2, new TileCoord(3, 3), UnitRole.Builder),  // already on the Forest tile we'll build on
+            new UnitSpawn(Id: 2, new TileCoord(3, 3), UnitRole.Builder),    // builds the camp
             new UnitSpawn(Id: 3, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+            new UnitSpawn(Id: 4, new TileCoord(3, 3), UnitRole.Lumberjack), // staffs the camp post-build
         },
     };
 }
 
-static Simulation BuildScenario()
+static Simulation RunScenario()
 {
+    var siteTile = new TileCoord(3, 3);
     var world = Genesis.Build(MakeSpec());
     var sim = new Simulation(world, seed: 0xC0FFEE);
 
-    // M0 loop: unit 1 walks across the grid.
+    // M0 layer: unit 1 walks across the grid.
     sim.SubmitIntent(at: 0, new MoveIntent(unitId: 1, new TileCoord(9, 9)));
 
-    // Phase C: build a LumberCamp at (3,3) using unit 2.
-    var siteTile = new TileCoord(3, 3);
+    // Phase C layer: place LumberCamp site.
     sim.SubmitIntent(at: 0, new PlaceSiteIntent(siteTile, StructureKind.LumberCamp));
+    sim.Run(until: 0);
 
-    // Materials would normally arrive by haul (Phase E). For the smoke we
-    // pre-deposit by running the place intent first then directly seeding the
-    // site. This bypasses physicality on purpose for the demo.
-    sim.Run(until: 0);  // resolves the place intent
+    // Pre-deposit build materials (Phase E will haul these). Bypasses
+    // physicality on purpose for the smoke.
     var site = (ConstructionSite)sim.World.Structures[siteTile];
     var spec = StructureCatalog.Spec(StructureKind.LumberCamp);
     foreach (var (r, n) in spec.BuildCost) site.Deposit(r, n);
 
     sim.SubmitIntent(at: sim.Now, new AssignBuildersIntent(siteTile, new[] { 2 }));
+    // Run until the build is done — sim.Now will land at BuildDurationTicks.
+    sim.Run(until: spec.BuildDurationTicks);
+
+    // Phase D layer: assign the Lumberjack to the now-built camp.
+    sim.SubmitIntent(at: sim.Now, new AssignWorkersIntent(siteTile, new[] { 4 }));
+    // Let production run long enough to fill the buffer and go dormant.
+    sim.Run(until: sim.Now + spec.ProductionPeriodTicks * 25);
+
     return sim;
 }
 
 static void Print(string label, Simulation sim)
 {
     Console.WriteLine($"--- {label} ---");
-    var castle = (Castle)sim.World.Structures[new TileCoord(0, 0)];
-    Console.WriteLine($"Castle holdings:");
-    foreach (var (r, n) in castle.Holdings) Console.WriteLine($"  {r}: {n}");
-    Console.WriteLine($"Units (id: role, position, activity):");
-    foreach (var (id, u) in sim.World.Units)
-        Console.WriteLine($"  {id}: {u.Role}, {u.Position.X},{u.Position.Y}, {u.Activity}");
     Console.WriteLine($"Intents submitted:     {sim.IntentLog.Count}");
-
-    sim.Run();
-
     Console.WriteLine($"Events resolved:       {sim.ResolvedLog.Count}");
     Console.WriteLine($"Final sim tick:        {sim.Now}");
 
-    var site = new TileCoord(3, 3);
-    if (sim.World.Structures.TryGetValue(site, out var built))
-        Console.WriteLine($"Structure @ 3,3:       {built.Kind}");
+    var castle = (Castle)sim.World.Structures[new TileCoord(0, 0)];
+    Console.WriteLine($"Castle holdings:");
+    foreach (var (r, n) in castle.Holdings) Console.WriteLine($"  {r}: {n}");
 
-    var mover = sim.World.Units[1];
-    Console.WriteLine($"Unit 1 final position: {mover.Position.X},{mover.Position.Y}");
-    var builder = sim.World.Units[2];
-    Console.WriteLine($"Unit 2 (builder):      activity={builder.Activity}");
+    var siteTile = new TileCoord(3, 3);
+    if (sim.World.Structures.TryGetValue(siteTile, out var built) && built is Extractor ext)
+    {
+        Console.WriteLine($"Structure @ 3,3:       {ext.Kind}");
+        Console.WriteLine($"  Workers:             [{string.Join(",", ext.Workers)}]");
+        Console.WriteLine($"  Buffer / cap:        {ext.Buffer} / {ext.Spec.BufferCap}");
+        Console.WriteLine($"  TickArmed:           {ext.TickArmed}");
+        Console.WriteLine($"  LastProductionTick:  {ext.LastProductionTick}");
+    }
+
+    Console.WriteLine($"Units (id: role, position, activity):");
+    foreach (var (id, u) in sim.World.Units)
+        Console.WriteLine($"  {id}: {u.Role}, {u.Position.X},{u.Position.Y}, {u.Activity}");
 
     var rejects = sim.ResolvedLog.Count(e => e.Outcome.IsRejected);
     Console.WriteLine($"Rejected events:       {rejects}");
@@ -91,10 +105,10 @@ static void Print(string label, Simulation sim)
     Console.WriteLine();
 }
 
-var first = BuildScenario();
+var first = RunScenario();
 Print("Run 1", first);
 
-var second = BuildScenario();
+var second = RunScenario();
 Print("Run 2 (identical intents)", second);
 
 if (Snapshot.Hash(first) != Snapshot.Hash(second))
@@ -111,5 +125,5 @@ if (Snapshot.Hash(first) != Snapshot.Hash(restored))
     Environment.Exit(1);
 }
 
-Console.WriteLine("OK: identical intent log produced identical final state.");
+Console.WriteLine("OK: identical scenario produced identical final state.");
 Console.WriteLine($"OK: serialized snapshot ({bytes.Length} bytes) restored to identical state.");

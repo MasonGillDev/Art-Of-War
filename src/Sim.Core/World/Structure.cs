@@ -101,6 +101,23 @@ public sealed class Extractor : Structure
 
     public int FreeBuffer() => Math.Max(0, Spec.BufferCap - Buffer);
     public bool BufferFull() => Buffer >= Spec.BufferCap;
+
+    // Centralizes the production re-arm rule so it lives in one place. Called
+    // by AssignWorkersIntent (worker count crossed 0→1+) and, in Phase E, by
+    // haul-pickup (free buffer space appeared).
+    //
+    // Idempotent: if already armed or conditions aren't met, does nothing.
+    // Lives in Sim.Core.World; consumes Sim.Core.Logistics — that's a tiny
+    // namespace coupling we accept for the convenience of one source of truth.
+    internal void ArmIfDormant(Simulation sim)
+    {
+        if (TickArmed) return;
+        if (Workers.Count == 0) return;
+        if (BufferFull()) return;
+        TickArmed = true;
+        sim.Schedule(sim.Now + Spec.ProductionPeriodTicks,
+            new ProductionTickEvent(At));
+    }
 }
 
 // A construction-in-progress. Three life stages:
