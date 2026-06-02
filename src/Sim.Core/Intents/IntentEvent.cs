@@ -7,6 +7,6 @@ public sealed class IntentEvent : ScheduledEvent
     public Intent Intent { get; }
     public IntentEvent(Intent intent) { Intent = intent; }
 
-    public override void Apply(Simulation sim) => Intent.Resolve(sim);
+    public override void Apply(Simulation sim) => Outcome = Intent.Resolve(sim);
     public override string Describe() => $"Intent[{Intent.Describe()}]";
 }

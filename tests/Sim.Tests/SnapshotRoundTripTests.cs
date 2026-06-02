@@ -42,12 +42,15 @@ public class SnapshotRoundTripTests
         camp.LastProductionTick = 84;
         camp.TickArmed = true;
 
-        // ConstructionSite, paused mid-build, partially delivered.
+        // ConstructionSite, paused mid-build, partially delivered. ScheduledCompletion
+        // and LastActiveAtTick are null because it's PAUSED — exactly the state
+        // pause/resume produces.
         var site = world.AddStructure(new ConstructionSite(new TileCoord(4, 3), StructureKind.Farm));
         site.Deposit(Resource.Wood, 4);
         site.ProgressTicks = 17;
         site.BuildPaused = true;
-        site.TickArmed = false;
+        site.LastActiveAtTick = null;
+        site.ScheduledCompletion = null;
 
         // Units in a mix of states. Build them in non-sorted order to make
         // sure canonical ordering is doing the work.

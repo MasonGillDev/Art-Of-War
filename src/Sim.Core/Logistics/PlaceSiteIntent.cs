@@ -1,0 +1,51 @@
+namespace Sim.Core.Logistics;
+
+// Places a ConstructionSite on a tile so materials can be hauled in and
+// builders can be assigned. Does NOT consume resources or start construction
+// — see AssignBuildersIntent and BuildCompleteEvent for the rest of the chain.
+//
+// Rejection cases (per docs/intent-validation.md, every check re-runs at
+// resolution time, mutates nothing on failure):
+//   * Kind is not player-buildable (Castle / ConstructionSite / Tower).
+//   * Tile out of bounds.
+//   * Tile already has a structure on it.
+//   * Tile's biome doesn't match the kind's RequiredBiome (unless the kind
+//     has no biome requirement, e.g. Stockpile).
+public sealed class PlaceSiteIntent : Intent
+{
+    public TileCoord Tile { get; }
+    public StructureKind Kind { get; }
+
+    public PlaceSiteIntent(TileCoord tile, StructureKind kind)
+    {
+        Tile = tile;
+        Kind = kind;
+    }
+
+    public override IntentOutcome Resolve(Simulation sim)
+    {
+        var spec = StructureCatalog.Spec(Kind);
+        if (!spec.IsPlayerBuildable)
+            return IntentOutcome.Reject($"{Kind} is not player-buildable");
+
+        if (!sim.World.Grid.InBounds(Tile))
+            return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} out of bounds");
+
+        if (sim.World.Structures.ContainsKey(Tile))
+            return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} already has a structure");
+
+        if (spec.RequiredBiome != Biome.None)
+        {
+            var biome = sim.World.Grid.BiomeAt(Tile);
+            if (biome != spec.RequiredBiome)
+                return IntentOutcome.Reject(
+                    $"{Kind} requires {spec.RequiredBiome} but tile is {biome}");
+        }
+
+        sim.World.AddStructure(new ConstructionSite(Tile, Kind));
+        return IntentOutcome.Applied;
+    }
+
+    public override string Describe() =>
+        $"PlaceSite(kind={Kind} @ {Tile.X},{Tile.Y})";
+}

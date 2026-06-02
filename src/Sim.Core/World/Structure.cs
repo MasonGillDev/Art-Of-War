@@ -103,9 +103,26 @@ public sealed class Extractor : Structure
     public bool BufferFull() => Buffer >= Spec.BufferCap;
 }
 
-// Accepts deposits until requirements met + builder count present, then
-// progresses through `BuildDurationTicks`. Pauses if builder count drops below
-// requirement mid-build; resumes when it returns.
+// A construction-in-progress. Three life stages:
+//
+//   PENDING: site placed, materials/builders incomplete.
+//     LastActiveAtTick == null, BuildPaused == false, ProgressTicks == 0.
+//
+//   ACTIVE: prereqs met, a BuildCompleteEvent is scheduled for
+//     ScheduledCompletion. ProgressTicks holds work done in *prior* active
+//     runs; live progress is implicit (Now - LastActiveAtTick).
+//     LastActiveAtTick == sim.Now-when-started, BuildPaused == false,
+//     ScheduledCompletion != null.
+//
+//   PAUSED: prereqs were broken mid-build. The scheduled BuildCompleteEvent
+//     still sits in the queue but will fence out on fire (its At !=
+//     ScheduledCompletion, which is null). ProgressTicks holds all work done
+//     across active runs.
+//     LastActiveAtTick == null, BuildPaused == true,
+//     ScheduledCompletion == null.
+//
+// Pause/resume works without dequeuing because BuildCompleteEvent revalidates
+// on fire — the "fencing token" pattern. ScheduledCompletion is the token.
 public sealed class ConstructionSite : Structure
 {
     public override StructureKind Kind => StructureKind.ConstructionSite;
@@ -115,11 +132,12 @@ public sealed class ConstructionSite : Structure
     public int BuildDurationTicks { get; }
     public int RequiredBuilderCount { get; }
 
-    // Progress accumulated while the build was active. Capped at BuildDurationTicks.
+    // Accumulated build ticks from prior active runs. When ACTIVE, live
+    // delta (Now - LastActiveAtTick) is on top of this.
     public long ProgressTicks { get; set; }
     public bool BuildPaused { get; set; }
-    // Mirrors Extractor.TickArmed semantics — see comment there.
-    public bool TickArmed { get; set; }
+    public long? LastActiveAtTick { get; set; }
+    public long? ScheduledCompletion { get; set; }
 
     public ConstructionSite(TileCoord at, StructureKind targetKind)
         : base(at)
@@ -133,6 +151,8 @@ public sealed class ConstructionSite : Structure
         BuildDurationTicks = spec.BuildDurationTicks;
         RequiredBuilderCount = spec.RequiredBuilderCount;
     }
+
+    // ---- material accounting ----
 
     public int Outstanding(Resource r)
     {
@@ -160,6 +180,52 @@ public sealed class ConstructionSite : Structure
         Delivered.TryGetValue(r, out var current);
         Delivered[r] = current + accepted;
         return accepted;
+    }
+
+    // ---- lifecycle / pause-resume ----
+
+    // Walks units on this site's tile, counts those Building this exact site.
+    public int BuildersPresent(GameWorld world)
+    {
+        var count = 0;
+        foreach (var u in world.Units.Values)
+        {
+            if (u.Position != At) continue;
+            if (u.Activity != World.Activity.Building) continue;
+            if (u.Assignment != At) continue;
+            count++;
+        }
+        return count;
+    }
+
+    public bool ConditionsMet(GameWorld world) =>
+        MaterialsMet() && BuildersPresent(world) >= RequiredBuilderCount;
+
+    public bool IsActive => LastActiveAtTick is not null;
+
+    // Transition PENDING (or PAUSED) → ACTIVE. Call only when conditions are
+    // met. Schedules the BuildCompleteEvent at the projected finish tick.
+    public void StartOrResume(Simulation sim)
+    {
+        if (IsActive) return; // already running; idempotent
+        var remaining = BuildDurationTicks - ProgressTicks;
+        if (remaining < 0) remaining = 0; // safety; means we'd complete immediately
+        LastActiveAtTick = sim.Now;
+        BuildPaused = false;
+        ScheduledCompletion = sim.Now + remaining;
+        sim.Schedule(ScheduledCompletion.Value, new BuildCompleteEvent(At));
+    }
+
+    // Transition ACTIVE → PAUSED. Banks the live progress, clears the fencing
+    // token; any pre-scheduled BuildCompleteEvent now stales out on fire.
+    public void Pause(long now)
+    {
+        if (!IsActive) return;
+        ProgressTicks += now - LastActiveAtTick!.Value;
+        if (ProgressTicks > BuildDurationTicks) ProgressTicks = BuildDurationTicks;
+        LastActiveAtTick = null;
+        ScheduledCompletion = null;
+        BuildPaused = true;
     }
 }
 

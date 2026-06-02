@@ -266,7 +266,8 @@ public static class Snapshot
         bw.Write(c.RequiredBuilderCount);
         bw.Write(c.ProgressTicks);
         bw.Write(c.BuildPaused);
-        bw.Write(c.TickArmed);
+        WriteNullableLong(bw, c.LastActiveAtTick);
+        WriteNullableLong(bw, c.ScheduledCompletion);
     }
 
     private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at)
@@ -297,7 +298,17 @@ public static class Snapshot
                 $"(dur={c.BuildDurationTicks}, builders={c.RequiredBuilderCount}).");
         c.ProgressTicks = br.ReadInt64();
         c.BuildPaused = br.ReadBoolean();
-        c.TickArmed = br.ReadBoolean();
+        c.LastActiveAtTick = ReadNullableLong(br);
+        c.ScheduledCompletion = ReadNullableLong(br);
         return c;
     }
+
+    private static void WriteNullableLong(BinaryWriter bw, long? value)
+    {
+        if (value is long v) { bw.Write((byte)1); bw.Write(v); }
+        else { bw.Write((byte)0); }
+    }
+
+    private static long? ReadNullableLong(BinaryReader br) =>
+        br.ReadByte() == 1 ? br.ReadInt64() : null;
 }

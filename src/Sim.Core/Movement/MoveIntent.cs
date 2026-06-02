@@ -11,10 +11,14 @@ public sealed class MoveIntent : Intent
         Destination = destination;
     }
 
-    public override void Resolve(Simulation sim)
+    public override IntentOutcome Resolve(Simulation sim)
     {
-        if (!sim.World.Units.TryGetValue(UnitId, out var unit)) return;
+        if (!sim.World.Units.TryGetValue(UnitId, out var unit))
+            return IntentOutcome.Reject($"unit {UnitId} does not exist");
+        if (!sim.World.Grid.InBounds(Destination))
+            return IntentOutcome.Reject($"destination {Destination.X},{Destination.Y} out of bounds");
         ScheduleNextStep(sim, unit, Destination);
+        return IntentOutcome.Applied;
     }
 
     // Shared by MoveIntent.Resolve and MoveArrivalEvent.Apply: re-path from the
