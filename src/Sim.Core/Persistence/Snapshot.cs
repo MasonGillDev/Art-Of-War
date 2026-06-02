@@ -1,0 +1,303 @@
+using System.Security.Cryptography;
+
+namespace Sim.Core.Persistence;
+
+// Canonical serialization of sim state.
+//
+// Hash(sim)          → SHA-256 over canonical bytes. Equality test for "did
+//                      two runs end in the same state?"
+// Serialize(sim)     → the bytes themselves. Used to round-trip state in
+//                      tests (and, later, by the persistence milestone).
+// Restore(bytes,seed)→ rebuilds a Simulation from those bytes.
+//
+// "Canonical" means: every collection iterated in a deterministic order
+// (tiles in y-then-x, units by id, structures by (y,x), holdings by Resource
+// enum value). Anything that touches a Dictionary's natural iteration order is
+// a bug here.
+//
+// No format-version byte yet — the persistence milestone adds one when restore
+// needs to survive across released builds. Until then a format change = all
+// in-memory snapshots invalidated, which is fine.
+public static class Snapshot
+{
+    private const uint Magic = 0xA0FA0FA0; // "Art of War"
+
+    public static string Hash(Simulation sim)
+    {
+        var bytes = Serialize(sim);
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
+    public static byte[] Serialize(Simulation sim)
+    {
+        using var ms = new MemoryStream();
+        using (var bw = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+        {
+            bw.Write(Magic);
+            WriteClocks(bw, sim);
+            WriteGrid(bw, sim.World.Grid);
+            WriteUnits(bw, sim.World);
+            WriteStructures(bw, sim.World);
+        }
+        return ms.ToArray();
+    }
+
+    public static Simulation Restore(byte[] bytes, ulong seed)
+    {
+        using var ms = new MemoryStream(bytes, writable: false);
+        using var br = new BinaryReader(ms, System.Text.Encoding.UTF8);
+
+        var magic = br.ReadUInt32();
+        if (magic != Magic) throw new InvalidDataException("Snapshot magic mismatch.");
+
+        var (now, rngState, nextSeq) = ReadClocks(br);
+        var grid = ReadGrid(br);
+        var world = new GameWorld(grid);
+        ReadUnits(br, world);
+        ReadStructures(br, world);
+
+        var sim = new Simulation(world, seed);
+        sim.Rng.SetState(rngState);
+        sim.RestoreClocks(now, nextSeq);
+        return sim;
+    }
+
+    // ----- clocks --------------------------------------------------------
+
+    private static void WriteClocks(BinaryWriter bw, Simulation sim)
+    {
+        bw.Write(sim.Now);
+        bw.Write(sim.Rng.State);
+        bw.Write(sim.NextSeq);
+    }
+
+    private static (long now, ulong rng, long nextSeq) ReadClocks(BinaryReader br)
+    {
+        var now = br.ReadInt64();
+        var rng = br.ReadUInt64();
+        var nextSeq = br.ReadInt64();
+        return (now, rng, nextSeq);
+    }
+
+    // ----- grid ----------------------------------------------------------
+
+    private static void WriteGrid(BinaryWriter bw, TileGrid grid)
+    {
+        bw.Write(grid.Width);
+        bw.Write(grid.Height);
+        for (var y = 0; y < grid.Height; y++)
+            for (var x = 0; x < grid.Width; x++)
+                bw.Write((byte)grid.BiomeAt(new TileCoord(x, y)));
+    }
+
+    private static TileGrid ReadGrid(BinaryReader br)
+    {
+        var w = br.ReadInt32();
+        var h = br.ReadInt32();
+        var grid = new TileGrid(w, h, Biome.None);
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+                grid.SetBiome(new TileCoord(x, y), (Biome)br.ReadByte());
+        return grid;
+    }
+
+    // ----- units (id-sorted) --------------------------------------------
+
+    private static void WriteUnits(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.Units.Count);
+        foreach (var (id, u) in world.Units) // SortedDictionary → id order
+        {
+            bw.Write(id);
+            bw.Write(u.Position.X);
+            bw.Write(u.Position.Y);
+            bw.Write((byte)u.Role);
+            bw.Write(u.CargoCapacity);
+            bw.Write((byte)u.Activity);
+            if (u.Assignment is TileCoord a)
+            {
+                bw.Write((byte)1);
+                bw.Write(a.X);
+                bw.Write(a.Y);
+            }
+            else
+            {
+                bw.Write((byte)0);
+            }
+            bw.Write((byte)u.CargoResource);
+            bw.Write(u.CargoAmount);
+        }
+    }
+
+    private static void ReadUnits(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var id = br.ReadInt32();
+            var pos = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var role = (UnitRole)br.ReadByte();
+            var capacity = br.ReadInt32();
+            var activity = (Activity)br.ReadByte();
+            TileCoord? assignment = br.ReadByte() == 1
+                ? new TileCoord(br.ReadInt32(), br.ReadInt32())
+                : null;
+            var cargoR = (Resource)br.ReadByte();
+            var cargoA = br.ReadInt32();
+
+            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity };
+            u.CargoResource = cargoR;
+            u.CargoAmount = cargoA;
+            if (activity != Activity.Idle)
+            {
+                // Idle is the default; only call TrySet if we actually move off it.
+                if (!u.TrySetActivity(activity, assignment))
+                    throw new InvalidDataException(
+                        $"Restore: illegal activity transition Idle → {activity} for unit {id}.");
+            }
+            world.AddUnit(u);
+        }
+    }
+
+    // ----- structures (by y,x then kind dispatch) ------------------------
+
+    private static IEnumerable<Structure> CanonicalStructures(GameWorld world) =>
+        world.Structures.Values.OrderBy(s => s.At.Y).ThenBy(s => s.At.X);
+
+    private static void WriteStructures(BinaryWriter bw, GameWorld world)
+    {
+        var list = CanonicalStructures(world).ToList();
+        bw.Write(list.Count);
+        foreach (var s in list)
+        {
+            bw.Write(s.At.X);
+            bw.Write(s.At.Y);
+            bw.Write((byte)s.Kind);
+            switch (s)
+            {
+                case StorageStructure ss: WriteStorage(bw, ss); break;
+                case Extractor e:         WriteExtractor(bw, e); break;
+                case ConstructionSite c:  WriteConstruction(bw, c); break;
+                case Tower:               /* no fields */ break;
+                default:
+                    throw new InvalidOperationException($"No serializer for {s.GetType().Name}");
+            }
+        }
+    }
+
+    private static void ReadStructures(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var at = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var kind = (StructureKind)br.ReadByte();
+            Structure s = kind switch
+            {
+                StructureKind.Castle           => ReadStorage(br, new Castle(at)),
+                StructureKind.Stockpile        => ReadStorage(br, new Stockpile(at)),
+                StructureKind.LumberCamp
+                  or StructureKind.Quarry
+                  or StructureKind.Mine
+                  or StructureKind.Farm        => ReadExtractor(br, new Extractor(kind, at)),
+                StructureKind.ConstructionSite => ReadConstruction(br, at),
+                StructureKind.Tower            => new Tower(at),
+                _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
+            };
+            world.AddStructure(s);
+        }
+    }
+
+    private static void WriteStorage(BinaryWriter bw, StorageStructure s)
+    {
+        bw.Write(s.Capacity);
+        bw.Write(s.Holdings.Count);
+        foreach (var (r, n) in s.Holdings) // SortedDictionary → Resource enum order
+        {
+            bw.Write((byte)r);
+            bw.Write(n);
+        }
+    }
+
+    private static T ReadStorage<T>(BinaryReader br, T s) where T : StorageStructure
+    {
+        var capacity = br.ReadInt32();
+        if (capacity != s.Capacity)
+            throw new InvalidDataException(
+                $"{s.Kind} capacity drift: snapshot={capacity}, catalog={s.Capacity}. " +
+                "Catalog values must remain stable or the snapshot needs migration.");
+        var n = br.ReadInt32();
+        for (var i = 0; i < n; i++)
+        {
+            var r = (Resource)br.ReadByte();
+            var amount = br.ReadInt32();
+            s.Holdings[r] = amount;
+        }
+        return s;
+    }
+
+    private static void WriteExtractor(BinaryWriter bw, Extractor e)
+    {
+        bw.Write(e.Workers.Count);
+        foreach (var w in e.Workers) bw.Write(w); // SortedSet → ascending
+        bw.Write(e.Buffer);
+        bw.Write(e.LastProductionTick);
+        bw.Write(e.TickArmed);
+    }
+
+    private static Extractor ReadExtractor(BinaryReader br, Extractor e)
+    {
+        var n = br.ReadInt32();
+        for (var i = 0; i < n; i++) e.Workers.Add(br.ReadInt32());
+        e.Buffer = br.ReadInt32();
+        e.LastProductionTick = br.ReadInt64();
+        e.TickArmed = br.ReadBoolean();
+        return e;
+    }
+
+    private static void WriteConstruction(BinaryWriter bw, ConstructionSite c)
+    {
+        bw.Write((byte)c.TargetKind);
+        bw.Write(c.Required.Count);
+        foreach (var (r, n) in c.Required) { bw.Write((byte)r); bw.Write(n); }
+        bw.Write(c.Delivered.Count);
+        foreach (var (r, n) in c.Delivered) { bw.Write((byte)r); bw.Write(n); }
+        bw.Write(c.BuildDurationTicks);
+        bw.Write(c.RequiredBuilderCount);
+        bw.Write(c.ProgressTicks);
+        bw.Write(c.BuildPaused);
+        bw.Write(c.TickArmed);
+    }
+
+    private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at)
+    {
+        var targetKind = (StructureKind)br.ReadByte();
+        var c = new ConstructionSite(at, targetKind);
+        c.Required.Clear();
+        var req = br.ReadInt32();
+        for (var i = 0; i < req; i++)
+        {
+            var r = (Resource)br.ReadByte();
+            var n = br.ReadInt32();
+            c.Required[r] = n;
+        }
+        var del = br.ReadInt32();
+        for (var i = 0; i < del; i++)
+        {
+            var r = (Resource)br.ReadByte();
+            var n = br.ReadInt32();
+            c.Delivered[r] = n;
+        }
+        var buildDur = br.ReadInt32();
+        var reqBuilders = br.ReadInt32();
+        if (buildDur != c.BuildDurationTicks || reqBuilders != c.RequiredBuilderCount)
+            throw new InvalidDataException(
+                $"ConstructionSite spec drift for {targetKind}: snapshot " +
+                $"(dur={buildDur}, builders={reqBuilders}) vs catalog " +
+                $"(dur={c.BuildDurationTicks}, builders={c.RequiredBuilderCount}).");
+        c.ProgressTicks = br.ReadInt64();
+        c.BuildPaused = br.ReadBoolean();
+        c.TickArmed = br.ReadBoolean();
+        return c;
+    }
+}
