@@ -62,6 +62,14 @@ public sealed class Unit
     // cleared on completion. See HaulPlan.cs.
     public HaulPlan? HaulPlan { get; set; }
 
+    // ---- M5 group membership ----
+    // Set when this unit joins a Group via FormGroupIntent; cleared on
+    // DisbandGroupIntent (or future Split/Merge). When non-null, solo
+    // intents (MoveIntent, HaulIntent, Assign*) reject this unit — the
+    // group's collective intents drive it instead. See Groups/Group.cs
+    // and docs/architecture.md §8 (M5 entry).
+    public int? GroupId { get; set; }
+
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 
     // The single mutation path for Activity. Intents call this rather than

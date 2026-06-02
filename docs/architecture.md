@@ -334,28 +334,31 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | M2 | Emergent roads (traffic → condition → cost) + move-on-busy + epoch fencing | ✅ |
 | M3 | Fog of war (owner + explored + visible + player view) + Tower | ✅ |
 | **M4 (A+B)** | **Mid-flight gap closed (anchors + RegenerateQueue + version header)** | **🟡 paused — C–F remain** |
+| **M5** | **Group movement (Form / MoveGroup / Disband; solo-intent rejection on grouped units)** | **✅** |
 
 ### Next up — finishing M4
 
 Phases C–F per `docs/m4-status.md`. SQLite-backed durable intent log + snapshot store + recovery orchestrator + crash-safety + persistent host. The architecture's done; this is implementation + tests.
 
-### After M4 — the big systems
+### After M5 — the big systems
 
-These are the milestones the design doc (`persistent-rts-design.md`) calls out and that the engine is now ready for.
+These are the milestones the design doc (`persistent-rts-design.md`) calls out and that the engine is now ready for. (M5 was originally slotted as Combat; group movement landed first because the abstraction underpins both caravans and combat formations.)
 
-**M5 — Combat.** Arrival-based engagement (§9 of design). Three-state diplomacy (Enemy / Neutral / Ally, §10) with telegraphed escalation. Same-tick combat fairness. Mid-haul cargo resolution on unit death. **Needs persistence solid** (which is why M4 came first); combat explodes in-flight state.
+**M5 Phase 2 — Split / Merge / Dispatch.** Atomic group restructuring intents. Cleanest once Form is exercised in practice — the design questions ("what if a group is mid-move when split?") become concrete.
 
-**M6 — Trade.** Async trade posts (§11): list / deposit / accept / withdraw via menu UI but with goods physically moving in the sim. Trade composes with roads, raids (M5), and diplomacy.
+**M6 — Combat.** Arrival-based engagement (§9 of design). Three-state diplomacy (Enemy / Neutral / Ally, §10) with telegraphed escalation. Same-tick combat fairness. Mid-haul cargo resolution on unit death. Combat uses Groups as the formation primitive. **Needs persistence solid** (which is why M4 came first); combat explodes in-flight state.
 
-**M7 — Roads phase-2.** Per-edge condition (if fortifications need route granularity), remembered roads at last-seen condition for explored-but-unseen tiles (fog × roads), condition-band-stepped decay if "stone holds longer" is gameplay-visible.
+**M7 — Trade.** Async trade posts (§11): list / deposit / accept / withdraw via menu UI but with goods physically moving in the sim. Caravans (multi-unit haulers built on the Group primitive) become natural here. Trade composes with roads, raids (M6), and diplomacy.
 
-**M8 — Population & roles.** Citizens are currently spawned at genesis. M8 adds: training units into roles, population growth tied to Food, role specialization beyond the M1 set.
+**M8 — Roads phase-2.** Per-edge condition (if fortifications need route granularity), remembered roads at last-seen condition for explored-but-unseen tiles (fog × roads), condition-band-stepped decay if "stone holds longer" is gameplay-visible.
 
-**M9 — Clients & networking.** The current `Sim.Host` is a one-shot smoke driver. M9 turns it into a real server: WebSocket / gRPC intent submission, per-player `BuildPlayerView` over the wire, push notifications (§12). This is what the M3 `BuildPlayerView` design exists to feed.
+**M9 — Population & roles.** Citizens are currently spawned at genesis. M9 adds: training units into roles, population growth tied to Food, role specialization beyond the M1 set.
 
-**M10 — World generation.** Bigger than 10×10. Procedural biome distribution, named locations, replayable seeds. Genesis becomes a procedural pipeline rather than a hand-authored spec.
+**M10 — Clients & networking.** The current `Sim.Host` is a one-shot smoke driver. M10 turns it into a real server: WebSocket / gRPC intent submission, per-player `BuildPlayerView` over the wire, push notifications (§12). This is what the M3 `BuildPlayerView` design exists to feed.
 
-(Order is suggested, not locked. M9 can come earlier if the user wants to drive the game from a real client. M10 can come whenever the world feels too small.)
+**M11 — World generation.** Bigger than 10×10. Procedural biome distribution, named locations, replayable seeds. Genesis becomes a procedural pipeline rather than a hand-authored spec.
+
+(Order is suggested, not locked. M10 can come earlier if the user wants to drive the game from a real client. M11 can come whenever the world feels too small.)
 
 ### Long-term
 

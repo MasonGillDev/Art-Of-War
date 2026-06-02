@@ -1,9 +1,11 @@
 using Sim.Core.Engine;
+using Sim.Core.Groups;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
 using Sim.Core.Persistence;
 using Sim.Core.Roads;
 using Sim.Core.World;
+using Sim.Core.WorldGen;
 
 // Phase-D smoke: M0 walk + Phase-C build + Phase-D production.
 //
@@ -160,32 +162,224 @@ static void Print(string label, Simulation sim)
     Console.WriteLine();
 }
 
-var first = RunScenario(log: Console.WriteLine);
-Print("Run 1", first);
+// Default mode: hand-authored 10x10 smoke (the cross-commit regression check).
+// Pass `--generate` for the procedural-world demo (does not replace the
+// regression smoke — generated maps are tuneable, so their hash isn't a
+// stable regression target).
+var generate = args.Length > 0 && args[0] == "--generate";
+var groupsDemo = args.Length > 0 && args[0] == "--groups";
 
-var second = RunScenario();
-Print("Run 2 (identical intents)", second);
-
-if (Snapshot.Hash(first) != Snapshot.Hash(second))
+if (groupsDemo)
 {
-    Console.Error.WriteLine("DETERMINISM FAILURE: snapshot hashes diverged.");
-    Environment.Exit(1);
+    GroupDemo.Run();
 }
-
-var bytes = Snapshot.Serialize(first);
-var restored = Snapshot.Restore(bytes, seed: 0xC0FFEE);
-if (Snapshot.Hash(first) != Snapshot.Hash(restored))
+else if (!generate)
 {
-    Console.Error.WriteLine("ROUND-TRIP FAILURE: restored snapshot does not match original.");
-    Environment.Exit(1);
-}
+    var first = RunScenario(log: Console.WriteLine);
+    Print("Run 1", first);
 
-Console.WriteLine("OK: identical scenario produced identical final state.");
-Console.WriteLine($"OK: serialized snapshot ({bytes.Length} bytes) restored to identical state.");
+    var second = RunScenario();
+    Print("Run 2 (identical intents)", second);
+
+    if (Snapshot.Hash(first) != Snapshot.Hash(second))
+    {
+        Console.Error.WriteLine("DETERMINISM FAILURE: snapshot hashes diverged.");
+        Environment.Exit(1);
+    }
+
+    var bytes = Snapshot.Serialize(first);
+    var restored = Snapshot.Restore(bytes, seed: 0xC0FFEE);
+    if (Snapshot.Hash(first) != Snapshot.Hash(restored))
+    {
+        Console.Error.WriteLine("ROUND-TRIP FAILURE: restored snapshot does not match original.");
+        Environment.Exit(1);
+    }
+
+    Console.WriteLine("OK: identical scenario produced identical final state.");
+    Console.WriteLine($"OK: serialized snapshot ({bytes.Length} bytes) restored to identical state.");
+}
+else
+{
+    GeneratedDemo.Run();
+}
 
 // Sentinel event for advancing the sim clock without state mutation.
 // Used by the host smoke to observe road decay without further traffic.
 sealed class NoOpEvent : ScheduledEvent
 {
     public override void Apply(Simulation sim) { }
+}
+
+// M5 — Group lifecycle demo. Two scattered builders Form at a rendezvous,
+// MoveGroup to a distant tile, Disband. Prints state transitions, asserts
+// twin-run hash equality and snapshot round-trip on the final state.
+static class GroupDemo
+{
+    public static void Run()
+    {
+        Simulation Build()
+        {
+            var grid = new TileGrid(12, 12, Biome.Grassland);
+            var world = new GameWorld(grid);
+            world.Players[0] = new Player(0);
+            world.AddStructure(new Castle(new TileCoord(6, 6)) { OwnerId = 0 });
+            world.AddUnit(new Unit(1, new TileCoord(1, 1)) { Role = UnitRole.Builder });
+            world.AddUnit(new Unit(2, new TileCoord(10, 10)) { Role = UnitRole.Builder });
+            return new Simulation(world, seed: 0xC0DE);
+        }
+
+        var sim = Build();
+        var rendezvous = new TileCoord(6, 1);
+
+        Console.WriteLine("--- Group Demo ---");
+        Console.WriteLine($"Unit 1 starts at {sim.World.Units[1].Position.X},{sim.World.Units[1].Position.Y}");
+        Console.WriteLine($"Unit 2 starts at {sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
+        Console.WriteLine($"FormGroup → rendezvous {rendezvous.X},{rendezvous.Y}");
+
+        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
+        sim.Run(until: 0);
+        Console.WriteLine($"  After resolve: state={sim.World.Groups[1].State}, pending={sim.World.Groups[1].PendingArrivals}");
+
+        sim.Run();
+        Console.WriteLine($"  After rendezvous walks: state={sim.World.Groups[1].State}, position={sim.World.Groups[1].Position.X},{sim.World.Groups[1].Position.Y}");
+
+        var destination = new TileCoord(6, 10);
+        Console.WriteLine($"MoveGroup → {destination.X},{destination.Y}");
+        sim.SubmitIntent(sim.Now, new MoveGroupIntent(1, destination));
+        sim.Run();
+        Console.WriteLine($"  After move: state={sim.World.Groups[1].State}, position={sim.World.Groups[1].Position.X},{sim.World.Groups[1].Position.Y}");
+        Console.WriteLine($"  Member positions: U1={sim.World.Units[1].Position.X},{sim.World.Units[1].Position.Y}; U2={sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
+
+        Console.WriteLine("DisbandGroup");
+        sim.SubmitIntent(sim.Now, new DisbandGroupIntent(1));
+        sim.Run();
+        Console.WriteLine($"  Group exists? {sim.World.Groups.ContainsKey(1)}");
+        Console.WriteLine($"  U1.GroupId={sim.World.Units[1].GroupId?.ToString() ?? "null"}; U2.GroupId={sim.World.Units[2].GroupId?.ToString() ?? "null"}");
+        Console.WriteLine($"Final hash: {Snapshot.Hash(sim)}");
+
+        // Twin-run check.
+        var sim2 = Build();
+        sim2.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
+        sim2.Run();
+        sim2.SubmitIntent(sim2.Now, new MoveGroupIntent(1, destination));
+        sim2.Run();
+        sim2.SubmitIntent(sim2.Now, new DisbandGroupIntent(1));
+        sim2.Run();
+
+        if (Snapshot.Hash(sim) != Snapshot.Hash(sim2))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE in group demo");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: twin-run hashes match");
+
+        var bytes = Snapshot.Serialize(sim);
+        var restored = Snapshot.Restore(bytes, seed: 0xC0DE);
+        if (Snapshot.Hash(sim) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE in group demo");
+            Environment.Exit(1);
+        }
+        Console.WriteLine($"OK: snapshot round-trips ({bytes.Length} bytes)");
+    }
+}
+
+// Generated-world demo. Runs the procedural pipeline, prints the biome map
+// + chosen start, walks the builder somewhere reachable, asserts the
+// twin-run + snapshot round-trip both still hold on the generated genesis.
+static class GeneratedDemo
+{
+    public static void Run()
+    {
+        var cfg = new GenerationConfig { Seed = 7 };
+        Console.WriteLine($"--- Generated continent (seed={cfg.Seed}, {cfg.Width}x{cfg.Height}) ---");
+        var map = MapGenerator.Build(cfg);
+        Console.WriteLine($"Castle start: {map.Start.X},{map.Start.Y}");
+        PrintBiomeMap(map);
+
+        var a = BuildSim(cfg, map);
+        var b = BuildSim(cfg, map);
+        var goal = FindFarReachableTile(map);
+        a.SubmitIntent(0, new MoveIntent(1, goal));
+        b.SubmitIntent(0, new MoveIntent(1, goal));
+        a.Run();
+        b.Run();
+
+        Console.WriteLine();
+        Console.WriteLine($"Both sims ran a walk from {map.Start.X},{map.Start.Y} → {goal.X},{goal.Y}.");
+        Console.WriteLine($"Run A hash: {Snapshot.Hash(a)}");
+        Console.WriteLine($"Run B hash: {Snapshot.Hash(b)}");
+        if (Snapshot.Hash(a) != Snapshot.Hash(b))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE on generated world — generator may be touching replay path.");
+            Environment.Exit(1);
+        }
+
+        var bytes = Snapshot.Serialize(a);
+        var restored = Snapshot.Restore(bytes, seed: 0xCAFE);
+        if (Snapshot.Hash(a) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE on generated world.");
+            Environment.Exit(1);
+        }
+
+        Console.WriteLine($"OK: twin-run match on generated world.");
+        Console.WriteLine($"OK: serialized snapshot ({bytes.Length} bytes) restored to identical state.");
+    }
+
+    private static Simulation BuildSim(GenerationConfig cfg, GeneratedMap map)
+    {
+        var spec = new GenesisSpec
+        {
+            Width = map.Width,
+            Height = map.Height,
+            CastlePosition = map.Start,
+            Biomes = MapGenerator.ToBiomeOverrides(map),
+            StartingHoldings = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 20,
+            },
+            Units = new[]
+            {
+                new UnitSpawn(1, map.Start, UnitRole.Builder),
+            },
+        };
+        var world = Genesis.Build(spec);
+        return new Simulation(world, seed: 0xCAFE);
+    }
+
+    private static TileCoord FindFarReachableTile(GeneratedMap map)
+    {
+        // Just pick the opposite corner that's not Water (cheap enough that
+        // the demo runs in reasonable time). Water IS passable here, so
+        // pathfinding will find a route regardless.
+        for (var y = map.Height - 1; y >= 0; y--)
+            for (var x = map.Width - 1; x >= 0; x--)
+                if (map.Grid[x, y] != Biome.Mountain) // grassland-ish destination
+                    return new TileCoord(x, y);
+        return new TileCoord(map.Width - 1, map.Height - 1);
+    }
+
+    private static void PrintBiomeMap(GeneratedMap map)
+    {
+        var glyphs = new Dictionary<Biome, char>
+        {
+            [Biome.Grassland] = '.',
+            [Biome.Forest]    = 'T',
+            [Biome.Hills]     = 'h',
+            [Biome.Mountain]  = 'M',
+            [Biome.Water]     = '~',
+        };
+        var sb = new System.Text.StringBuilder();
+        for (var y = 0; y < map.Height; y++)
+        {
+            for (var x = 0; x < map.Width; x++)
+            {
+                if (x == map.Start.X && y == map.Start.Y) sb.Append('@');
+                else sb.Append(glyphs.GetValueOrDefault(map.Grid[x, y], '?'));
+            }
+            sb.AppendLine();
+        }
+        Console.Write(sb.ToString());
+    }
 }

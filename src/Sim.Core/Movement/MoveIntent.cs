@@ -15,6 +15,8 @@ public sealed class MoveIntent : Intent
     {
         if (!sim.World.Units.TryGetValue(UnitId, out var unit))
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
+        if (unit.GroupId is not null)
+            return IntentOutcome.Reject($"unit {UnitId} is in group {unit.GroupId}");
         if (!sim.World.Grid.InBounds(Destination))
             return IntentOutcome.Reject($"destination {Destination.X},{Destination.Y} out of bounds");
 

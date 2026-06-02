@@ -40,6 +40,11 @@ public static class RegenerateQueue
                 // Storage / Tower: no in-flight event of their own.
             }
         }
+
+        // Groups in id order. Each contributes at most one queued
+        // GroupArrivalEvent based on its anchor.
+        foreach (var (_, group) in world.Groups)
+            RegenerateGroupMoveAnchor(sim, group);
     }
 
     private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)
@@ -67,5 +72,17 @@ public static class RegenerateQueue
         if (site.ScheduledCompletion is not { } at) return;
         if (site.BuildCompleteSeq is not { } seq) return;
         sim.ScheduleWithSeq(at, seq, new BuildCompleteEvent(site.At));
+    }
+
+    private static void RegenerateGroupMoveAnchor(Simulation sim, Group group)
+    {
+        if (group.NextArrivalTick is not { } at) return;
+        if (group.NextArrivalSeq is not { } seq) return;
+        if (group.PathRemaining is null || group.PathRemaining.Count == 0) return;
+        if (group.PathFinalDest is not { } dest) return;
+
+        var to = group.PathRemaining[0];
+        sim.ScheduleWithSeq(at, seq,
+            new GroupArrivalEvent(group.Id, to, dest, group.MovementEpoch));
     }
 }

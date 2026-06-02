@@ -22,6 +22,12 @@ public sealed class GameWorld
     // more. Minimal for M3 — no factions / economies / win conditions yet.
     public SortedDictionary<int, Player> Players { get; } = new();
 
+    // M5 — Groups owned by a player; members are still individual Units
+    // (referenced by id). Sparse: id 0 means "no group has this id," so
+    // ids start from 1 and increment monotonically across the world's
+    // lifetime. See Sim.Core.Groups for the orchestration.
+    public SortedDictionary<int, Group> Groups { get; } = new();
+
     // Per-player explored-terrain memory (M3 Phase B). Sparse: most players
     // have explored some tiles, not most tiles. HashSet for O(1) inserts;
     // sorted at serialize time.

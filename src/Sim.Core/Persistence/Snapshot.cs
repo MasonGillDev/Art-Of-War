@@ -32,11 +32,14 @@ public static class Snapshot
 {
     private const uint Magic = 0xA0FA0FA0; // "Art of War"
 
-    // M4 Phase B — format version byte. Bumped whenever the serialized layout
-    // changes incompatibly. Restore refuses mismatched versions; the operator
-    // path is snapshot-on-deploy under the producing code's version, then
-    // deploy and restore under the new code (see docs/persistence-model.md).
-    public const int FormatVersion = 1;
+    // Format version byte. Bumped whenever the serialized layout changes
+    // incompatibly. Restore refuses mismatched versions; the operator path
+    // is snapshot-on-deploy under the producing code's version, then deploy
+    // and restore under the new code (see docs/persistence-model.md).
+    //
+    //   1 — M4 in-flight anchors (Unit path + haul + structure Seqs).
+    //   2 — M5 groups (Unit.GroupId + GameWorld.Groups).
+    public const int FormatVersion = 2;
 
     public static string Hash(Simulation sim)
     {
@@ -58,6 +61,7 @@ public static class Snapshot
             WriteStructures(bw, sim.World);
             WriteRoads(bw, sim.World, sim.Now);
             WriteExplored(bw, sim.World);
+            WriteGroups(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -84,6 +88,7 @@ public static class Snapshot
         ReadStructures(br, world);
         ReadRoads(br, world);
         ReadExplored(br, world);
+        ReadGroups(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -186,8 +191,19 @@ public static class Snapshot
             WriteNullableLong(bw, u.NextArrivalSeq);
             // M4: in-flight haul anchor.
             WriteHaulPlan(bw, u.HaulPlan);
+            // M5: group membership tag.
+            WriteNullableInt(bw, u.GroupId);
         }
     }
+
+    private static void WriteNullableInt(BinaryWriter bw, int? value)
+    {
+        if (value is int v) { bw.Write((byte)1); bw.Write(v); }
+        else { bw.Write((byte)0); }
+    }
+
+    private static int? ReadNullableInt(BinaryReader br) =>
+        br.ReadByte() == 1 ? br.ReadInt32() : null;
 
     private static void WritePathRemaining(BinaryWriter bw, List<TileCoord>? path)
     {
@@ -256,15 +272,18 @@ public static class Snapshot
             var nextArrAt = ReadNullableLong(br);
             var nextArrSeq = ReadNullableLong(br);
             var haulPlan = ReadHaulPlan(br);
+            var groupId = ReadNullableInt(br);
 
             var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId };
             u.CargoResource = cargoR;
             u.CargoAmount = cargoA;
+
             u.PathRemaining = pathRem;
             u.PathFinalDest = pathDest;
             u.NextArrivalTick = nextArrAt;
             u.NextArrivalSeq  = nextArrSeq;
             u.HaulPlan = haulPlan;
+            u.GroupId  = groupId;
             if (activity != Activity.Idle)
             {
                 // Idle is the default; only call TrySet if we actually move off it.
@@ -515,6 +534,72 @@ public static class Snapshot
             var condition = br.ReadInt32();
             var lastDecayTick = br.ReadInt64();
             world.Roads[new TileCoord(x, y)] = new RoadState(condition, lastDecayTick);
+        }
+    }
+
+    // ----- groups (id-sorted) -------------------------------------------
+
+    private static void WriteGroups(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.Groups.Count);
+        foreach (var (id, g) in world.Groups)
+        {
+            bw.Write(id);
+            bw.Write(g.OwnerId);
+            bw.Write((byte)g.State);
+            bw.Write(g.Position.X);
+            bw.Write(g.Position.Y);
+            WriteNullableTileCoord(bw, g.RendezvousTile);
+            bw.Write(g.PendingArrivals);
+
+            // Members in ascending order (SortedSet → sorted iteration).
+            bw.Write(g.Members.Count);
+            foreach (var memberId in g.Members) bw.Write(memberId);
+
+            // M4-style in-flight anchor.
+            WritePathRemaining(bw, g.PathRemaining);
+            WriteNullableTileCoord(bw, g.PathFinalDest);
+            WriteNullableLong(bw, g.NextArrivalTick);
+            WriteNullableLong(bw, g.NextArrivalSeq);
+            bw.Write(g.MovementEpoch);
+        }
+    }
+
+    private static void ReadGroups(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var id      = br.ReadInt32();
+            var ownerId = br.ReadInt32();
+            var state   = (GroupState)br.ReadByte();
+            var pos     = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var rendez  = ReadNullableTileCoord(br);
+            var pending = br.ReadInt32();
+
+            var memCount = br.ReadInt32();
+            var memberIds = new int[memCount];
+            for (var m = 0; m < memCount; m++) memberIds[m] = br.ReadInt32();
+
+            var pathRem  = ReadPathRemaining(br);
+            var pathDest = ReadNullableTileCoord(br);
+            var arrTick  = ReadNullableLong(br);
+            var arrSeq   = ReadNullableLong(br);
+            var epoch    = br.ReadByte();
+
+            var g = new Group(id) { OwnerId = ownerId };
+            foreach (var m in memberIds) g.Members.Add(m);
+            g.Position = pos;
+            g.State = state;
+            g.RendezvousTile = rendez;
+            g.PendingArrivals = pending;
+            g.PathRemaining = pathRem;
+            g.PathFinalDest = pathDest;
+            g.NextArrivalTick = arrTick;
+            g.NextArrivalSeq  = arrSeq;
+            g.RestoreMovementEpoch(epoch);
+
+            world.Groups[id] = g;
         }
     }
 }

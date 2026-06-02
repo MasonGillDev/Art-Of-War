@@ -199,6 +199,80 @@ Visibility is computed by iterating the player's vision sources and
 unioning their discs (`sources × r²`). There is no "for each tile,
 check if visible to player P" iteration anywhere.
 
+## Groups addendum (M5)
+
+M5 introduced `Group` as a first-class entity (`GameWorld.Groups`) with
+`FormGroupIntent`, `MoveGroupIntent`, `DisbandGroupIntent`, and the
+`GroupArrivalEvent` for per-hop arrivals. Groups reuse the existing
+fencing-token and M4 anchor patterns.
+
+### Group state has bounded mutation sites
+
+```bash
+grep -rn "world\.Groups\|\.Groups\[" src/Sim.Core/
+```
+
+`world.Groups` is touched in:
+
+| File | Purpose | Verdict |
+|---|---|---|
+| `Persistence/Snapshot.cs` (`WriteGroups` / `ReadGroups`) | Canonical serialization in id order | Allowed — I/O, not event-driven |
+| `Persistence/RegenerateQueue.cs` (`From`) | Per-group `RegenerateGroupMoveAnchor` reads anchor + regen event | Allowed — read-only over current state |
+| `Groups/FormGroupIntent.cs` (`Resolve`) | Creates a new group, sets members' GroupId | Allowed — event-driven |
+| `Groups/MoveGroupIntent.cs` (`Resolve`) | Bumps epoch + sets anchors on existing group | Allowed — event-driven |
+| `Groups/DisbandGroupIntent.cs` (`Resolve`) | Removes group, clears members | Allowed — event-driven |
+| `Groups/GroupArrivalEvent.cs` (`Apply`) | Updates group position, pops PathRemaining, transitions Idle on final arrival | Allowed — event-driven self-mutation |
+| `Movement/MoveArrivalEvent.cs` (`DispatchOnFinalArrival`) | Decrements `Group.PendingArrivals` when a Forming member reaches rendezvous | Allowed — event-driven |
+
+No view path or pure-read mutates `world.Groups`. No global iteration on a
+timer.
+
+### `GroupArrivalEvent` has bounded callers
+
+```bash
+grep -rn "new GroupArrivalEvent" src/Sim.Core/
+```
+
+| File | Site | Verdict |
+|---|---|---|
+| `Groups/MoveGroupIntent.cs` (`ScheduleNextHop`) | Self-reschedule via the per-hop helper | Allowed |
+| `Persistence/RegenerateQueue.cs` (`RegenerateGroupMoveAnchor`) | Recovery-only | Allowed |
+
+`ScheduleNextHop` is called from `MoveGroupIntent.Resolve` (first hop) and
+from `GroupArrivalEvent.Apply` (continuation). The chain is self-driving;
+no other code path constructs `GroupArrivalEvent`.
+
+### `Group.MovementEpoch` has bounded bumpers
+
+`group.BumpEpoch()` is called only from:
+- `MoveGroupIntent.Resolve` (retasking)
+- `DisbandGroupIntent.Resolve` (cancellation)
+
+Stale `GroupArrivalEvent`s self-fence on epoch mismatch, mirroring the
+M2/M4 pattern for `Unit.AssignmentEpoch`.
+
+### Solo intents reject grouped units
+
+Verified by code:
+
+| Intent | Check |
+|---|---|
+| `MoveIntent.Resolve` | `if (unit.GroupId is not null) return Reject(...)` |
+| `HaulIntent.Resolve` | `if (hauler.GroupId is not null) return Reject(...)` |
+| `AssignBuildersIntent.Resolve` | `if (unit.GroupId is not null) continue` (per-id skip) |
+| `AssignWorkersIntent.Resolve` | `if (unit.GroupId is not null) continue` (per-id skip) |
+| `UnassignWorkersIntent` | No check (grouped+Working unreachable by construction) |
+
+### M4 anchor pattern extends
+
+`Group` carries `PathRemaining`, `PathFinalDest`, `NextArrivalTick`,
+`NextArrivalSeq`, and `MovementEpoch`. `RegenerateQueue.From` iterates
+`world.Groups` and rebuilds queued `GroupArrivalEvent`s with their original
+`Seq` via `Simulation.ScheduleWithSeq` — same shape as units. The
+M4 headline contract (mid-flight snapshot+restore = uninterrupted hash)
+extends to groups, proven by
+`GroupMovementTests.MovingGroup_SnapshotMidFlight_RestoreReachesSameHash`.
+
 ## What would break these invariants and require re-running this audit
 
 Re-run the greps above when any of the following lands:
@@ -235,6 +309,15 @@ Re-run the greps above when any of the following lands:
   non-zero radius from `Sight.RadiusFor`) — confirm it shows up in
   `View.VisibleTiles` correctly and reveals into explored on creation
   / movement.
+- **A new Group state or anchor field** — re-run the
+  `MidFlightSnapshotTests` / `GroupMovementTests` mid-flight extension to
+  confirm RegenerateQueue still rebuilds correctly.
+- **A new caller of `new GroupArrivalEvent(...)`** — should be only
+  `ScheduleNextHop` or `RegenerateGroupMoveAnchor`. Anything else needs
+  justification.
+- **A new intent that targets a Unit** — must add the
+  `unit.GroupId is not null` rejection check (consistent with §M5
+  audit).
 
 ## Reference
 

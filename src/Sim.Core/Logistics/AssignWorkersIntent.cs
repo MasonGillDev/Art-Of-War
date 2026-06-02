@@ -38,6 +38,7 @@ public sealed class AssignWorkersIntent : Intent
         {
             if (extractor.Workers.Count >= extractor.Spec.WorkerCap) break; // cap reached
             if (!world.Units.TryGetValue(id, out var unit)) continue;
+            if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
             if (unit.Position != StructureTile) continue;
             if (unit.Activity != Activity.Idle) continue;
             if (!unit.TrySetActivity(Activity.Working, StructureTile)) continue;

@@ -35,6 +35,7 @@ public sealed class AssignBuildersIntent : Intent
         foreach (var id in BuilderIds)
         {
             if (!world.Units.TryGetValue(id, out var unit)) continue;
+            if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
             if (unit.Position != SiteTile) continue;
             if (unit.Role != UnitRole.Builder) continue;
             if (unit.Activity != Activity.Idle) continue;
