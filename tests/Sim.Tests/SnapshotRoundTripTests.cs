@@ -10,6 +10,15 @@ namespace Sim.Tests;
 // through Serialize -> Restore byte-for-byte equivalent.
 //
 // "Byte-for-byte equivalent" is operationalized as: same Snapshot.Hash.
+//
+// Scope note: these all assert on FROZEN states — the ConstructionSite is
+// "paused mid-build" specifically because Pause clears the queued
+// BuildCompleteEvent (the fencing-token pattern from Phase C). That makes
+// it round-trippable. An ACTIVE mid-build / mid-haul / mid-walk state would
+// NOT round-trip today — the queued events are dropped on restore. See
+// docs/persistence-model.md, section "The in-flight correctness gap." This
+// test suite covers what is fixable now; intent-tail replay (persistence
+// milestone) closes the rest.
 public class SnapshotRoundTripTests
 {
     private static Simulation BuildRichWorld()

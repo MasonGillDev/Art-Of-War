@@ -15,6 +15,16 @@ namespace Sim.Core.Persistence;
 // enum value). Anything that touches a Dictionary's natural iteration order is
 // a bug here.
 //
+// CORRECTNESS SCOPE (READ THIS):
+// This captures *static* world state. It does NOT capture the event queue
+// — pending arrivals, build completions, production ticks, haul events.
+// That means Restore is correct on FROZEN worlds (no work in flight) and
+// silently incorrect on worlds with motion in them, which is essentially
+// every live moment of a persistent async RTS. Fix is intent-tail replay
+// in the persistence milestone. See docs/persistence-model.md, section
+// "The in-flight correctness gap" — that's the load-bearing item this
+// type is one half of.
+//
 // No format-version byte yet — the persistence milestone adds one when restore
 // needs to survive across released builds. Until then a format change = all
 // in-memory snapshots invalidated, which is fine.

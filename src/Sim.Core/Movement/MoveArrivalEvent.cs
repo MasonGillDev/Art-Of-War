@@ -14,10 +14,11 @@ public sealed class MoveArrivalEvent : ScheduledEvent
     // MoveArrivalEvent in the chain — so any one of them firing knows what
     // happens at the end.
     //
-    // Not snapshotted: events live in the queue, which the snapshot does
-    // not capture. A mid-flight movement chain doesn't survive restore today
-    // (same gap as mid-build active construction); the persistence milestone
-    // closes it via intent-tail replay.
+    // Not snapshotted: this and every other queued event is part of the
+    // "in-flight correctness gap" — snapshot+restore alone preserves only
+    // frozen worlds. Intent-tail replay (persistence milestone) is what
+    // makes restore correct for moving worlds. See
+    // docs/persistence-model.md, section "The in-flight correctness gap."
     public ScheduledEvent? OnFinalArrival { get; init; }
 
     public MoveArrivalEvent(int unitId, TileCoord to, TileCoord finalDest)

@@ -8,6 +8,48 @@ anchor: on restart, recovery loads the most recent snapshot and replays only
 the intent tail written after it. Resolved events (the consequences of intents)
 are kept in memory for debugging and tests but are **not** durably persisted.
 
+## The in-flight correctness gap (load-bearing — headline of the persistence milestone)
+
+A snapshot alone preserves *static* world state: tile biomes, structure
+holdings, unit positions and activities, RNG state, the sim clock. What it
+does **not** preserve is the event queue — the pending arrivals, construction
+completions, production ticks, and haul pickup/deposit events that drive
+every change in progress.
+
+For a persistent async RTS that is the wrong subset of state to capture.
+Almost every meaningful moment in the live game has work in flight: a
+caravan halfway across a forest, a build site three ticks from completion,
+an extractor between production ticks, a hauler walking back from a pickup.
+**The default condition of the world is "things partway through happening."**
+A save format that only restores frozen states preserves the world as it
+almost never actually is.
+
+The failure mode is silent and easy to miss. Tests pass because tests
+assert on frozen states. The bug bites the first time the real server
+crashes and restarts while *anything* is walking or building — which, in
+practice, is every restart. Every in-flight action gets silently dropped:
+the caravan never arrives, the build never completes, the haul never
+deposits. The world looks intact but its motion is gone.
+
+**Intent-tail replay is the fix.** The snapshot captures static state; the
+intent tail captures the player commands that *generated* the in-flight
+events. Recovery re-submits the tail to the restored sim, which
+deterministically reschedules the same events at the same ticks. The queue
+is reconstructed from inputs, not stored. This is precisely why the durable
+boundary lives at intent submission, not event resolution — and why the
+persistence milestone is intent-tail-replay rather than snapshot-only.
+
+Until intent-tail replay lands, `Snapshot.Serialize` / `Snapshot.Restore`
+in code is correctness-limited to *frozen* worlds. Every current snapshot
+round-trip test exercises a state the live game is rarely in. The
+reassurance from those tests is genuine but narrow; the breadth needs
+intent-tail replay to land.
+
+This is not a missing feature. It is a correctness gap in the durability
+promise. The whole reason this doc commits to intent-log-as-truth (and
+why the persistence milestone is non-trivial) is that snapshot-only
+recovery would silently corrupt every persistent-RTS restart.
+
 ## Why this over a fully durable resolved-event log
 
 Two forms of "log everything" were considered:
@@ -64,16 +106,25 @@ new one. The recovery path will not paper over the gap.
 
 ## Acceptance test for the persistence milestone
 
-Two tests, both required.
+Three tests, all required. The first one is the gating one — it's the
+direct test of the in-flight correctness gap.
 
-- **Crash-recovery hash test.** Kill the host mid-scenario. Restart from the
-  latest snapshot. The post-recovery snapshot hash must match what the live
-  sim's hash was at the same `sim_tick`.
+- **In-flight crash-recovery hash test.** Kill the host mid-scenario *while
+  in-flight work exists*: a unit walking a path, a build with active
+  progress, an extractor between production ticks, a hauler mid-trip. Each
+  of these cases on its own, plus a composite case with all of them at
+  once. Restart from snapshot + intent tail. The post-recovery snapshot
+  hash must match what the live sim's hash was at the same `sim_tick`, and
+  the previously in-flight events must resolve at their original ticks.
+  *This is the test that proves intent-tail replay closes the gap.*
+- **Frozen crash-recovery hash test.** Same, but snapshot at a moment when
+  the event queue is empty. Should pass even without the intent tail —
+  catches regressions where snapshot canonicalization breaks.
 - **Version-skew refusal test.** Flip the `code_version` stamp on a tail
   intent. Recovery must refuse to start.
 
-"It restarts" is not the bar. The bar is "it restarts with provably identical
-state."
+"It restarts" is not the bar. The bar is "it restarts with provably
+identical state, including everything that was in motion."
 
 ## What gets built (persistence milestone)
 
@@ -84,7 +135,11 @@ state."
   `(sim_tick, rng_state, next_seq, code_version)`. Written atomically
   (temp file + rename to start; pluggable to object storage later).
 - `Recovery` — loads latest snapshot, loads intent tail, validates
-  `code_version`, replays.
+  `code_version`, and **re-submits the tail to deterministically
+  reconstruct in-flight events**. This is the core mechanism that makes
+  snapshot+restore correct for moving worlds, not just frozen ones (see
+  "in-flight correctness gap" above) — it is the load-bearing line item
+  of this milestone, not a thin wrapper around snapshot I/O.
 - `CodeVersion` — constant baked into the binary at build time.
 - Deploy pipeline `quiesce → snapshot → verify → release` step.
 
