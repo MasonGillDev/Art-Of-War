@@ -55,17 +55,26 @@ public sealed class BuildCompleteEvent : ScheduledEvent
             world.Units[id].TrySetActivity(Activity.Idle);
 
         world.Structures.Remove(SiteTile);
-        world.AddStructure(BuildStructure(site.TargetKind, SiteTile));
+        // OwnerId inherits from the ConstructionSite (which got it from
+        // PlaceSiteIntent's PlayerId at submission time).
+        var built = BuildStructure(site.TargetKind, SiteTile, site.OwnerId);
+        world.AddStructure(built);
+        // M3 Phase B: if the new structure is a vision source (Castle /
+        // Tower), reveal its area for the owner.
+        var visionRadius = Sight.RadiusFor(built.Kind);
+        if (visionRadius > 0)
+            Sight.Reveal(world, built.OwnerId, built.At, visionRadius);
     }
 
     // Catalog dispatch. Every player-buildable kind needs a row here.
-    private static Structure BuildStructure(StructureKind kind, TileCoord at) => kind switch
+    private static Structure BuildStructure(StructureKind kind, TileCoord at, int ownerId) => kind switch
     {
-        StructureKind.Stockpile  => new Stockpile(at),
-        StructureKind.LumberCamp => new Extractor(StructureKind.LumberCamp, at),
-        StructureKind.Quarry     => new Extractor(StructureKind.Quarry, at),
-        StructureKind.Mine       => new Extractor(StructureKind.Mine, at),
-        StructureKind.Farm       => new Extractor(StructureKind.Farm, at),
+        StructureKind.Stockpile  => new Stockpile(at) { OwnerId = ownerId },
+        StructureKind.LumberCamp => new Extractor(StructureKind.LumberCamp, at) { OwnerId = ownerId },
+        StructureKind.Quarry     => new Extractor(StructureKind.Quarry, at) { OwnerId = ownerId },
+        StructureKind.Mine       => new Extractor(StructureKind.Mine, at) { OwnerId = ownerId },
+        StructureKind.Farm       => new Extractor(StructureKind.Farm, at) { OwnerId = ownerId },
+        StructureKind.Tower      => new Tower(at) { OwnerId = ownerId },
         _ => throw new InvalidOperationException(
             $"BuildCompleteEvent has no constructor for {kind} — extend BuildStructure when a new player-buildable kind lands."),
     };

@@ -46,9 +46,11 @@ public static class Snapshot
             bw.Write(Magic);
             WriteClocks(bw, sim);
             WriteGrid(bw, sim.World.Grid);
+            WritePlayers(bw, sim.World);
             WriteUnits(bw, sim.World);
             WriteStructures(bw, sim.World);
             WriteRoads(bw, sim.World, sim.Now);
+            WriteExplored(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -64,9 +66,11 @@ public static class Snapshot
         var (now, rngState, nextSeq) = ReadClocks(br);
         var grid = ReadGrid(br);
         var world = new GameWorld(grid);
+        ReadPlayers(br, world);
         ReadUnits(br, world);
         ReadStructures(br, world);
         ReadRoads(br, world);
+        ReadExplored(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -113,6 +117,25 @@ public static class Snapshot
         return grid;
     }
 
+    // ----- players (id-sorted) ------------------------------------------
+
+    private static void WritePlayers(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.Players.Count);
+        foreach (var (id, _) in world.Players)  // SortedDictionary → id order
+            bw.Write(id);
+    }
+
+    private static void ReadPlayers(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var id = br.ReadInt32();
+            world.Players[id] = new Player(id);
+        }
+    }
+
     // ----- units (id-sorted) --------------------------------------------
 
     private static void WriteUnits(BinaryWriter bw, GameWorld world)
@@ -139,6 +162,7 @@ public static class Snapshot
             bw.Write((byte)u.CargoResource);
             bw.Write(u.CargoAmount);
             bw.Write(u.AssignmentEpoch);
+            bw.Write(u.OwnerId);
         }
     }
 
@@ -158,8 +182,9 @@ public static class Snapshot
             var cargoR = (Resource)br.ReadByte();
             var cargoA = br.ReadInt32();
             var epoch = br.ReadByte();
+            var ownerId = br.ReadInt32();
 
-            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity };
+            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId };
             u.CargoResource = cargoR;
             u.CargoAmount = cargoA;
             if (activity != Activity.Idle)
@@ -190,6 +215,7 @@ public static class Snapshot
             bw.Write(s.At.X);
             bw.Write(s.At.Y);
             bw.Write((byte)s.Kind);
+            bw.Write(s.OwnerId);
             switch (s)
             {
                 case StorageStructure ss: WriteStorage(bw, ss); break;
@@ -209,16 +235,17 @@ public static class Snapshot
         {
             var at = new TileCoord(br.ReadInt32(), br.ReadInt32());
             var kind = (StructureKind)br.ReadByte();
+            var ownerId = br.ReadInt32();
             Structure s = kind switch
             {
-                StructureKind.Castle           => ReadStorage(br, new Castle(at)),
-                StructureKind.Stockpile        => ReadStorage(br, new Stockpile(at)),
+                StructureKind.Castle           => ReadStorage(br, new Castle(at) { OwnerId = ownerId }),
+                StructureKind.Stockpile        => ReadStorage(br, new Stockpile(at) { OwnerId = ownerId }),
                 StructureKind.LumberCamp
                   or StructureKind.Quarry
                   or StructureKind.Mine
-                  or StructureKind.Farm        => ReadExtractor(br, new Extractor(kind, at)),
-                StructureKind.ConstructionSite => ReadConstruction(br, at),
-                StructureKind.Tower            => new Tower(at),
+                  or StructureKind.Farm        => ReadExtractor(br, new Extractor(kind, at) { OwnerId = ownerId }),
+                StructureKind.ConstructionSite => ReadConstruction(br, at, ownerId),
+                StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };
             world.AddStructure(s);
@@ -287,10 +314,10 @@ public static class Snapshot
         WriteNullableLong(bw, c.ScheduledCompletion);
     }
 
-    private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at)
+    private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at, int ownerId)
     {
         var targetKind = (StructureKind)br.ReadByte();
-        var c = new ConstructionSite(at, targetKind);
+        var c = new ConstructionSite(at, targetKind) { OwnerId = ownerId };
         c.Required.Clear();
         var req = br.ReadInt32();
         for (var i = 0; i < req; i++)
@@ -328,6 +355,47 @@ public static class Snapshot
 
     private static long? ReadNullableLong(BinaryReader br) =>
         br.ReadByte() == 1 ? br.ReadInt64() : null;
+
+    // ----- explored (per player, tiles in (y, x) order) -----------------
+
+    private static void WriteExplored(BinaryWriter bw, GameWorld world)
+    {
+        // Player count + per-player (id, tile count + tiles).
+        // Sorted by player id for canonical order, then tiles by (y, x).
+        var byPlayer = world.Explored
+            .OrderBy(kv => kv.Key)
+            .ToList();
+        bw.Write(byPlayer.Count);
+        foreach (var (playerId, tiles) in byPlayer)
+        {
+            bw.Write(playerId);
+            var sortedTiles = tiles.OrderBy(t => t.Y).ThenBy(t => t.X).ToList();
+            bw.Write(sortedTiles.Count);
+            foreach (var t in sortedTiles)
+            {
+                bw.Write(t.X);
+                bw.Write(t.Y);
+            }
+        }
+    }
+
+    private static void ReadExplored(BinaryReader br, GameWorld world)
+    {
+        var playerCount = br.ReadInt32();
+        for (var i = 0; i < playerCount; i++)
+        {
+            var playerId = br.ReadInt32();
+            var tileCount = br.ReadInt32();
+            var set = new HashSet<TileCoord>(capacity: tileCount);
+            for (var j = 0; j < tileCount; j++)
+            {
+                var x = br.ReadInt32();
+                var y = br.ReadInt32();
+                set.Add(new TileCoord(x, y));
+            }
+            world.Explored[playerId] = set;
+        }
+    }
 
     // ----- roads (sparse, by y,x) ---------------------------------------
 

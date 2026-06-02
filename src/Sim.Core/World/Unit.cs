@@ -10,6 +10,7 @@ public enum UnitRole : byte
     Lumberjack = 4,
     Quarryman = 5,
     Hauler = 6,
+    Scout = 7,
 }
 
 public sealed class Unit
@@ -18,6 +19,9 @@ public sealed class Unit
     public TileCoord Position { get; set; }
     public UnitRole Role { get; init; } = UnitRole.None;
     public int CargoCapacity { get; init; } = 1;
+    // Player who owns this unit. Defaults to 0 for single-player scenarios.
+    // Read by Vision (for explored/live-visibility) and by player-view filters.
+    public int OwnerId { get; init; } = 0;
 
     public Activity Activity { get; private set; } = Activity.Idle;
     // The structure tile this unit is currently bound to (Working at an

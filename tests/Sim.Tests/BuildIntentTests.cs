@@ -79,7 +79,7 @@ public class BuildIntentTests
     [Theory]
     [InlineData(StructureKind.Castle)]
     [InlineData(StructureKind.ConstructionSite)]
-    [InlineData(StructureKind.Tower)]
+    // Tower was reserved in earlier milestones; M3 graduated it to buildable.
     public void PlaceSite_NonBuildableKind_Rejected(StructureKind kind)
     {
         var sim = MakeSim();

@@ -149,6 +149,56 @@ in `RoadPathfindingTests.cs` runs 100 path queries over a roaded world
 and asserts `Snapshot.Hash` is unchanged. A future reader that writes
 would surface there.
 
+## Fog addendum (M3)
+
+M3 introduced per-player explored memory + live visibility derivation.
+The "fog never touches the sim" property is the headline determinism
+contract; this audit pins the structural invariants behind it.
+
+### Explored memory has exactly one write path
+
+```bash
+grep -rn "world\.Explored\|Sight\.Reveal" src/Sim.Core/
+```
+
+| File | Site | Verdict |
+|---|---|---|
+| `Vision/Sight.cs:Reveal` | The mutation method itself | — |
+| `Movement/MoveArrivalEvent.cs:56` | Per-hop arrival reveal | Allowed — event-driven |
+| `Logistics/BuildCompleteEvent.cs:66` | New vision structure reveal | Allowed — event-driven |
+| `World/Genesis.cs:62,72` | Initial Castle + unit reveal | Allowed — genesis setup |
+| `Persistence/Snapshot.cs` | Serialize iteration + restore reconstruction | Allowed — canonical I/O |
+| `Vision/View.cs:79` | Read-only copy into PlayerView.Explored | Allowed — defensive copy, not a write |
+
+`Sight.Reveal` has exactly three production callers, all event-driven.
+No view path writes explored. The inverted pure-read wall holds.
+
+### Live visibility never mutates
+
+`View.VisibleTiles` and `View.BuildPlayerView` are both PURE READS —
+they iterate the player's owned vision sources, union their discs into
+a fresh HashSet, and return it. They never write `world.Roads`,
+`world.Explored`, `world.Units`, or any other sim state.
+
+Enforced by runtime test:
+- `LiveVisibilityTests.VisibleTiles_IsPureRead_NoMutation` — 100×
+  calls, snapshot hash unchanged.
+- `FogDeterminismTests.ViewsOff_HashEquals_ViewsOn` — the headline
+  test: same scenario hashed with and without view spam, hashes match.
+
+### Players registry has no global iteration
+
+`world.Players.Values` is iterated only in `Persistence/Snapshot.cs`
+(canonical serialization). `View.BuildPlayerView` takes a single
+playerId and accesses only that player's explored set — no
+per-all-players sweep.
+
+### No global per-tile fog sweep
+
+Visibility is computed by iterating the player's vision sources and
+unioning their discs (`sources × r²`). There is no "for each tile,
+check if visible to player P" iteration anywhere.
+
 ## What would break these invariants and require re-running this audit
 
 Re-run the greps above when any of the following lands:
@@ -173,6 +223,18 @@ Re-run the greps above when any of the following lands:
   edge-condition) — re-verify lazy catch-up math against the
   observation-independence property; ensure pure reads still match
   write-path output for the same `now`.
+- **A new caller of `Sight.Reveal`** — explored memory has exactly
+  three event-driven write sites today. Any new caller must be itself
+  event-driven (called from inside a `ScheduledEvent.Apply` or
+  `Genesis.Build`), never from a view path or query.
+- **A new field on `PlayerView` / `View` consumer** — re-run the
+  headline `ViewsOff_HashEquals_ViewsOn` test if any computation in
+  the view path looks like it might touch sim state. The invariant
+  is "views are pure reads"; new fields must not break it.
+- **A new vision source kind** (a new structure or unit role with a
+  non-zero radius from `Sight.RadiusFor`) — confirm it shows up in
+  `View.VisibleTiles` correctly and reveals into explored on creation
+  / movement.
 
 ## Reference
 

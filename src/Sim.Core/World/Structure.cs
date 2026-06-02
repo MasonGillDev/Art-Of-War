@@ -4,6 +4,11 @@ public abstract class Structure
 {
     public TileCoord At { get; }
     public abstract StructureKind Kind { get; }
+    // Player who owns this structure. Set at construction (genesis Castle:
+    // player 0; built structures: inherited from the ConstructionSite via
+    // BuildCompleteEvent, which gets it from PlaceSiteIntent). Defaults to
+    // 0 for single-player scenarios.
+    public int OwnerId { get; init; } = 0;
     protected Structure(TileCoord at) { At = at; }
 }
 

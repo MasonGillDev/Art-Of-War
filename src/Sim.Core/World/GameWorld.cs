@@ -18,6 +18,21 @@ public sealed class GameWorld
     // Roads/Roads.cs for the contract.
     public Dictionary<TileCoord, RoadState> Roads { get; } = new();
 
+    // Player registry. Genesis seeds player 0; multi-player scenarios add
+    // more. Minimal for M3 — no factions / economies / win conditions yet.
+    public SortedDictionary<int, Player> Players { get; } = new();
+
+    // Per-player explored-terrain memory (M3 Phase B). Sparse: most players
+    // have explored some tiles, not most tiles. HashSet for O(1) inserts;
+    // sorted at serialize time.
+    //
+    // INVERTED PURE-READ WALL: written ONLY by Vision.Reveal (which is
+    // called from MoveArrivalEvent.Apply, BuildCompleteEvent.Apply,
+    // Genesis.Build — the three event-driven sites). Read ONLY by views.
+    // A view path writing here would corrupt snapshotted state. See
+    // docs/persistence-model.md and Vision/Vision.cs.
+    public Dictionary<int, HashSet<TileCoord>> Explored { get; } = new();
+
     public GameWorld(TileGrid grid) { Grid = grid; }
 
     public Unit AddUnit(int id, TileCoord position)

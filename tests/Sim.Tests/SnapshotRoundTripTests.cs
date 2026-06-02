@@ -32,14 +32,20 @@ public class SnapshotRoundTripTests
 
         var world = new GameWorld(grid);
 
+        // M3: two-player registry. Castle owned by player 0, stockpile
+        // belongs to player 1 — proves OwnerId round-trips across kinds
+        // and players survive serialization in id order.
+        world.Players[0] = new Player(0);
+        world.Players[1] = new Player(1);
+
         // Castle with a non-empty mixed-resource holding.
-        var castle = world.AddStructure(new Castle(new TileCoord(0, 0)));
+        var castle = world.AddStructure(new Castle(new TileCoord(0, 0)) { OwnerId = 0 });
         castle.Deposit(Resource.Wood, 50);
         castle.Deposit(Resource.Stone, 20);
         castle.Deposit(Resource.Food, 10);
 
-        // Stockpile elsewhere.
-        var stockpile = world.AddStructure(new Stockpile(new TileCoord(7, 0)));
+        // Stockpile elsewhere, owned by player 1.
+        var stockpile = world.AddStructure(new Stockpile(new TileCoord(7, 0)) { OwnerId = 1 });
         stockpile.Deposit(Resource.Ore, 5);
 
         // Extractor with workers assigned and partial buffer.
@@ -75,6 +81,8 @@ public class SnapshotRoundTripTests
         u2.CargoAmount = 6;
 
         world.AddUnit(new Unit(4, new TileCoord(0, 0)) { Role = UnitRole.None });
+        // Player-1 unit to exercise non-zero OwnerId on units.
+        world.AddUnit(new Unit(5, new TileCoord(7, 0)) { Role = UnitRole.Scout, OwnerId = 1 });
 
         var sim = new Simulation(world, seed: 0xBADF00D);
         // Tick the rng + advance Now a little so non-zero clock fields participate.

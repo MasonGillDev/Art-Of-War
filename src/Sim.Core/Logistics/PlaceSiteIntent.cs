@@ -42,7 +42,9 @@ public sealed class PlaceSiteIntent : Intent
                     $"{Kind} requires {spec.RequiredBiome} but tile is {biome}");
         }
 
-        sim.World.AddStructure(new ConstructionSite(Tile, Kind));
+        // OwnerId carried from the issuing player via the base Intent.PlayerId.
+        // The built structure (when BuildCompleteEvent fires) inherits this.
+        sim.World.AddStructure(new ConstructionSite(Tile, Kind) { OwnerId = PlayerId });
         return IntentOutcome.Applied;
     }
 

@@ -101,7 +101,16 @@ public static class StructureCatalog
         [StructureKind.Tower] = new StructureSpec
         {
             Kind = StructureKind.Tower,
-            // Reserved for the fog milestone. Not yet buildable.
+            IsPlayerBuildable = true,
+            // No biome requirement — towers can go anywhere.
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 20,
+                [Resource.Stone] = 10,
+            },
+            BuildDurationTicks = 60,
+            RequiredBuilderCount = 1,
+            // Vision contribution is read from Sight.RadiusFor — not duplicated here.
         },
     };
 

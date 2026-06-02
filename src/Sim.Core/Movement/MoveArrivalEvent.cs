@@ -46,10 +46,14 @@ public sealed class MoveArrivalEvent : ScheduledEvent
             return;
         }
         unit.Position = To;
-        // Phase C: every real arrival credits the tile entered. Roads emerge
-        // from sustained traffic, decay when abandoned. THE one mutation
-        // point for road condition. See Roads/Roads.cs.
+        // M2 Phase C: every real arrival credits the tile entered. Roads
+        // emerge from sustained traffic, decay when abandoned. THE one
+        // mutation point for road condition. See Roads/Roads.cs.
         Road.CreditTraffic(sim.World, To, sim.Now);
+        // M3 Phase B: the arrival also reveals the unit's vision radius for
+        // its owner. THE one event-driven write path for explored memory
+        // (alongside BuildCompleteEvent and Genesis). See Vision/Sight.cs.
+        Sight.Reveal(sim.World, unit.OwnerId, To, Sight.RadiusFor(unit.Role));
         if (To == FinalDestination)
         {
             if (OnFinalArrival is { } hook) sim.Schedule(sim.Now, hook);
