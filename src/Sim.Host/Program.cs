@@ -71,6 +71,13 @@ static Simulation RunScenario()
     // Let production run long enough to fill the buffer and go dormant.
     sim.Run(until: sim.Now + spec.ProductionPeriodTicks * 25);
 
+    // Phase E layer: haul Wood from the LumberCamp back to the Castle.
+    // Pickup should free buffer and re-arm production; deposit lands in the
+    // Castle's holdings.
+    sim.SubmitIntent(at: sim.Now,
+        new HaulIntent(haulerId: 3, sourceTile: siteTile, destTile: new TileCoord(0, 0), Resource.Wood));
+    sim.Run(); // run to completion of the haul
+
     return sim;
 }
 

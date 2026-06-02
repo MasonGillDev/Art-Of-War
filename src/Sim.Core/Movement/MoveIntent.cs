@@ -21,18 +21,25 @@ public sealed class MoveIntent : Intent
         return IntentOutcome.Applied;
     }
 
-    // Shared by MoveIntent.Resolve and MoveArrivalEvent.Apply: re-path from the
-    // unit's current tile to the final destination, schedule the next arrival.
-    // Internal so other movement-related code can chain steps without exposing
-    // it as a public API.
-    internal static void ScheduleNextStep(Simulation sim, Unit unit, TileCoord finalDest)
+    // Shared by MoveIntent.Resolve, MoveArrivalEvent.Apply, and HaulIntent:
+    // re-path from the unit's current tile to the final destination, schedule
+    // the next arrival. The optional onFinalArrival hook is carried by every
+    // intermediate MoveArrivalEvent so it fires when the chain reaches the end.
+    internal static void ScheduleNextStep(
+        Simulation sim,
+        Unit unit,
+        TileCoord finalDest,
+        ScheduledEvent? onFinalArrival = null)
     {
         if (unit.Position == finalDest) return;
         var path = Pathfinding.FindPath(sim.World.Grid, unit.Position, finalDest);
         if (path is null || path.Count < 2) return;
         var next = path[1];
         var arrival = sim.Now + sim.World.Grid.TerrainCost(next);
-        sim.Schedule(arrival, new MoveArrivalEvent(unit.Id, next, finalDest));
+        sim.Schedule(arrival, new MoveArrivalEvent(unit.Id, next, finalDest)
+        {
+            OnFinalArrival = onFinalArrival,
+        });
     }
 
     public override string Describe() =>
