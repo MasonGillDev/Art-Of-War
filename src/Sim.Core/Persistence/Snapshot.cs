@@ -48,6 +48,7 @@ public static class Snapshot
             WriteGrid(bw, sim.World.Grid);
             WriteUnits(bw, sim.World);
             WriteStructures(bw, sim.World);
+            WriteRoads(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -65,6 +66,7 @@ public static class Snapshot
         var world = new GameWorld(grid);
         ReadUnits(br, world);
         ReadStructures(br, world);
+        ReadRoads(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -136,6 +138,7 @@ public static class Snapshot
             }
             bw.Write((byte)u.CargoResource);
             bw.Write(u.CargoAmount);
+            bw.Write(u.AssignmentEpoch);
         }
     }
 
@@ -154,6 +157,7 @@ public static class Snapshot
                 : null;
             var cargoR = (Resource)br.ReadByte();
             var cargoA = br.ReadInt32();
+            var epoch = br.ReadByte();
 
             var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity };
             u.CargoResource = cargoR;
@@ -165,6 +169,9 @@ public static class Snapshot
                     throw new InvalidDataException(
                         $"Restore: illegal activity transition Idle → {activity} for unit {id}.");
             }
+            // Restore the epoch AFTER the activity transition above (which would
+            // bump it) so the snapshot's epoch wins.
+            u.RestoreAssignmentEpoch(epoch);
             world.AddUnit(u);
         }
     }
@@ -321,4 +328,38 @@ public static class Snapshot
 
     private static long? ReadNullableLong(BinaryReader br) =>
         br.ReadByte() == 1 ? br.ReadInt64() : null;
+
+    // ----- roads (sparse, by y,x) ---------------------------------------
+
+    private static void WriteRoads(BinaryWriter bw, GameWorld world)
+    {
+        // Drop any zero-condition entries defensively (the system should
+        // already remove them, but the snapshot stays canonical even if a
+        // future bug leaves one in the dict).
+        var list = world.Roads
+            .Where(kv => kv.Value.Condition > 0)
+            .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
+            .ToList();
+        bw.Write(list.Count);
+        foreach (var kv in list)
+        {
+            bw.Write(kv.Key.X);
+            bw.Write(kv.Key.Y);
+            bw.Write(kv.Value.Condition);
+            bw.Write(kv.Value.LastDecayTick);
+        }
+    }
+
+    private static void ReadRoads(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var x = br.ReadInt32();
+            var y = br.ReadInt32();
+            var condition = br.ReadInt32();
+            var lastDecayTick = br.ReadInt64();
+            world.Roads[new TileCoord(x, y)] = new RoadState(condition, lastDecayTick);
+        }
+    }
 }

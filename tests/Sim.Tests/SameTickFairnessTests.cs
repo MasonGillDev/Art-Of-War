@@ -151,8 +151,10 @@ public class SameTickFairnessTests
         builder.TrySetActivity(Activity.Building, siteTile);
 
         // Schedule both deposits at the same tick, in submission order 1 then 2.
-        sim.Schedule(0, new HaulDepositEvent(1, siteTile));
-        sim.Schedule(0, new HaulDepositEvent(2, siteTile));
+        // Epoch captured AFTER the hauler's transition above so the deposit
+        // fence matches.
+        sim.Schedule(0, new HaulDepositEvent(1, siteTile, sim.World.Units[1].AssignmentEpoch));
+        sim.Schedule(0, new HaulDepositEvent(2, siteTile, sim.World.Units[2].AssignmentEpoch));
         // Stop before BuildComplete fires so we can inspect the post-deposit state.
         sim.Run(until: 0);
 
@@ -190,8 +192,8 @@ public class SameTickFairnessTests
             var builder = world.AddUnit(new Unit(99, siteTile) { Role = UnitRole.Builder });
             builder.TrySetActivity(Activity.Building, siteTile);
 
-            sim.Schedule(0, new HaulDepositEvent(1, siteTile));
-            sim.Schedule(0, new HaulDepositEvent(2, siteTile));
+            sim.Schedule(0, new HaulDepositEvent(1, siteTile, sim.World.Units[1].AssignmentEpoch));
+            sim.Schedule(0, new HaulDepositEvent(2, siteTile, sim.World.Units[2].AssignmentEpoch));
             sim.Run();
             return sim;
         }

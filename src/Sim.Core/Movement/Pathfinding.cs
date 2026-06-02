@@ -2,13 +2,29 @@ namespace Sim.Core.Movement;
 
 public static class Pathfinding
 {
-    // Grid A* over 4-neighborhood with terrain cost paid on entering a tile.
+    // Grid A* over 4-neighborhood with cost paid on entering a tile.
     // Priority tuple is (f, x, y) so same-f tiles break ties deterministically.
-    // Heuristic: Manhattan — admissible as long as every terrain cost is >= 1.
-    public static List<TileCoord>? FindPath(TileGrid grid, TileCoord start, TileCoord goal)
+    // Heuristic: Manhattan — admissible as long as every cost is >= 1.
+    //
+    // The optional costFn lets the caller supply a richer cost source — e.g.
+    // Road.EffectiveCost(world, tile, now) to make A* prefer high-condition
+    // roads. Defaults to plain biome cost when omitted, so M0-era callers
+    // and tests that don't care about roads still work unchanged.
+    //
+    // costFn MUST be a pure read — A* will call it many times per tile in a
+    // single query. A costFn that mutated state would inject nondeterminism
+    // straight into the hash via path queries. See docs/persistence-model.md
+    // and Roads/Road.cs (pure-read wall).
+    public static List<TileCoord>? FindPath(
+        TileGrid grid,
+        TileCoord start,
+        TileCoord goal,
+        Func<TileCoord, int>? costFn = null)
     {
         if (!grid.InBounds(start) || !grid.InBounds(goal)) return null;
         if (start == goal) return new List<TileCoord> { start };
+
+        costFn ??= tile => grid.TerrainCost(tile);
 
         var open = new PriorityQueue<TileCoord, (int f, int x, int y)>();
         var gScore = new Dictionary<TileCoord, int> { [start] = 0 };
@@ -23,7 +39,7 @@ public static class Pathfinding
             var currentG = gScore[current];
             foreach (var n in grid.Neighbors(current))
             {
-                var tentative = currentG + grid.TerrainCost(n);
+                var tentative = currentG + costFn(n);
                 if (!gScore.TryGetValue(n, out var existing) || tentative < existing)
                 {
                     gScore[n] = tentative;

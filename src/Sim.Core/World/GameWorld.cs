@@ -11,6 +11,13 @@ public sealed class GameWorld
     // by Snapshot — see Persistence/Snapshot.cs.
     public Dictionary<TileCoord, Structure> Structures { get; } = new();
 
+    // Sparse: only tiles with non-zero road condition live here. Mutated
+    // exclusively by Roads.CreditTraffic (called from MoveArrivalEvent —
+    // the one mutation point). Read by Roads.EffectiveCost / ConditionAt
+    // from pathfinding and views — those reads must NEVER write. See
+    // Roads/Roads.cs for the contract.
+    public Dictionary<TileCoord, RoadState> Roads { get; } = new();
+
     public GameWorld(TileGrid grid) { Grid = grid; }
 
     public Unit AddUnit(int id, TileCoord position)

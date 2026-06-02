@@ -50,7 +50,10 @@ public sealed class HaulIntent : Intent
 
         hauler.TrySetActivity(Activity.Hauling);
 
-        var pickup = new HaulPickupEvent(HaulerId, SourceTile, DestTile, Resource);
+        // Capture epoch AFTER the activity transition (which bumped it) so the
+        // pickup event fences against any FUTURE retasking but not against the
+        // bump we just did.
+        var pickup = new HaulPickupEvent(HaulerId, SourceTile, DestTile, Resource, hauler.AssignmentEpoch);
         if (hauler.Position == SourceTile)
         {
             sim.Schedule(sim.Now, pickup);

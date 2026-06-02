@@ -2,6 +2,7 @@ using Sim.Core.Engine;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
 using Sim.Core.Persistence;
+using Sim.Core.Roads;
 using Sim.Core.World;
 
 // Phase-D smoke: M0 walk + Phase-C build + Phase-D production.
@@ -43,7 +44,7 @@ static GenesisSpec MakeSpec()
     };
 }
 
-static Simulation RunScenario()
+static Simulation RunScenario(Action<string>? log = null)
 {
     var siteTile = new TileCoord(3, 3);
     var world = Genesis.Build(MakeSpec());
@@ -78,7 +79,54 @@ static Simulation RunScenario()
         new HaulIntent(haulerId: 3, sourceTile: siteTile, destTile: new TileCoord(0, 0), Resource.Wood));
     sim.Run(); // run to completion of the haul
 
+    // M2 layer: a few more haul round trips. Each one walks the same path
+    // (Castle ↔ LumberCamp), crediting the same tiles. Condition rises.
+    for (var i = 0; i < 5; i++)
+    {
+        sim.SubmitIntent(at: sim.Now,
+            new HaulIntent(haulerId: 3, sourceTile: siteTile, destTile: new TileCoord(0, 0), Resource.Wood));
+        sim.Run();
+    }
+
+    if (log != null)
+    {
+        log("");
+        log("--- Road conditions after sustained hauling ---");
+        PrintRouteConditions(sim, log);
+    }
+
+    // M2 layer: long silence. Schedule a no-op far in the future, run to it.
+    const long silenceDuration = 200_000;
+    var startSilence = sim.Now;
+    sim.Schedule(sim.Now + silenceDuration, new NoOpEvent());
+    sim.Run();
+
+    if (log != null)
+    {
+        log("");
+        log($"--- Road conditions after {sim.Now - startSilence} ticks of silence (decay) ---");
+        // Observed via pure-read ConditionAt — does NOT mutate stored state.
+        // Stale RoadStates with stored Condition>0 are still in the dict
+        // (lazy decay only removes on touch); the read just returns 0 for them.
+        PrintRouteConditions(sim, log);
+    }
+
     return sim;
+}
+
+static void PrintRouteConditions(Simulation sim, Action<string> log)
+{
+    // Pure-read observation of the route tiles. ConditionAt computes any
+    // pending decay without writing.
+    var routeTiles = sim.World.Roads.Keys
+        .OrderBy(t => t.Y).ThenBy(t => t.X)
+        .ToList();
+    if (routeTiles.Count == 0) { log("  (no road tiles)"); return; }
+    foreach (var t in routeTiles)
+    {
+        var condition = Road.ConditionAt(sim.World, t, sim.Now);
+        log($"  ({t.X},{t.Y}): condition={condition}");
+    }
 }
 
 static void Print(string label, Simulation sim)
@@ -112,7 +160,7 @@ static void Print(string label, Simulation sim)
     Console.WriteLine();
 }
 
-var first = RunScenario();
+var first = RunScenario(log: Console.WriteLine);
 Print("Run 1", first);
 
 var second = RunScenario();
@@ -134,3 +182,10 @@ if (Snapshot.Hash(first) != Snapshot.Hash(restored))
 
 Console.WriteLine("OK: identical scenario produced identical final state.");
 Console.WriteLine($"OK: serialized snapshot ({bytes.Length} bytes) restored to identical state.");
+
+// Sentinel event for advancing the sim clock without state mutation.
+// Used by the host smoke to observe road decay without further traffic.
+sealed class NoOpEvent : ScheduledEvent
+{
+    public override void Apply(Simulation sim) { }
+}

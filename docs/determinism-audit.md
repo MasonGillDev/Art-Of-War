@@ -93,6 +93,62 @@ that first reader-of-derived-state is introduced, this section needs
 expanding with the file paths that satisfy / are forbidden from
 satisfying the rule.
 
+## Roads addendum (M2)
+
+M2 introduced per-tile road condition with lazy decay and traffic gain.
+Three properties were verified after Phase E:
+
+### Road state has no global iteration
+
+```bash
+grep -rn "world\.Roads\|\.Roads\[" src/Sim.Core/
+```
+
+`world.Roads` is touched in:
+
+| File | Purpose | Verdict |
+|---|---|---|
+| `Persistence/Snapshot.cs:339, 362` | Canonical serialization (ordered by `(y, x)`) | Allowed — same as Structures/Units |
+| `Roads/Road.cs` (several) | Targeted reads + writes by tile key | Allowed — bounded per-tile, not iteration |
+
+No code iterates the road set on a timer or by global sweep. Lazy decay
+runs on touch — each `CreditTraffic` calls `CatchUpDecay` for *that one
+tile* before applying gain.
+
+### `CreditTraffic` is called only from the one mutation point
+
+```bash
+grep -rn "CreditTraffic" src/Sim.Core/
+```
+
+| File | Site | Verdict |
+|---|---|---|
+| `Movement/MoveArrivalEvent.cs:52` | After unit position update on real arrival | Allowed — the one mutation point |
+| `Roads/Road.cs` (definition) | — | — |
+
+Tests call `CreditTraffic` directly via `InternalsVisibleTo`. No
+production code path other than `MoveArrivalEvent.Apply` mutates road
+state.
+
+`CatchUpDecay` (internal) is called only by `CreditTraffic` and
+`ConditionAt` (which is read-only — see next item) and by tests.
+
+### No read path writes road state
+
+The pure-read wall:
+
+| Read site | Calls | Mutates? |
+|---|---|---|
+| `Roads.EffectiveCost` | `ConditionAt` (pure read) | No |
+| `Roads.ConditionAt` | (computes decay-adjusted condition) | No |
+| `Pathfinding.FindPath` (via `costFn`) | `Road.EffectiveCost` | No |
+| `MoveIntent.ScheduleNextStep` (via `costFn`) | `Road.EffectiveCost` for path query + per-step arrival cost | No |
+
+Enforcement is a runtime test: `Pathfinding_IsPureRead_NoRoadMutation`
+in `RoadPathfindingTests.cs` runs 100 path queries over a roaded world
+and asserts `Snapshot.Hash` is unchanged. A future reader that writes
+would surface there.
+
 ## What would break these invariants and require re-running this audit
 
 Re-run the greps above when any of the following lands:
@@ -110,6 +166,13 @@ Re-run the greps above when any of the following lands:
 - **Any feature that needs to find "all X in the world"** — index it,
   don't scan, and update the table above to record the new bounded
   caller.
+- **A new caller of `Road.CreditTraffic` or `Road.CatchUpDecay`** —
+  road state has exactly one mutation point (`MoveArrivalEvent.Apply`).
+  Any new caller breaks that property and needs justification.
+- **A new road-state-derived field** (e.g. road type / band marker /
+  edge-condition) — re-verify lazy catch-up math against the
+  observation-independence property; ensure pure reads still match
+  write-path output for the same `now`.
 
 ## Reference
 

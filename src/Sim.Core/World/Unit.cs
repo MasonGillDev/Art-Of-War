@@ -24,6 +24,17 @@ public sealed class Unit
     // extractor, Building at a construction site). Null when Idle/Moving/Hauling.
     public TileCoord? Assignment { get; private set; }
 
+    // Monotonic counter bumped on every actual activity change. Future-scheduled
+    // per-unit events (HaulPickupEvent, HaulDepositEvent) capture the epoch at
+    // schedule time and fence on it at fire time — a mismatch means the unit
+    // got retasked between scheduling and firing, and the stale event no-ops.
+    // Same fencing-token pattern as ConstructionSite.ScheduledCompletion,
+    // generalized to per-unit assignments.
+    //
+    // Byte is fine: race window between schedule and fire is ≪ 256 outstanding
+    // events per unit. Wraps cleanly on overflow.
+    public byte AssignmentEpoch { get; private set; }
+
     public Resource CargoResource { get; set; }
     public int CargoAmount { get; set; }
 
@@ -31,12 +42,26 @@ public sealed class Unit
 
     // The single mutation path for Activity. Intents call this rather than
     // poking the property; the transition table catches illegal hops before
-    // they corrupt state.
+    // they corrupt state. Bumps AssignmentEpoch on actual change so stale
+    // per-unit events fire harmless on retasked units.
     public bool TrySetActivity(Activity next, TileCoord? assignment = null)
     {
         if (!ActivityTransitions.CanTransition(Activity, next)) return false;
+        var changed = Activity != next;
         Activity = next;
         Assignment = next == Activity.Idle ? null : assignment;
+        if (changed) unchecked { AssignmentEpoch++; }
         return true;
     }
+
+    // Explicit epoch bump, independent of activity changes. Called by
+    // MoveIntent.Resolve so a fresh move on an already-Idle unit still
+    // invalidates the prior move chain's MoveArrivalEvents. Without this,
+    // a move-then-move sequence on an Idle unit would leave both chains
+    // running interleaved.
+    internal void BumpEpoch() { unchecked { AssignmentEpoch++; } }
+
+    // Restore-only. Used by Snapshot.Restore to rebuild a Unit's epoch without
+    // running through TrySetActivity's bump logic.
+    internal void RestoreAssignmentEpoch(byte epoch) => AssignmentEpoch = epoch;
 }

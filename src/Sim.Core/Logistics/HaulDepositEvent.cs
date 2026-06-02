@@ -8,18 +8,25 @@ namespace Sim.Core.Logistics;
 // become newly met by this deposit, fires StartOrResume on the site
 // (Phase C). This is the first real (non-test) caller of that path.
 //
-// Fail-clean per docs/intent-validation.md: any precondition miss leaves the
-// world unchanged except that the hauler is returned to Idle (otherwise
-// they'd be stuck Hauling forever holding cargo).
+// Fencing: ExpectedEpoch is captured at schedule time (from the pickup
+// event). If the hauler's AssignmentEpoch differs on fire, the unit was
+// retasked between scheduling and now — this event is stale, no-op without
+// mutation.
+//
+// Fail-clean per docs/intent-validation.md: any non-fencing precondition
+// miss leaves the world unchanged except that the hauler is returned to
+// Idle (otherwise they'd be stuck Hauling forever holding cargo).
 public sealed class HaulDepositEvent : ScheduledEvent
 {
     public int HaulerId { get; }
     public TileCoord DestTile { get; }
+    public byte ExpectedEpoch { get; }
 
-    public HaulDepositEvent(int haulerId, TileCoord destTile)
+    public HaulDepositEvent(int haulerId, TileCoord destTile, byte expectedEpoch)
     {
         HaulerId = haulerId;
         DestTile = destTile;
+        ExpectedEpoch = expectedEpoch;
     }
 
     public override void Apply(Simulation sim)
@@ -30,15 +37,23 @@ public sealed class HaulDepositEvent : ScheduledEvent
             Outcome = IntentOutcome.Reject($"hauler {HaulerId} does not exist");
             return;
         }
+
+        // Fencing: stale event from a previous task; no-op.
+        if (hauler.AssignmentEpoch != ExpectedEpoch)
+        {
+            Outcome = IntentOutcome.Reject("stale (epoch mismatch)");
+            return;
+        }
+
+        if (hauler.Activity != Activity.Hauling)
+        {
+            Outcome = IntentOutcome.Reject("hauler is not Hauling");
+            return;
+        }
         if (hauler.Position != DestTile)
         {
             hauler.TrySetActivity(Activity.Idle);
             Outcome = IntentOutcome.Reject($"hauler not on dest {DestTile.X},{DestTile.Y}");
-            return;
-        }
-        if (hauler.Activity != Activity.Hauling)
-        {
-            Outcome = IntentOutcome.Reject("hauler is not Hauling");
             return;
         }
         if (hauler.CargoAmount == 0 || hauler.CargoResource == Resource.None)
@@ -67,9 +82,7 @@ public sealed class HaulDepositEvent : ScheduledEvent
         if (hauler.CargoAmount == 0) hauler.CargoResource = Resource.None;
 
         // Phase-C hook. If the deposit just made the build's conditions met,
-        // start construction. ConstructionSite.ConditionsMet also checks
-        // builders-present — if no builders are on the tile yet, this is a
-        // no-op and the next AssignBuilders or arrival will trigger the start.
+        // start construction.
         if (dest is ConstructionSite site && !site.IsActive && site.ConditionsMet(world))
         {
             site.StartOrResume(sim);

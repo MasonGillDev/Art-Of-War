@@ -8,6 +8,11 @@ namespace Sim.Core.Logistics;
 // buffer space, calls Extractor.ArmIfDormant (Phase D). This is the first
 // real (non-test) caller of that path.
 //
+// Fencing: ExpectedEpoch is captured at schedule time. If the hauler's
+// AssignmentEpoch differs on fire, the unit was retasked between scheduling
+// and now (e.g. by a Move-on-busy intent) — this event is stale, no-op without
+// mutation. Same fencing-token pattern as ConstructionSite.ScheduledCompletion.
+//
 // Fail-clean per docs/intent-validation.md. If the source is empty (or has
 // nothing of the requested resource), the haul is aborted cleanly: hauler
 // becomes Idle on the source tile, no second leg is scheduled.
@@ -17,13 +22,15 @@ public sealed class HaulPickupEvent : ScheduledEvent
     public TileCoord SourceTile { get; }
     public TileCoord DestTile { get; }
     public Resource Resource { get; }
+    public byte ExpectedEpoch { get; }
 
-    public HaulPickupEvent(int haulerId, TileCoord sourceTile, TileCoord destTile, Resource resource)
+    public HaulPickupEvent(int haulerId, TileCoord sourceTile, TileCoord destTile, Resource resource, byte expectedEpoch)
     {
         HaulerId = haulerId;
         SourceTile = sourceTile;
         DestTile = destTile;
         Resource = resource;
+        ExpectedEpoch = expectedEpoch;
     }
 
     public override void Apply(Simulation sim)
@@ -34,15 +41,26 @@ public sealed class HaulPickupEvent : ScheduledEvent
             Outcome = IntentOutcome.Reject($"hauler {HaulerId} does not exist");
             return;
         }
+
+        // Fencing: if epoch doesn't match, the unit was retasked. Silently no-op —
+        // no mutation, no cleanup. The current task owns the unit's state.
+        if (hauler.AssignmentEpoch != ExpectedEpoch)
+        {
+            Outcome = IntentOutcome.Reject("stale (epoch mismatch)");
+            return;
+        }
+
+        // Epoch matched, so the unit is still on THIS haul. Now we can safely
+        // clean them up on any precondition miss.
+        if (hauler.Activity != Activity.Hauling)
+        {
+            Outcome = IntentOutcome.Reject("hauler is not Hauling");
+            return;
+        }
         if (hauler.Position != SourceTile)
         {
             hauler.TrySetActivity(Activity.Idle);
             Outcome = IntentOutcome.Reject($"hauler not on source {SourceTile.X},{SourceTile.Y}");
-            return;
-        }
-        if (hauler.Activity != Activity.Hauling)
-        {
-            Outcome = IntentOutcome.Reject("hauler is not Hauling");
             return;
         }
         if (!world.Structures.TryGetValue(SourceTile, out var source))
@@ -85,8 +103,10 @@ public sealed class HaulPickupEvent : ScheduledEvent
         hauler.CargoResource = Resource;
         hauler.CargoAmount = pickup;
 
-        // Second leg: walk to destination, deposit on arrival.
-        var deposit = new HaulDepositEvent(HaulerId, DestTile);
+        // Second leg: walk to destination, deposit on arrival. Capture the
+        // hauler's *current* epoch so the deposit event fences against future
+        // retasking too.
+        var deposit = new HaulDepositEvent(HaulerId, DestTile, hauler.AssignmentEpoch);
         if (hauler.Position == DestTile)
         {
             sim.Schedule(sim.Now, deposit);
