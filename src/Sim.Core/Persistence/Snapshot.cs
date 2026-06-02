@@ -48,7 +48,7 @@ public static class Snapshot
             WriteGrid(bw, sim.World.Grid);
             WriteUnits(bw, sim.World);
             WriteStructures(bw, sim.World);
-            WriteRoads(bw, sim.World);
+            WriteRoads(bw, sim.World, sim.Now);
         }
         return ms.ToArray();
     }
@@ -331,13 +331,16 @@ public static class Snapshot
 
     // ----- roads (sparse, by y,x) ---------------------------------------
 
-    private static void WriteRoads(BinaryWriter bw, GameWorld world)
+    private static void WriteRoads(BinaryWriter bw, GameWorld world, long now)
     {
-        // Drop any zero-condition entries defensively (the system should
-        // already remove them, but the snapshot stays canonical even if a
-        // future bug leaves one in the dict).
+        // Filter by *effective* condition at `now`, not stored Condition.
+        // A road tile that's fully decayed but never been re-touched by a
+        // traversal still has stored Condition > 0 — pure-read ConditionAt
+        // returns 0 for it. Including it in the snapshot would bloat the
+        // serialized output with entries that pure-reads treat as absent.
+        // Determinism is preserved: ConditionAt is a pure read.
         var list = world.Roads
-            .Where(kv => kv.Value.Condition > 0)
+            .Where(kv => Road.ConditionAt(world, kv.Key, now) > 0)
             .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
             .ToList();
         bw.Write(list.Count);

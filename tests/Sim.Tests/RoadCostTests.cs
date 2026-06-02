@@ -120,6 +120,36 @@ public class RoadCostTests
     }
 
     [Fact]
+    public void Snapshot_OmitsFullyDecayedButUntouchedRoad()
+    {
+        // A road tile with stored Condition>0 but a LastDecayTick so old that
+        // pure-read ConditionAt(now) returns 0 should NOT round-trip — the
+        // snapshot filter is by *effective* condition, not stored value.
+        // This prevents stale entries from bloating snapshots indefinitely
+        // for tiles that decayed and were never re-touched by traffic.
+        var world = GrasslandWorld();
+        var tile = new TileCoord(1, 1);
+        world.Roads[tile] = new RoadState(condition: 50, lastDecayTick: 0);
+
+        // 10000 ticks at decay-per-period=1, period=100 → 100 decay total →
+        // 50 - 100 = clamped to 0 via ConditionAt(now=10000).
+        var sim = new Simulation(world, seed: 1);
+        // Advance Now via a no-op event.
+        sim.Schedule(10_000, new NoOp());
+        sim.Run();
+
+        var bytes = Snapshot.Serialize(sim);
+        var restored = Snapshot.Restore(bytes, seed: 1);
+        Assert.False(restored.World.Roads.ContainsKey(tile),
+            "fully-decayed-but-untouched road tile should not round-trip");
+    }
+
+    private sealed class NoOp : ScheduledEvent
+    {
+        public override void Apply(Simulation sim) { }
+    }
+
+    [Fact]
     public void Snapshot_RoundTripsRoadSet()
     {
         var world = GrasslandWorld(8, 8);
