@@ -337,15 +337,16 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | **M4** | **Persistence & recovery (anchors + `RegenerateQueue` + SQLite intent/snapshot stores + `Recovery` + host `--data-dir`)** | **✅** |
 | **M5** | **Group movement (Form / MoveGroup / Disband; solo-intent rejection on grouped units)** | **✅** |
 | **M6** | **Multi-faction & diplomacy (configurable N factions; three-state symmetric relationships; unilateral-telegraphed war + bilateral peace/ally)** | **✅** |
+| **M7** | **Combat (force-vs-force on a tile; multi-round linear-proportional; per-unit Health + Buffs seam; capture-on-death; mid-fight crash recovery)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
 
-### After M6 — the big systems
+### After M7 — the big systems
 
 These are the milestones the design doc (`persistent-rts-design.md`) calls out and that the engine is now ready for. (M5 was originally slotted as Combat; group movement landed first because the abstraction underpins both caravans and combat formations.)
 
 **M5 Phase 2 — Split / Merge / Dispatch.** Atomic group restructuring intents. Cleanest once Form is exercised in practice — the design questions ("what if a group is mid-move when split?") become concrete.
 
-**M7 — Combat.** Arrival-based engagement (§9 of design). Lands thin on top of M6's `Diplomacy.AreHostile(a, b)` gate. Same-tick combat fairness. Mid-haul cargo resolution on unit death (the capture mechanic — see `docs/diplomacy-model.md`). Combat uses Groups (M5) as the formation primitive. The hard work — multi-faction worlds + diplomatic gating — already landed in M6; this milestone is the resolution mechanics, not the meta-structure.
+**Next big system — Spawning / population.** The paired birth-rate to combat's death-rate. Combat sets units' demise; spawning sets their genesis-after-genesis. Separate milestone with its own deliberation; design questions include who spawns (factions? structures? events?), what limits the rate, and how it interacts with food/economy.
 
 **M7 — Trade.** Async trade posts (§11): list / deposit / accept / withdraw via menu UI but with goods physically moving in the sim. Caravans (multi-unit haulers built on the Group primitive) become natural here. Trade composes with roads, raids (M6), and diplomacy.
 

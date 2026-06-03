@@ -1,3 +1,4 @@
+using Sim.Core.Combat;
 using Sim.Core.Diplomacy;
 using Sim.Core.Engine;
 using Sim.Core.Groups;
@@ -236,6 +237,61 @@ public class RecoveryTests
         var recovered = Recovery.Recover(intents, snaps, Seed, targetTick: EndTickLocal);
         Assert.Equal(hashA, Snapshot.Hash(recovered));
         Assert.True(recovered.World.Diplomacy.AreHostile(0, 1));
+    }
+
+    // ---------- M7: in-progress combat survives crash+recover ----------
+
+    [Fact]
+    public void MidFightCombat_RecoveryResolvesIdentically()
+    {
+        // Build a 2-faction world with a contested tile mid-fight. Snapshot
+        // mid-battle through the durable store, drop the sim ("crash"),
+        // recover, run to natural resolution. Hash must match an
+        // uninterrupted run.
+        GenesisSpec MakeSpec() => new()
+        {
+            Width = 20, Height = 20,
+            Combat = new CombatConfig(RoundIntervalTicks: 10),
+            FactionStarts = new[]
+            {
+                new FactionStartSpec { OwnerId = 0, CastlePosition = new TileCoord(0, 0) },
+                new FactionStartSpec { OwnerId = 1, CastlePosition = new TileCoord(19, 19) },
+            },
+        };
+        const ulong LocalSeed = 0xC0F;
+        var tile = new TileCoord(10, 10);
+
+        Simulation BuildAndStart()
+        {
+            var w = Genesis.Build(MakeSpec());
+            w.Diplomacy.SetState(FactionPair.Of(0, 1), RelationshipState.Enemy);
+            for (var i = 0; i < 2; i++)
+                w.AddUnit(new Unit(100 + i, tile) { Role = UnitRole.Builder, OwnerId = 0 });
+            for (var i = 0; i < 2; i++)
+                w.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
+            var s = new Simulation(w, seed: LocalSeed);
+            CombatTrigger.MaybeBeginCombatOnTile(s, tile);
+            return s;
+        }
+
+        // Path A: uninterrupted.
+        var simA = BuildAndStart();
+        simA.Run(until: 1000);
+        var hashA = Snapshot.Hash(simA);
+
+        // Path B: snapshot mid-fight via the durable store, recover.
+        using var intents = SqliteIntentStore.OpenInMemory();
+        using var snaps   = SqliteSnapshotStore.OpenInMemory();
+
+        var simB = BuildAndStart();
+        snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(simB));
+        simB.Run(until: 30); // mid-fight (rounds at ticks 10, 20, 30)
+        Assert.True(simB.World.CombatStates.ContainsKey(tile));
+        snaps.SaveSnapshot(simB.Now, Snapshot.FormatVersion, Snapshot.Serialize(simB));
+        // sim falls out of scope = crash.
+
+        var recovered = Recovery.Recover(intents, snaps, LocalSeed, targetTick: 1000);
+        Assert.Equal(hashA, Snapshot.Hash(recovered));
     }
 
     // ---------- Helpers ----------

@@ -46,8 +46,14 @@ public sealed class HaulIntent : Intent
             return IntentOutcome.Reject($"source {SourceTile.X},{SourceTile.Y} out of bounds");
         if (!world.Grid.InBounds(DestTile))
             return IntentOutcome.Reject($"dest {DestTile.X},{DestTile.Y} out of bounds");
-        if (!world.Structures.ContainsKey(SourceTile))
-            return IntentOutcome.Reject($"no structure at source {SourceTile.X},{SourceTile.Y}");
+        // M7: source can be either a Structure OR a ground pile (capture
+        // economy — cargo dropped on the tile by a dying laden unit).
+        var hasStructureSource = world.Structures.ContainsKey(SourceTile);
+        var hasGroundSource = world.GroundResources.TryGetValue(SourceTile, out var srcPile)
+            && srcPile.ContainsKey(Resource);
+        if (!hasStructureSource && !hasGroundSource)
+            return IntentOutcome.Reject(
+                $"no source for {Resource} at {SourceTile.X},{SourceTile.Y} (no structure, no ground pile)");
         if (!world.Structures.ContainsKey(DestTile))
             return IntentOutcome.Reject($"no structure at dest {DestTile.X},{DestTile.Y}");
 

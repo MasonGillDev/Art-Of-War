@@ -48,6 +48,12 @@ public sealed class GroupArrivalEvent : ScheduledEvent
         // Group's own position follows.
         group.Position = To;
 
+        // M7: presence-gated combat trigger. The entire group lands on To
+        // in one event, so a single trigger check on the arrived tile
+        // suffices (each member's owner is already represented in the
+        // gather).
+        Sim.Core.Combat.CombatTrigger.MaybeBeginCombatOnTile(sim, To);
+
         // Pop the tile we just entered from the committed path.
         if (group.PathRemaining is not null && group.PathRemaining.Count > 0)
             group.PathRemaining.RemoveAt(0);

@@ -28,6 +28,9 @@ public sealed record GenesisSpec
     // Defaulted; tests and the host can override at world-build time.
     public Diplomacy.DiplomacyConfig Diplomacy { get; init; } = new();
 
+    // M7: world-level combat configuration (RoundIntervalTicks). Defaulted.
+    public Combat.CombatConfig Combat { get; init; } = new();
+
     public int FactionCount => FactionStarts.Count;
 }
 
@@ -67,7 +70,7 @@ public static class Genesis
         foreach (var (coord, biome) in spec.Biomes)
             grid.SetBiome(coord, biome);
 
-        var world = new GameWorld(grid, spec.Diplomacy);
+        var world = new GameWorld(grid, spec.Diplomacy, spec.Combat);
 
         // Iterate factions in OwnerId order — deterministic placement,
         // matches the snapshot canonical Players order (sorted-by-id).

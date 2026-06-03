@@ -63,20 +63,27 @@ public sealed class HaulPickupEvent : ScheduledEvent
             Outcome = IntentOutcome.Reject($"hauler not on source {SourceTile.X},{SourceTile.Y}");
             return;
         }
-        if (!world.Structures.TryGetValue(SourceTile, out var source))
-        {
-            hauler.TrySetActivity(Activity.Idle);
-            Outcome = IntentOutcome.Reject($"no structure at source {SourceTile.X},{SourceTile.Y}");
-            return;
-        }
+        // M7 — three possible sources, checked in this order:
+        //   1) Structure on tile (Storage or matching Extractor).
+        //   2) Ground pile on tile (loose cargo from a capture-on-death drop).
+        //   3) Nothing → fail clean.
+        Structure? source = null;
+        world.Structures.TryGetValue(SourceTile, out source);
 
-        // What's available?
-        var available = source switch
+        var availableFromStructure = source switch
         {
             StorageStructure ss => ss.AmountOf(Resource),
             Extractor ex when ex.Spec.OutputResource == Resource => ex.Buffer,
             _ => 0,
         };
+        var availableFromGround = 0;
+        if (availableFromStructure == 0
+            && world.GroundResources.TryGetValue(SourceTile, out var groundPile)
+            && groundPile.TryGetValue(Resource, out var groundAmount))
+        {
+            availableFromGround = groundAmount;
+        }
+        var available = availableFromStructure > 0 ? availableFromStructure : availableFromGround;
 
         var pickup = Math.Min(hauler.CargoCapacity, available);
         if (pickup == 0)
@@ -86,18 +93,28 @@ public sealed class HaulPickupEvent : ScheduledEvent
             return;
         }
 
-        // Actually withdraw. Two paths because StorageStructure and Extractor
-        // have different storage APIs.
-        switch (source)
+        // Withdraw from whichever source had stock.
+        if (availableFromStructure > 0)
         {
-            case StorageStructure ss:
-                ss.Withdraw(Resource, pickup);
-                break;
-            case Extractor ex:
-                ex.Buffer -= pickup;
-                // Phase-D hook: freeing buffer space may re-arm dormant production.
-                ex.ArmIfDormant(sim);
-                break;
+            switch (source)
+            {
+                case StorageStructure ss:
+                    ss.Withdraw(Resource, pickup);
+                    break;
+                case Extractor ex:
+                    ex.Buffer -= pickup;
+                    // Phase-D hook: freeing buffer space may re-arm dormant production.
+                    ex.ArmIfDormant(sim);
+                    break;
+            }
+        }
+        else
+        {
+            // M7 — pickup from the tile's ground pile (capture economy).
+            var pile = world.GroundResources[SourceTile];
+            var remaining = pile[Resource] - pickup;
+            if (remaining <= 0) pile.Remove(Resource); else pile[Resource] = remaining;
+            if (pile.Count == 0) world.GroundResources.Remove(SourceTile);
         }
 
         hauler.CargoResource = Resource;

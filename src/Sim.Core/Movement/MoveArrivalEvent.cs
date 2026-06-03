@@ -43,6 +43,10 @@ public sealed class MoveArrivalEvent : ScheduledEvent
         // M3 Phase B: the arrival also reveals the unit's vision radius for
         // its owner. See Vision/Sight.cs.
         Sight.Reveal(sim.World, unit.OwnerId, To, Sight.RadiusFor(unit.Role));
+        // M7: presence-gated combat trigger. Hostile-owner co-location on
+        // an arrived-at tile starts a fight; benign co-occupancy is a
+        // no-op. Already-contested tile fences inside the trigger.
+        Sim.Core.Combat.CombatTrigger.MaybeBeginCombatOnTile(sim, To);
 
         // Pop the tile we just entered from the committed path.
         // Defensive: PathRemaining should never be null/empty here on a fresh

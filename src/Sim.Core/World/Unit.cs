@@ -70,6 +70,22 @@ public sealed class Unit
     // and docs/architecture.md §8 (M5 entry).
     public int? GroupId { get; set; }
 
+    // ---- M7 combat state ----
+    // Current health. Default 0 is a sentinel for "not yet initialized";
+    // GameWorld.AddUnit auto-fills from UnitCombatCatalog at insertion
+    // time, so callers who hand-construct Units don't need to care.
+    // Snapshot.ReadUnits sets Health to the serialized value BEFORE
+    // calling AddUnit, so a damaged-to-3 unit restores to 3 (AddUnit's
+    // auto-init is a no-op when Health > 0). A unit hitting 0 is removed
+    // from world.Units in the same round (CombatRules.OnUnitDeath), so
+    // a stored unit with Health == 0 shouldn't exist in practice.
+    public int Health { get; set; }
+
+    // M7 scaffolding for armor / training / equipment / temporary effects.
+    // Empty today; the EffectivePower rollup reads through it so future
+    // buff instances modify combat power without touching the round event.
+    public List<Sim.Core.Combat.Buff> Buffs { get; } = new();
+
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 
     // The single mutation path for Activity. Intents call this rather than

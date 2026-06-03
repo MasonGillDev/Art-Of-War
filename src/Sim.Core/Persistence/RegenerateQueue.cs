@@ -55,6 +55,18 @@ public static class RegenerateQueue
             if (rel.PendingSeq is not { } seq) continue;
             sim.ScheduleWithSeq(tick, seq, new Sim.Core.Diplomacy.WarBecomesEffectiveEvent(rel.Pair));
         }
+
+        // M7: contested tiles with a pending combat round. Each tile in
+        // world.CombatStates contributes one queued CombatRoundEvent,
+        // restored at its original (NextRoundTick, NextRoundSeq).
+        var combatStates = world.CombatStates.Values
+            .OrderBy(s => s.Tile.Y).ThenBy(s => s.Tile.X)
+            .ToList();
+        foreach (var state in combatStates)
+        {
+            sim.ScheduleWithSeq(state.NextRoundTick, state.NextRoundSeq,
+                new Sim.Core.Combat.CombatRoundEvent(state.Tile));
+        }
     }
 
     private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)

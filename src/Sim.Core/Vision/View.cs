@@ -5,9 +5,13 @@ namespace Sim.Core.Vision;
 // other players' units (a viewer shouldn't know whether an enemy unit is
 // Hauling vs Idle). Own-player views fall through full detail elsewhere
 // via direct world access.
-public sealed record UnitView(int Id, TileCoord Position, UnitRole Role, int OwnerId);
+public sealed record UnitView(int Id, TileCoord Position, UnitRole Role, int OwnerId, int Health);
 
 public sealed record StructureView(TileCoord At, StructureKind Kind, int OwnerId);
+
+// M7 — public projection of an active combat. Surfaces only when the
+// contested tile is in the viewer's Visible set (fog still applies).
+public sealed record CombatView(TileCoord Tile, byte RoundNumber, long NextRoundTick);
 
 // M6 diplomatic projections. Diplomatic state is PUBLIC KNOWLEDGE — every
 // player sees every faction, every relationship, every pending war. Fog
@@ -45,7 +49,10 @@ public sealed record PlayerView(
     IReadOnlyList<FactionView> Factions,
     IReadOnlyList<RelationshipView> Relationships,
     IReadOnlyList<PendingWarView> PendingWars,
-    IReadOnlyList<ProposalView> IncomingProposals);
+    IReadOnlyList<ProposalView> IncomingProposals,
+    // M7 — contested tiles inside the viewer's Visible set. Fog still
+    // applies: combat on an explored-but-not-visible tile is hidden.
+    IReadOnlyList<CombatView> OngoingCombats);
 
 // PURE-READ WALL. Same discipline as Roads.Road.ConditionAt:
 // computed fresh from current world state on every call, NEVER mutates.
@@ -116,7 +123,7 @@ public static class View
         foreach (var u in world.Units.Values)
         {
             if (u.OwnerId == playerId || visible.Contains(u.Position))
-                visibleUnits.Add(new UnitView(u.Id, u.Position, u.Role, u.OwnerId));
+                visibleUnits.Add(new UnitView(u.Id, u.Position, u.Role, u.OwnerId, u.Health));
         }
 
         // Structures: same rule against the structure tile.
@@ -151,6 +158,14 @@ public static class View
                 p.Id, p.ProposerId, p.TargetId, p.DesiredState, p.ExpiryTick));
         }
 
+        // M7 — combats on visible tiles only (fog applies).
+        var ongoingCombats = new List<CombatView>();
+        foreach (var (tile, state) in world.CombatStates)
+        {
+            if (!visible.Contains(tile)) continue;
+            ongoingCombats.Add(new CombatView(tile, state.RoundNumber, state.NextRoundTick));
+        }
+
         return new PlayerView(
             playerId,
             visible,
@@ -161,7 +176,8 @@ public static class View
             factions,
             relationships,
             pendingWars,
-            incomingProposals);
+            incomingProposals,
+            ongoingCombats);
     }
 
     // Adds a Euclidean disc of radius `r` around `center` to `into`.

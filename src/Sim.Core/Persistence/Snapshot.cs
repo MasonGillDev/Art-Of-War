@@ -40,7 +40,9 @@ public static class Snapshot
     //   1 — M4 in-flight anchors (Unit path + haul + structure Seqs).
     //   2 — M5 groups (Unit.GroupId + GameWorld.Groups).
     //   3 — M6 diplomacy (DiplomacyConfig + Relationships + Proposals).
-    public const int FormatVersion = 3;
+    //   4 — M7 combat (Unit.Health + Buffs; GameWorld.CombatStates +
+    //       GroundResources + CombatConfig).
+    public const int FormatVersion = 4;
 
     public static string Hash(Simulation sim)
     {
@@ -64,6 +66,8 @@ public static class Snapshot
             WriteExplored(bw, sim.World);
             WriteGroups(bw, sim.World);
             WriteDiplomacy(bw, sim.World);
+            WriteCombat(bw, sim.World);
+            WriteGroundResources(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -94,6 +98,8 @@ public static class Snapshot
         ReadExplored(br, world);
         ReadGroups(br, world);
         ReadDiplomacy(br, world);
+        ReadCombat(br, world);
+        ReadGroundResources(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -198,7 +204,37 @@ public static class Snapshot
             WriteHaulPlan(bw, u.HaulPlan);
             // M5: group membership tag.
             WriteNullableInt(bw, u.GroupId);
+            // M7: combat state.
+            bw.Write(u.Health);
+            WriteBuffs(bw, u.Buffs);
         }
+    }
+
+    private static void WriteBuffs(BinaryWriter bw, IReadOnlyList<Sim.Core.Combat.Buff> buffs)
+    {
+        bw.Write(buffs.Count);
+        foreach (var b in buffs)
+        {
+            bw.Write(b.Kind);
+            bw.Write(b.PowerModifier);
+            bw.Write(b.HealthModifier);
+            WriteNullableLong(bw, b.ExpiresAt);
+        }
+    }
+
+    private static List<Sim.Core.Combat.Buff> ReadBuffs(BinaryReader br)
+    {
+        var n = br.ReadInt32();
+        var list = new List<Sim.Core.Combat.Buff>(capacity: n);
+        for (var i = 0; i < n; i++)
+        {
+            var kind = br.ReadString();
+            var pm = br.ReadInt32();
+            var hm = br.ReadInt32();
+            var exp = ReadNullableLong(br);
+            list.Add(new Sim.Core.Combat.Buff(kind, pm, hm, exp));
+        }
+        return list;
     }
 
     private static void WriteNullableInt(BinaryWriter bw, int? value)
@@ -278,6 +314,8 @@ public static class Snapshot
             var nextArrSeq = ReadNullableLong(br);
             var haulPlan = ReadHaulPlan(br);
             var groupId = ReadNullableInt(br);
+            var health = br.ReadInt32();
+            var buffs = ReadBuffs(br);
 
             var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId };
             u.CargoResource = cargoR;
@@ -289,6 +327,8 @@ public static class Snapshot
             u.NextArrivalSeq  = nextArrSeq;
             u.HaulPlan = haulPlan;
             u.GroupId  = groupId;
+            u.Health   = health;
+            foreach (var b in buffs) u.Buffs.Add(b);
             if (activity != Activity.Idle)
             {
                 // Idle is the default; only call TrySet if we actually move off it.
@@ -614,6 +654,93 @@ public static class Snapshot
             });
         }
         world.Diplomacy.RestoreNextProposalId(br.ReadInt32());
+    }
+
+    // ----- combat (M7) --------------------------------------------------
+
+    private static void WriteCombat(BinaryWriter bw, GameWorld world)
+    {
+        // Config first.
+        bw.Write(world.CombatConfig.RoundIntervalTicks);
+
+        // CombatStates in canonical (y, x) order — same shape as Roads.
+        var states = world.CombatStates
+            .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
+            .ToList();
+        bw.Write(states.Count);
+        foreach (var kv in states)
+        {
+            bw.Write(kv.Key.X);
+            bw.Write(kv.Key.Y);
+            bw.Write(kv.Value.NextRoundTick);
+            bw.Write(kv.Value.NextRoundSeq);
+            bw.Write(kv.Value.RoundNumber);
+        }
+    }
+
+    private static void ReadCombat(BinaryReader br, GameWorld world)
+    {
+        var roundInterval = br.ReadInt64();
+        world.RestoreCombatConfig(new Sim.Core.Combat.CombatConfig(roundInterval));
+
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var x = br.ReadInt32();
+            var y = br.ReadInt32();
+            var tile = new TileCoord(x, y);
+            var tick = br.ReadInt64();
+            var seq = br.ReadInt64();
+            var round = br.ReadByte();
+            var state = new Sim.Core.Combat.CombatState(tile)
+            {
+                NextRoundTick = tick,
+                NextRoundSeq = seq,
+                RoundNumber = round,
+            };
+            world.CombatStates[tile] = state;
+        }
+    }
+
+    // ----- ground resources (M7 capture economy) -----------------------
+
+    private static void WriteGroundResources(BinaryWriter bw, GameWorld world)
+    {
+        var tiles = world.GroundResources
+            .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
+            .ToList();
+        bw.Write(tiles.Count);
+        foreach (var (tile, pile) in tiles)
+        {
+            bw.Write(tile.X);
+            bw.Write(tile.Y);
+            bw.Write(pile.Count);
+            foreach (var (r, n) in pile) // SortedDictionary → Resource enum order
+            {
+                bw.Write((byte)r);
+                bw.Write(n);
+            }
+        }
+    }
+
+    private static void ReadGroundResources(BinaryReader br, GameWorld world)
+    {
+        var tileCount = br.ReadInt32();
+        for (var i = 0; i < tileCount; i++)
+        {
+            var x = br.ReadInt32();
+            var y = br.ReadInt32();
+            var tile = new TileCoord(x, y);
+            var pileCount = br.ReadInt32();
+            var pile = new SortedDictionary<Resource, int>();
+            for (var j = 0; j < pileCount; j++)
+            {
+                var r = (Resource)br.ReadByte();
+                var n = br.ReadInt32();
+                pile[r] = n;
+            }
+            world.GroundResources[tile] = pile;
+        }
     }
 
     // ----- groups (id-sorted) -------------------------------------------

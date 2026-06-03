@@ -46,25 +46,56 @@ public sealed class GameWorld
     // and every pending war.
     public Diplomacy.Diplomacy Diplomacy { get; }
 
-    public GameWorld(TileGrid grid) : this(grid, new Diplomacy.DiplomacyConfig()) { }
+    // M7 — combat config (world-level, immutable post-genesis) +
+    // per-tile contested-combat anchors + loose-tile resource piles
+    // (capture economy). All three round-trip through Snapshot at
+    // FormatVersion 4; CombatStates regenerates its event via
+    // RegenerateQueue.From on restore (same M4 pattern as the
+    // war-effective event).
+    public Combat.CombatConfig CombatConfig { get; private set; }
+    public Dictionary<TileCoord, Combat.CombatState> CombatStates { get; } = new();
+    public Dictionary<TileCoord, SortedDictionary<Resource, int>> GroundResources { get; } = new();
+
+    public GameWorld(TileGrid grid)
+        : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig()) { }
 
     public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig)
+        : this(grid, diplomacyConfig, new Combat.CombatConfig()) { }
+
+    public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig, Combat.CombatConfig combatConfig)
     {
         Grid = grid;
         Diplomacy = new Diplomacy.Diplomacy(diplomacyConfig);
+        CombatConfig = combatConfig;
     }
+
+    // Restore-only — used by Snapshot.Restore to swap in the serialized
+    // CombatConfig after the world is constructed with a placeholder.
+    internal void RestoreCombatConfig(Combat.CombatConfig config) => CombatConfig = config;
 
     public Unit AddUnit(int id, TileCoord position)
     {
         var u = new Unit(id, position);
         Units.Add(id, u);
+        InitCombatStatsIfFresh(u);
         return u;
     }
 
     public Unit AddUnit(Unit unit)
     {
         Units.Add(unit.Id, unit);
+        InitCombatStatsIfFresh(unit);
         return unit;
+    }
+
+    // M7 — auto-init Health from UnitCombatCatalog if the unit was
+    // constructed without an explicit value (Health == 0 sentinel).
+    // Snapshot.ReadUnits sets Health to the serialized value BEFORE
+    // calling AddUnit, so restored damaged units don't get reset.
+    private static void InitCombatStatsIfFresh(Unit u)
+    {
+        if (u.Health == 0)
+            u.Health = Sim.Core.Combat.UnitCombatCatalog.Spec(u.Role).BaseHealth;
     }
 
     public T AddStructure<T>(T s) where T : Structure
