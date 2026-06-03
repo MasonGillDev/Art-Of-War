@@ -250,6 +250,7 @@ Existing decision docs:
 - `extraction-model.md` — structure-gated extraction, everything-physical.
 - `intent-validation.md` — resolution-time validation contract.
 - `determinism-audit.md` — the living audit of "one mutation point" invariants.
+- `world-generation.md` — frozen-output procedural pipeline; freeze rule; water passable-but-expensive.
 
 ---
 
@@ -335,6 +336,7 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | M3 | Fog of war (owner + explored + visible + player view) + Tower | ✅ |
 | **M4 (A+B)** | **Mid-flight gap closed (anchors + RegenerateQueue + version header)** | **🟡 paused — C–F remain** |
 | **M5** | **Group movement (Form / MoveGroup / Disband; solo-intent rejection on grouped units)** | **✅** |
+| **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
 
 ### Next up — finishing M4
 
@@ -356,7 +358,7 @@ These are the milestones the design doc (`persistent-rts-design.md`) calls out a
 
 **M10 — Clients & networking.** The current `Sim.Host` is a one-shot smoke driver. M10 turns it into a real server: WebSocket / gRPC intent submission, per-player `BuildPlayerView` over the wire, push notifications (§12). This is what the M3 `BuildPlayerView` design exists to feed.
 
-**M11 — World generation.** Bigger than 10×10. Procedural biome distribution, named locations, replayable seeds. Genesis becomes a procedural pipeline rather than a hand-authored spec.
+**M11 — World generation.** Phase 1 landed: Perlin + Whittaker pipeline, frozen integer-biome output, deterministic start picker, water made passable-but-expensive so generated maps never trap the player. See `docs/world-generation.md`. Phase 2+ (larger worlds, named locations, multi-player fair start placement, post-classification feature passes) is deferred until gameplay needs it.
 
 (Order is suggested, not locked. M10 can come earlier if the user wants to drive the game from a real client. M11 can come whenever the world feels too small.)
 

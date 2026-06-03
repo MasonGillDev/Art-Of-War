@@ -24,7 +24,12 @@ public static class Biomes
         Biome.Forest => 30,
         Biome.Hills => 35,
         Biome.Mountain => 45,
-        Biome.Water => Impassable,
+        // Water is passable-but-expensive — sidesteps the entire "trapped
+        // player / pathfinding returns no route" class of generation bugs.
+        // Sane large integer (not Impassable) so A* summing it over a long
+        // crossing can't overflow. Real water mechanics (boats, swim, deep
+        // water impassable) are a later design pass.
+        Biome.Water => 250,
         // None = unset/sentinel. Treat as default Grassland-ish to avoid divide-
         // by-zero in early scenarios; flagged so a forgotten SetBiome call shows up.
         Biome.None => 10,
