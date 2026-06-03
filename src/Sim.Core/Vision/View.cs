@@ -9,18 +9,43 @@ public sealed record UnitView(int Id, TileCoord Position, UnitRole Role, int Own
 
 public sealed record StructureView(TileCoord At, StructureKind Kind, int OwnerId);
 
+// M6 diplomatic projections. Diplomatic state is PUBLIC KNOWLEDGE — every
+// player sees every faction, every relationship, every pending war. Fog
+// still hides positions and holdings; existence + diplomatic posture is
+// surfaced to all.
+public sealed record FactionView(int Id);
+public sealed record RelationshipView(
+    int LoId, int HiId,
+    Sim.Core.Diplomacy.RelationshipState State,
+    long? PendingEffectiveTick);
+public sealed record PendingWarView(int LoId, int HiId, long EffectiveTick);
+public sealed record ProposalView(
+    int Id, int ProposerId, int TargetId,
+    Sim.Core.Diplomacy.RelationshipState DesiredState,
+    long ExpiryTick);
+
 // The filtered view a player gets of the world. Visible tiles show
 // current state; explored-not-visible tiles show only remembered biome;
 // unexplored tiles are absent from both sets and from RememberedTerrain.
 // VisibleUnits / VisibleStructures include OWN entities unconditionally
 // plus any OTHER entities standing on a currently-visible tile.
+//
+// Diplomatic state (Factions / Relationships / PendingWars) is public
+// knowledge — populated identically for every PlayerView. IncomingProposals
+// is the only diplomatic field that's per-viewer scoped: offers stay
+// private to the proposer/target pair until acceptance turns them into a
+// relationship change (which is then public).
 public sealed record PlayerView(
     int PlayerId,
     IReadOnlySet<TileCoord> Visible,
     IReadOnlySet<TileCoord> Explored,
     IReadOnlyDictionary<TileCoord, Biome> RememberedTerrain,
     IReadOnlyList<UnitView> VisibleUnits,
-    IReadOnlyList<StructureView> VisibleStructures);
+    IReadOnlyList<StructureView> VisibleStructures,
+    IReadOnlyList<FactionView> Factions,
+    IReadOnlyList<RelationshipView> Relationships,
+    IReadOnlyList<PendingWarView> PendingWars,
+    IReadOnlyList<ProposalView> IncomingProposals);
 
 // PURE-READ WALL. Same discipline as Roads.Road.ConditionAt:
 // computed fresh from current world state on every call, NEVER mutates.
@@ -102,13 +127,41 @@ public static class View
                 visibleStructures.Add(new StructureView(s.At, s.Kind, s.OwnerId));
         }
 
+        // M6 diplomatic state — public knowledge for Factions / Relationships
+        // / PendingWars; only IncomingProposals is per-viewer scoped.
+        var factions = new List<FactionView>();
+        foreach (var (id, _) in world.Players)
+            factions.Add(new FactionView(id));
+
+        var relationships = new List<RelationshipView>();
+        var pendingWars = new List<PendingWarView>();
+        foreach (var (pair, rel) in world.Diplomacy.Relationships)
+        {
+            relationships.Add(new RelationshipView(
+                pair.Lo, pair.Hi, rel.State, rel.PendingEffectiveTick));
+            if (rel.PendingEffectiveTick is { } tick)
+                pendingWars.Add(new PendingWarView(pair.Lo, pair.Hi, tick));
+        }
+
+        var incomingProposals = new List<ProposalView>();
+        foreach (var (_, p) in world.Diplomacy.Proposals)
+        {
+            if (p.TargetId != playerId) continue;
+            incomingProposals.Add(new ProposalView(
+                p.Id, p.ProposerId, p.TargetId, p.DesiredState, p.ExpiryTick));
+        }
+
         return new PlayerView(
             playerId,
             visible,
             explored,
             remembered,
             visibleUnits,
-            visibleStructures);
+            visibleStructures,
+            factions,
+            relationships,
+            pendingWars,
+            incomingProposals);
     }
 
     // Adds a Euclidean disc of radius `r` around `center` to `into`.

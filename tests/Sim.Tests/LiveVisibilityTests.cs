@@ -21,8 +21,15 @@ public class LiveVisibilityTests
         var spec = new GenesisSpec
         {
             Width = 30, Height = 30,
-            CastlePosition = new TileCoord(15, 15),
-            Units = units,
+            FactionStarts = new[]
+            {
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(15, 15),
+                    UnitSpawns = units,
+                },
+            },
         };
         return Genesis.Build(spec);
     }
@@ -93,10 +100,13 @@ public class LiveVisibilityTests
         var spec = new GenesisSpec
         {
             Width = 10, Height = 10,
-            CastlePosition = new TileCoord(5, 5),
-            PlayerIds = new[] { 0, 1 },
+            FactionStarts = new[]
+            {
+                new FactionStartSpec { OwnerId = 0, CastlePosition = new TileCoord(5, 5) },
+            },
         };
         var world = Genesis.Build(spec);
+        world.Players[1] = new Player(1);
         var visible = View.VisibleTiles(world, playerId: 1);
         Assert.Empty(visible);
     }

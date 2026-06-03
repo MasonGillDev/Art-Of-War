@@ -14,19 +14,29 @@ public class PlayerViewTests
         var spec = new GenesisSpec
         {
             Width = 30, Height = 30,
-            CastlePosition = new TileCoord(5, 5),
-            PlayerIds = new[] { 0, 1 },
-            Units = new[]
+            FactionStarts = new[]
             {
-                new UnitSpawn(1, new TileCoord(5, 5), UnitRole.Builder),
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(5, 5),
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(1, new TileCoord(5, 5), UnitRole.Builder),
+                    },
+                },
+                new FactionStartSpec
+                {
+                    OwnerId = 1,
+                    CastlePosition = new TileCoord(25, 25),
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(99, new TileCoord(25, 25), UnitRole.Builder, OwnerId: 1),
+                    },
+                },
             },
         };
-        var world = Genesis.Build(spec);
-        // Hand-place a player-1 castle far away so we can test
-        // never-explored-by-player-0 territory.
-        world.AddStructure(new Castle(new TileCoord(25, 25)) { OwnerId = 1 });
-        world.AddUnit(new Unit(99, new TileCoord(25, 25)) { Role = UnitRole.Builder, OwnerId = 1 });
-        return world;
+        return Genesis.Build(spec);
     }
 
     [Fact]

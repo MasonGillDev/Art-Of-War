@@ -19,11 +19,18 @@ public class ExploredMemoryTests
     {
         Width = 20,
         Height = 20,
-        CastlePosition = new TileCoord(5, 5),
-        StartingHoldings = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
-        Units = new[]
+        FactionStarts = new[]
         {
-            new UnitSpawn(Id: 1, new TileCoord(5, 5), UnitRole.Builder),
+            new FactionStartSpec
+            {
+                OwnerId = 0,
+                CastlePosition = new TileCoord(5, 5),
+                CastleHoldings = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
+                UnitSpawns = new[]
+                {
+                    new UnitSpawn(Id: 1, new TileCoord(5, 5), UnitRole.Builder),
+                },
+            },
         },
     };
 
@@ -43,8 +50,11 @@ public class ExploredMemoryTests
     [Fact]
     public void Genesis_DoesNotRevealForOtherPlayers()
     {
-        var spec = MakeSpec() with { PlayerIds = new[] { 0, 1 } };
-        var world = Genesis.Build(spec);
+        var world = Genesis.Build(MakeSpec());
+        // Register a second player (no faction start — bare registry entry).
+        // After M6, FactionStart-less players are an unusual configuration;
+        // this test is specifically about the per-player explored isolation.
+        world.Players[1] = new Player(1);
         Assert.True(world.Explored.ContainsKey(0));
         // Player 1 owns nothing; their explored set is not yet created
         // (or, if created, empty). Either is acceptable — Vision.Reveal
@@ -131,12 +141,19 @@ public class ExploredMemoryTests
         // determinism for the same-tick reveal case.
         Simulation Run()
         {
-            var spec = MakeSpec() with
+            var baseSpec = MakeSpec();
+            var spec = baseSpec with
             {
-                Units = new[]
+                FactionStarts = new[]
                 {
-                    new UnitSpawn(1, new TileCoord(5, 5), UnitRole.Builder),
-                    new UnitSpawn(2, new TileCoord(5, 5), UnitRole.Builder),
+                    baseSpec.FactionStarts[0] with
+                    {
+                        UnitSpawns = new[]
+                        {
+                            new UnitSpawn(1, new TileCoord(5, 5), UnitRole.Builder),
+                            new UnitSpawn(2, new TileCoord(5, 5), UnitRole.Builder),
+                        },
+                    },
                 },
             };
             var world = Genesis.Build(spec);

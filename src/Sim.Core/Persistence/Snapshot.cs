@@ -39,7 +39,8 @@ public static class Snapshot
     //
     //   1 — M4 in-flight anchors (Unit path + haul + structure Seqs).
     //   2 — M5 groups (Unit.GroupId + GameWorld.Groups).
-    public const int FormatVersion = 2;
+    //   3 — M6 diplomacy (DiplomacyConfig + Relationships + Proposals).
+    public const int FormatVersion = 3;
 
     public static string Hash(Simulation sim)
     {
@@ -62,6 +63,7 @@ public static class Snapshot
             WriteRoads(bw, sim.World, sim.Now);
             WriteExplored(bw, sim.World);
             WriteGroups(bw, sim.World);
+            WriteDiplomacy(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -82,6 +84,8 @@ public static class Snapshot
 
         var (now, rngState, nextSeq) = ReadClocks(br);
         var grid = ReadGrid(br);
+        // World is constructed with a placeholder DiplomacyConfig; the real
+        // config (from the snapshot) is restored in ReadDiplomacy below.
         var world = new GameWorld(grid);
         ReadPlayers(br, world);
         ReadUnits(br, world);
@@ -89,6 +93,7 @@ public static class Snapshot
         ReadRoads(br, world);
         ReadExplored(br, world);
         ReadGroups(br, world);
+        ReadDiplomacy(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -535,6 +540,80 @@ public static class Snapshot
             var lastDecayTick = br.ReadInt64();
             world.Roads[new TileCoord(x, y)] = new RoadState(condition, lastDecayTick);
         }
+    }
+
+    // ----- diplomacy (M6) -----------------------------------------------
+
+    private static void WriteDiplomacy(BinaryWriter bw, GameWorld world)
+    {
+        var d = world.Diplomacy;
+        // Config first so it can be restored verbatim.
+        bw.Write(d.Config.Delay);
+        bw.Write(d.Config.ProposalExpiryTicks);
+
+        // Relationships in canonical pair-key order.
+        bw.Write(d.Relationships.Count);
+        foreach (var (pair, rel) in d.Relationships)
+        {
+            bw.Write(pair.Lo);
+            bw.Write(pair.Hi);
+            bw.Write((byte)rel.State);
+            WriteNullableLong(bw, rel.PendingEffectiveTick);
+            WriteNullableLong(bw, rel.PendingSeq);
+        }
+
+        // Proposals in id order.
+        bw.Write(d.Proposals.Count);
+        foreach (var (_, p) in d.Proposals)
+        {
+            bw.Write(p.Id);
+            bw.Write(p.ProposerId);
+            bw.Write(p.TargetId);
+            bw.Write((byte)p.DesiredState);
+            bw.Write(p.ExpiryTick);
+        }
+        bw.Write(d.NextProposalId);
+    }
+
+    private static void ReadDiplomacy(BinaryReader br, GameWorld world)
+    {
+        var delay = br.ReadInt64();
+        var expiry = br.ReadInt64();
+        world.Diplomacy.RestoreConfig(new Sim.Core.Diplomacy.DiplomacyConfig(delay, expiry));
+
+        var relCount = br.ReadInt32();
+        for (var i = 0; i < relCount; i++)
+        {
+            var lo = br.ReadInt32();
+            var hi = br.ReadInt32();
+            var pair = new Sim.Core.Diplomacy.FactionPair(lo, hi);
+            var state = (Sim.Core.Diplomacy.RelationshipState)br.ReadByte();
+            var pendingTick = ReadNullableLong(br);
+            var pendingSeq  = ReadNullableLong(br);
+            var rel = world.Diplomacy.GetOrCreate(pair);
+            rel.State = state;
+            rel.PendingEffectiveTick = pendingTick;
+            rel.PendingSeq = pendingSeq;
+        }
+
+        var propCount = br.ReadInt32();
+        for (var i = 0; i < propCount; i++)
+        {
+            var id = br.ReadInt32();
+            var proposer = br.ReadInt32();
+            var target = br.ReadInt32();
+            var desired = (Sim.Core.Diplomacy.RelationshipState)br.ReadByte();
+            var expiryTick = br.ReadInt64();
+            world.Diplomacy.AddProposal(new Sim.Core.Diplomacy.Proposal
+            {
+                Id = id,
+                ProposerId = proposer,
+                TargetId = target,
+                DesiredState = desired,
+                ExpiryTick = expiryTick,
+            });
+        }
+        world.Diplomacy.RestoreNextProposalId(br.ReadInt32());
     }
 
     // ----- groups (id-sorted) -------------------------------------------

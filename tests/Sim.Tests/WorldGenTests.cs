@@ -134,15 +134,22 @@ public class WorldGenTests
         {
             Width = map.Width,
             Height = map.Height,
-            CastlePosition = map.Start,
             Biomes = MapGenerator.ToBiomeOverrides(map),
-            StartingHoldings = new SortedDictionary<Resource, int>
+            FactionStarts = new[]
             {
-                [Resource.Wood] = 20,
-            },
-            Units = new[]
-            {
-                new UnitSpawn(1, map.Start, UnitRole.Builder),
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = map.Start,
+                    CastleHoldings = new SortedDictionary<Resource, int>
+                    {
+                        [Resource.Wood] = 20,
+                    },
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(1, map.Start, UnitRole.Builder),
+                    },
+                },
             },
         };
         var world = Genesis.Build(spec);

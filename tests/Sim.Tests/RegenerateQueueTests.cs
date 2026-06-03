@@ -25,16 +25,23 @@ public class RegenerateQueueTests
         {
             Width = 20,
             Height = 20,
-            CastlePosition = new TileCoord(0, 0),
-            StartingHoldings = new SortedDictionary<Resource, int>
+            FactionStarts = new[]
             {
-                [Resource.Wood] = 100,
-                [Resource.Stone] = 50,
-            },
-            Units = new[]
-            {
-                new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
-                new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(0, 0),
+                    CastleHoldings = new SortedDictionary<Resource, int>
+                    {
+                        [Resource.Wood] = 100,
+                        [Resource.Stone] = 50,
+                    },
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
+                        new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                    },
+                },
             },
         };
 

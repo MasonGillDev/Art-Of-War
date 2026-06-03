@@ -1,3 +1,4 @@
+using Sim.Core.Diplomacy;
 using Sim.Core.Engine;
 using Sim.Core.Groups;
 using Sim.Core.Logistics;
@@ -28,17 +29,24 @@ public class RecoveryTests
     private static GenesisSpec MakeSpec() => new()
     {
         Width = 20, Height = 20,
-        CastlePosition = new TileCoord(0, 0),
-        StartingHoldings = new SortedDictionary<Resource, int>
+        FactionStarts = new[]
         {
-            [Resource.Wood] = 200, [Resource.Stone] = 100,
-        },
-        Units = new[]
-        {
-            new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
-            new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
-            new UnitSpawn(3, new TileCoord(0, 0), UnitRole.Builder),
-            new UnitSpawn(4, new TileCoord(0, 0), UnitRole.Builder),
+            new FactionStartSpec
+            {
+                OwnerId = 0,
+                CastlePosition = new TileCoord(0, 0),
+                CastleHoldings = new SortedDictionary<Resource, int>
+                {
+                    [Resource.Wood] = 200, [Resource.Stone] = 100,
+                },
+                UnitSpawns = new[]
+                {
+                    new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
+                    new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                    new UnitSpawn(3, new TileCoord(0, 0), UnitRole.Builder),
+                    new UnitSpawn(4, new TileCoord(0, 0), UnitRole.Builder),
+                },
+            },
         },
     };
 
@@ -184,6 +192,50 @@ public class RecoveryTests
         var list = snaps.ListSnapshots();
         Assert.Equal(3, list.Count);
         Assert.Equal(new[] { 600L, 500L, 400L }, list.Select(s => s.Tick));
+    }
+
+    // ---------- M6: diplomacy survives crash+recover ----------
+
+    [Fact]
+    public void DeclareWar_RecoveryFiresAtCorrectTick()
+    {
+        // Build a two-faction world; declare war at tick 10; persist intents +
+        // a snapshot mid-Delay; "crash"; recover; run past effective tick.
+        // The war must take effect at the same tick an uninterrupted run hits.
+        const long Delay = 100;
+        const long EndTickLocal = 200;
+
+        GenesisSpec MakeTwoFactionSpec() => new()
+        {
+            Width = 20, Height = 20,
+            Diplomacy = new DiplomacyConfig(Delay: Delay, ProposalExpiryTicks: 300),
+            FactionStarts = new[]
+            {
+                new FactionStartSpec { OwnerId = 0, CastlePosition = new TileCoord(2, 2) },
+                new FactionStartSpec { OwnerId = 1, CastlePosition = new TileCoord(15, 15) },
+            },
+        };
+
+        // Path A: uninterrupted.
+        var simA = new Simulation(Genesis.Build(MakeTwoFactionSpec()), seed: Seed);
+        simA.SubmitIntent(10, new DeclareWarIntent(0, 1));
+        simA.Run(until: EndTickLocal);
+        var hashA = Snapshot.Hash(simA);
+
+        // Path B: snapshot mid-Delay, recover, run to EndTick.
+        using var intents = SqliteIntentStore.OpenInMemory();
+        using var snaps   = SqliteSnapshotStore.OpenInMemory();
+
+        var sim = new Simulation(Genesis.Build(MakeTwoFactionSpec()), seed: Seed);
+        snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(sim));
+        DurableSubmit.SubmitIntentDurable(sim, intents, at: 10, new DeclareWarIntent(0, 1));
+        sim.Run(until: 10 + Delay / 2); // mid-Delay
+        snaps.SaveSnapshot(sim.Now, Snapshot.FormatVersion, Snapshot.Serialize(sim));
+        // sim falls out of scope = "crash"
+
+        var recovered = Recovery.Recover(intents, snaps, Seed, targetTick: EndTickLocal);
+        Assert.Equal(hashA, Snapshot.Hash(recovered));
+        Assert.True(recovered.World.Diplomacy.AreHostile(0, 1));
     }
 
     // ---------- Helpers ----------

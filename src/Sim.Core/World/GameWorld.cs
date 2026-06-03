@@ -39,7 +39,20 @@ public sealed class GameWorld
     // docs/persistence-model.md and Vision/Vision.cs.
     public Dictionary<int, HashSet<TileCoord>> Explored { get; } = new();
 
-    public GameWorld(TileGrid grid) { Grid = grid; }
+    // M6 — per-pair diplomacy + world-level config. Genesis seeds Config
+    // from GenesisSpec; relationships start empty (every pair defaults to
+    // Neutral until a transition fires). Diplomatic state is public
+    // knowledge to all players — the PlayerView surfaces every relationship
+    // and every pending war.
+    public Diplomacy.Diplomacy Diplomacy { get; }
+
+    public GameWorld(TileGrid grid) : this(grid, new Diplomacy.DiplomacyConfig()) { }
+
+    public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig)
+    {
+        Grid = grid;
+        Diplomacy = new Diplomacy.Diplomacy(diplomacyConfig);
+    }
 
     public Unit AddUnit(int id, TileCoord position)
     {

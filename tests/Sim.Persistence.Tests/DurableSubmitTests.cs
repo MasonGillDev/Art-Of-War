@@ -15,8 +15,15 @@ public class DurableSubmitTests
         var spec = new GenesisSpec
         {
             Width = 8, Height = 8,
-            CastlePosition = new TileCoord(0, 0),
-            Units = new[] { new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder) },
+            FactionStarts = new[]
+            {
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(0, 0),
+                    UnitSpawns = new[] { new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder) },
+                },
+            },
         };
         var world = Genesis.Build(spec);
         return new Simulation(world, seed: 1);

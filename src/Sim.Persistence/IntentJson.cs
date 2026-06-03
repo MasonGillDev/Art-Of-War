@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Sim.Core.Diplomacy;
 using Sim.Core.Groups;
 using Sim.Core.Intents;
 using Sim.Core.Logistics;
@@ -39,6 +40,9 @@ public static class IntentJson
         [typeof(FormGroupIntent)]         = "FormGroupIntent",
         [typeof(MoveGroupIntent)]         = "MoveGroupIntent",
         [typeof(DisbandGroupIntent)]      = "DisbandGroupIntent",
+        [typeof(DeclareWarIntent)]            = "DeclareWarIntent",
+        [typeof(ProposeRelationshipIntent)]   = "ProposeRelationshipIntent",
+        [typeof(RespondToProposalIntent)]     = "RespondToProposalIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -65,6 +69,9 @@ public static class IntentJson
             "FormGroupIntent"        => JsonSerializer.Deserialize<FormGroupIntent>(payload, Options),
             "MoveGroupIntent"        => JsonSerializer.Deserialize<MoveGroupIntent>(payload, Options),
             "DisbandGroupIntent"     => JsonSerializer.Deserialize<DisbandGroupIntent>(payload, Options),
+            "DeclareWarIntent"             => JsonSerializer.Deserialize<DeclareWarIntent>(payload, Options),
+            "ProposeRelationshipIntent"    => JsonSerializer.Deserialize<ProposeRelationshipIntent>(payload, Options),
+            "RespondToProposalIntent"      => JsonSerializer.Deserialize<RespondToProposalIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

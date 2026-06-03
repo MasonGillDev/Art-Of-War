@@ -30,19 +30,26 @@ static GenesisSpec MakeSpec()
         Width = 10,
         Height = 10,
         Biomes = biomes,
-        CastlePosition = new TileCoord(0, 0),
-        StartingHoldings = new SortedDictionary<Resource, int>
+        FactionStarts = new[]
         {
-            [Resource.Wood] = 40,
-            [Resource.Stone] = 20,
-            [Resource.Food] = 10,
-        },
-        Units = new[]
-        {
-            new UnitSpawn(Id: 1, new TileCoord(0, 0), UnitRole.Builder),
-            new UnitSpawn(Id: 2, new TileCoord(3, 3), UnitRole.Builder),    // builds the camp
-            new UnitSpawn(Id: 3, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
-            new UnitSpawn(Id: 4, new TileCoord(3, 3), UnitRole.Lumberjack), // staffs the camp post-build
+            new FactionStartSpec
+            {
+                OwnerId = 0,
+                CastlePosition = new TileCoord(0, 0),
+                CastleHoldings = new SortedDictionary<Resource, int>
+                {
+                    [Resource.Wood] = 40,
+                    [Resource.Stone] = 20,
+                    [Resource.Food] = 10,
+                },
+                UnitSpawns = new[]
+                {
+                    new UnitSpawn(Id: 1, new TileCoord(0, 0), UnitRole.Builder),
+                    new UnitSpawn(Id: 2, new TileCoord(3, 3), UnitRole.Builder),    // builds the camp
+                    new UnitSpawn(Id: 3, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                    new UnitSpawn(Id: 4, new TileCoord(3, 3), UnitRole.Lumberjack), // staffs the camp post-build
+                },
+            },
         },
     };
 }
@@ -340,15 +347,22 @@ static class GeneratedDemo
         {
             Width = map.Width,
             Height = map.Height,
-            CastlePosition = map.Start,
             Biomes = MapGenerator.ToBiomeOverrides(map),
-            StartingHoldings = new SortedDictionary<Resource, int>
+            FactionStarts = new[]
             {
-                [Resource.Wood] = 20,
-            },
-            Units = new[]
-            {
-                new UnitSpawn(1, map.Start, UnitRole.Builder),
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = map.Start,
+                    CastleHoldings = new SortedDictionary<Resource, int>
+                    {
+                        [Resource.Wood] = 20,
+                    },
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(1, map.Start, UnitRole.Builder),
+                    },
+                },
             },
         };
         var world = Genesis.Build(spec);
@@ -480,15 +494,22 @@ static class PersistentDemo
         var spec = new GenesisSpec
         {
             Width = 20, Height = 20,
-            CastlePosition = new TileCoord(0, 0),
-            StartingHoldings = new SortedDictionary<Resource, int>
+            FactionStarts = new[]
             {
-                [Resource.Wood] = 100,
-            },
-            Units = new[]
-            {
-                new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
-                new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(0, 0),
+                    CastleHoldings = new SortedDictionary<Resource, int>
+                    {
+                        [Resource.Wood] = 100,
+                    },
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
+                        new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                    },
+                },
             },
         };
         var world = Genesis.Build(spec);

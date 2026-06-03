@@ -336,15 +336,16 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | M3 | Fog of war (owner + explored + visible + player view) + Tower | ✅ |
 | **M4** | **Persistence & recovery (anchors + `RegenerateQueue` + SQLite intent/snapshot stores + `Recovery` + host `--data-dir`)** | **✅** |
 | **M5** | **Group movement (Form / MoveGroup / Disband; solo-intent rejection on grouped units)** | **✅** |
+| **M6** | **Multi-faction & diplomacy (configurable N factions; three-state symmetric relationships; unilateral-telegraphed war + bilateral peace/ally)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
 
-### After M5 — the big systems
+### After M6 — the big systems
 
 These are the milestones the design doc (`persistent-rts-design.md`) calls out and that the engine is now ready for. (M5 was originally slotted as Combat; group movement landed first because the abstraction underpins both caravans and combat formations.)
 
 **M5 Phase 2 — Split / Merge / Dispatch.** Atomic group restructuring intents. Cleanest once Form is exercised in practice — the design questions ("what if a group is mid-move when split?") become concrete.
 
-**M6 — Combat.** Arrival-based engagement (§9 of design). Three-state diplomacy (Enemy / Neutral / Ally, §10) with telegraphed escalation. Same-tick combat fairness. Mid-haul cargo resolution on unit death. Combat uses Groups as the formation primitive. **Needs persistence solid** (which is why M4 came first); combat explodes in-flight state.
+**M7 — Combat.** Arrival-based engagement (§9 of design). Lands thin on top of M6's `Diplomacy.AreHostile(a, b)` gate. Same-tick combat fairness. Mid-haul cargo resolution on unit death (the capture mechanic — see `docs/diplomacy-model.md`). Combat uses Groups (M5) as the formation primitive. The hard work — multi-faction worlds + diplomatic gating — already landed in M6; this milestone is the resolution mechanics, not the meta-structure.
 
 **M7 — Trade.** Async trade posts (§11): list / deposit / accept / withdraw via menu UI but with goods physically moving in the sim. Caravans (multi-unit haulers built on the Group primitive) become natural here. Trade composes with roads, raids (M6), and diplomacy.
 

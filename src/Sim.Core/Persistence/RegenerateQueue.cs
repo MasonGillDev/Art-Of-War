@@ -45,6 +45,16 @@ public static class RegenerateQueue
         // GroupArrivalEvent based on its anchor.
         foreach (var (_, group) in world.Groups)
             RegenerateGroupMoveAnchor(sim, group);
+
+        // M6: relationships with pending hostile transitions. Each contributes
+        // at most one queued WarBecomesEffectiveEvent. Iterated in canonical
+        // pair-key order (SortedDictionary).
+        foreach (var rel in world.Diplomacy.Relationships.Values)
+        {
+            if (rel.PendingEffectiveTick is not { } tick) continue;
+            if (rel.PendingSeq is not { } seq) continue;
+            sim.ScheduleWithSeq(tick, seq, new Sim.Core.Diplomacy.WarBecomesEffectiveEvent(rel.Pair));
+        }
     }
 
     private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)
