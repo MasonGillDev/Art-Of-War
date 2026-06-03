@@ -2,8 +2,11 @@
   <Folder Name="/src/">
     <Project Path="src/Sim.Core/Sim.Core.csproj" />
     <Project Path="src/Sim.Host/Sim.Host.csproj" />
+    <Project Path="src/Sim.Persistence/Sim.Persistence.csproj" />
+    <Project Path="src/Sim.Server/Sim.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sim.Tests/Sim.Tests.csproj" />
+    <Project Path="tests/Sim.Persistence.Tests/Sim.Persistence.Tests.csproj" />
   </Folder>
 </Solution>

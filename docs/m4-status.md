@@ -1,8 +1,25 @@
-# M4 — Persistence & Recovery (status: paused after Phase B)
+# M4 — Persistence & Recovery (COMPLETE — 2026-06-03)
 
 ## Where we are
 
-**Phases A+B complete; C–F remain.** The architectural contract that the rest of M4 hangs from is proven in tests. Picking this back up is mechanical from here — Phases C–F are durable backing + host wiring, not new architecture.
+**M4 done end-to-end.** Phases A+B closed the architectural gap (anchors +
+`RegenerateQueue`); Phases C–F shipped the durable backing layer (SQLite
+intent log + snapshot store + `Recovery.Recover` + host `--data-dir` mode +
+operator docs + closure-gate test).
+
+The in-flight snapshot gap that was carried since the haul milestone is
+fully resolved. The closure-gate test
+(`RecoveryTests.CrashRecoveryMatchesUninterrupted`) and the insulation
+proof (`RecoveryTests.PreSnapshotIntentsCanBeDeleted_StillRecovers`) are
+green; the host `--data-dir` mode round-trips cold-start → recover with
+identical hashes.
+
+See `docs/persistence-demo.md` for the human-runnable walkthrough.
+
+The notes below are kept for historical context (what landed in A+B vs
+what was deferred to C–F).
+
+## Original Phase A+B framing (kept for context)
 
 ## The headline contract — proven
 

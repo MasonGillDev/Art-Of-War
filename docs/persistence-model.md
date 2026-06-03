@@ -3,12 +3,49 @@
 ## Decision
 
 The durable source of truth for the simulation is the **intent log** — the
-append-only record of player commands. Periodic **snapshots** are the recovery
-anchor: on restart, recovery loads the most recent snapshot and replays only
-the intent tail written after it. Resolved events (the consequences of intents)
-are kept in memory for debugging and tests but are **not** durably persisted.
+append-only record of player commands. Periodic **pure-state snapshots**
+are the recovery anchor: on restart, recovery loads the most recent
+snapshot, **regenerates the in-flight event queue** from per-entity anchors
+inside the snapshot (`RegenerateQueue.From`), then **replays only the
+intent tail** written after the snapshot. Resolved events (the consequences
+of intents) are kept in memory for debugging and tests but are **not**
+durably persisted.
 
-## The in-flight correctness gap (load-bearing — headline of the persistence milestone)
+> **Recovery = snapshot + RegenerateQueue + intent-tail.** The earlier
+> framing of "snapshot + intent-tail alone" was incomplete — in-flight
+> events were scheduled by intents issued BEFORE the snapshot, so the
+> tail alone can't reconstruct them. The snapshot's per-entity anchors
+> (`Unit.NextArrivalTick/Seq`, `Extractor.NextProductionTickSeq`,
+> `ConstructionSite.BuildCompleteSeq`, plus the M5 `Group` anchors) carry
+> exactly enough to re-schedule the pending events with their original
+> Seqs. `RegenerateQueue.From` does the reconstruction.
+
+## The in-flight correctness gap — **CLOSED** (M4, 2026-06-03)
+
+The gap described below was the headline correctness item carried since the
+haul milestone. It is now resolved in code:
+
+- **M4 Phases A+B** added per-entity anchors and `RegenerateQueue.From`,
+  so `Snapshot.Restore` reconstructs the full in-flight event queue from
+  pure state. The mid-flight snapshot round-trip test
+  (`MidFlightSnapshotTests.MidFlightSnapshot_RestoreRun_MatchesUninterrupted`)
+  pins this.
+- **M4 Phases C–F** added the durable SQLite-backed intent log + snapshot
+  store + `Recovery.Recover` orchestrator + host `--data-dir` mode. The
+  closure-gate test
+  (`RecoveryTests.CrashRecoveryMatchesUninterrupted`) confirms that a
+  scenario with concurrent in-flight processes (mid-walk, mid-haul,
+  mid-production, mid-group-formation) recovers from a SIM-LEVEL crash
+  via snapshot store + intent-tail replay and reaches the *identical*
+  hash an uninterrupted run produces.
+- **Insulation proven**: deleting every pre-snapshot intent from the log
+  before recovery still works
+  (`RecoveryTests.PreSnapshotIntentsCanBeDeleted_StillRecovers`) — live
+  recovery anchors on the snapshot, not on genesis.
+
+The historical framing of the gap is kept below for context.
+
+## The in-flight correctness gap (historical framing)
 
 A snapshot alone preserves *static* world state: tile biomes, structure
 holdings, unit positions and activities, RNG state, the sim clock. What it
@@ -174,6 +211,42 @@ what's built:
   per-shard invariant with explicit cross-shard event protocols. Intent-log-as-
   truth survives sharding because intents are addressed to entities owned by
   exactly one shard.
+
+## Operator playbook
+
+### Snapshot-on-deploy
+
+The two-guard discipline (snapshot-on-deploy as a release step + version
+header refusal) closes the patch-rewrites-history window:
+
+```
+1. quiesce:    stop accepting new intents
+2. snapshot:   take a snapshot under the OLD code (drains in-flight events
+               into anchors; produces a blob whose contents the old binary
+               understands)
+3. deploy:     replace the binary with the NEW build
+4. restore:    new binary's Recover() reads the snapshot; its
+               FormatVersion check passes if the new build is forward-
+               compatible, refuses if not (see below)
+5. resume:     intent intake unfrozen; world continues
+```
+
+Skip the snapshot step at your peril: if you deploy without quiescing,
+in-flight intents written under the old binary's logic re-derive under
+the new code's logic — silent history rewrite.
+
+### Version-mismatch behavior
+
+`Snapshot.FormatVersion` is bumped any time the on-disk layout changes
+incompatibly. `Snapshot.Restore` (and therefore `Recovery.Recover`) reads
+the version header after the magic; mismatched version throws
+`InvalidDataException` with a message pointing at this section.
+
+Today there is no automatic forward migration — the message tells the
+operator to run snapshot-on-deploy under the producing code's version,
+which materializes the world as static state that the new binary can
+re-serialize fresh. Multi-version migration tooling is deferred until the
+operational pain justifies the matrix.
 
 ## Reference
 

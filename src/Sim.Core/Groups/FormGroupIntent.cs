@@ -19,6 +19,7 @@ public sealed class FormGroupIntent : Intent
     public IReadOnlyList<int> UnitIds { get; }
     public TileCoord RendezvousTile { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public FormGroupIntent(IReadOnlyList<int> unitIds, TileCoord rendezvousTile)
     {
         UnitIds = unitIds;

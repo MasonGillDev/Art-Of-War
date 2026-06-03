@@ -334,13 +334,9 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | M1 | Logistics loop (build → staff → produce → haul → build) | ✅ |
 | M2 | Emergent roads (traffic → condition → cost) + move-on-busy + epoch fencing | ✅ |
 | M3 | Fog of war (owner + explored + visible + player view) + Tower | ✅ |
-| **M4 (A+B)** | **Mid-flight gap closed (anchors + RegenerateQueue + version header)** | **🟡 paused — C–F remain** |
+| **M4** | **Persistence & recovery (anchors + `RegenerateQueue` + SQLite intent/snapshot stores + `Recovery` + host `--data-dir`)** | **✅** |
 | **M5** | **Group movement (Form / MoveGroup / Disband; solo-intent rejection on grouped units)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
-
-### Next up — finishing M4
-
-Phases C–F per `docs/m4-status.md`. SQLite-backed durable intent log + snapshot store + recovery orchestrator + crash-safety + persistent host. The architecture's done; this is implementation + tests.
 
 ### After M5 — the big systems
 

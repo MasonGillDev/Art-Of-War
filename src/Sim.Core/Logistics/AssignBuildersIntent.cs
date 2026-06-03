@@ -19,6 +19,7 @@ public sealed class AssignBuildersIntent : Intent
     public TileCoord SiteTile { get; }
     public IReadOnlyList<int> BuilderIds { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public AssignBuildersIntent(TileCoord siteTile, IReadOnlyList<int> builderIds)
     {
         SiteTile = siteTile;

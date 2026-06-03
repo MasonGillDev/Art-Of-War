@@ -67,6 +67,11 @@ public sealed class Simulation
     // the public sim contract.
     internal IReadOnlyList<ScheduledEvent> QueuedEventsSnapshot() => _queue.SnapshotInOrder();
 
+    // How many events are currently queued. Public read — benign for hosts
+    // and clients to display ("resumed with N in-flight events"). Reads
+    // nothing privileged.
+    public int QueuedEventCount => _queue.Count;
+
     public void Run(long? until = null)
     {
         while (_queue.Count > 0)

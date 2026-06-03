@@ -20,6 +20,7 @@ public sealed class HaulIntent : Intent
     public TileCoord DestTile { get; }
     public Resource Resource { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public HaulIntent(int haulerId, TileCoord sourceTile, TileCoord destTile, Resource resource)
     {
         HaulerId = haulerId;

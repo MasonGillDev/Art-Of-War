@@ -18,6 +18,7 @@ public sealed class MoveGroupIntent : Intent
     public int GroupId { get; }
     public TileCoord Destination { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public MoveGroupIntent(int groupId, TileCoord destination)
     {
         GroupId = groupId;

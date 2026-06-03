@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sim.Core\Sim.Core.csproj" />
+    <ProjectReference Include="..\Sim.Persistence\Sim.Persistence.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

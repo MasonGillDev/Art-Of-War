@@ -15,6 +15,7 @@ public sealed class UnassignWorkersIntent : Intent
     public TileCoord StructureTile { get; }
     public IReadOnlyList<int> WorkerIds { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public UnassignWorkersIntent(TileCoord structureTile, IReadOnlyList<int> workerIds)
     {
         StructureTile = structureTile;

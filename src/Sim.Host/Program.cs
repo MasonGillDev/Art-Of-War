@@ -6,6 +6,7 @@ using Sim.Core.Persistence;
 using Sim.Core.Roads;
 using Sim.Core.World;
 using Sim.Core.WorldGen;
+using Sim.Persistence;
 
 // Phase-D smoke: M0 walk + Phase-C build + Phase-D production.
 //
@@ -168,8 +169,14 @@ static void Print(string label, Simulation sim)
 // stable regression target).
 var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
+var dataDirIdx = Array.IndexOf(args, "--data-dir");
+var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
-if (groupsDemo)
+if (persistentDemo)
+{
+    PersistentDemo.Run(args[dataDirIdx + 1]);
+}
+else if (groupsDemo)
 {
     GroupDemo.Run();
 }
@@ -381,5 +388,126 @@ static class GeneratedDemo
             sb.AppendLine();
         }
         Console.Write(sb.ToString());
+    }
+}
+
+// M4 Phase E — persistent host mode. Usage:
+//
+//   dotnet run --project src/Sim.Host -- --data-dir /tmp/aow-demo
+//
+// On start:
+//   * If <data-dir>/sim.db exists and has a snapshot: Recover from it +
+//     intent tail. Prints "Recovered at tick T; resumed with N in-flight
+//     events."
+//   * Else: Genesis seeds a small scenario, an initial snapshot is taken,
+//     and a scripted set of intents is submitted durably.
+//
+// Main loop advances the sim in small batches, snapshotting on the
+// configured cadence (5000 ticks OR 100 intents). SIGTERM (or Ctrl+C)
+// triggers a clean shutdown: the current event finishes, a final snapshot
+// is taken, and the process exits.
+//
+// The demo's scenario is intentionally long-running so a human can SIGKILL
+// the process mid-flight and restart to observe recovery. For automated
+// runs, the `--target-tick N` flag stops cleanly at tick N.
+static class PersistentDemo
+{
+    const long DefaultTargetTick = 5000;
+    const ulong Seed = 0xA0F;
+
+    public static void Run(string dataDir)
+    {
+        Directory.CreateDirectory(dataDir);
+        var dbPath = Path.Combine(dataDir, "sim.db");
+        var snapDbPath = Path.Combine(dataDir, "snapshots.db");
+
+        using var intentStore = SqliteIntentStore.Open(dbPath);
+        using var snapStore   = SqliteSnapshotStore.Open(snapDbPath);
+
+        Simulation sim;
+        if (snapStore.LoadLatest() is not null)
+        {
+            sim = Recovery.Recover(intentStore, snapStore, Seed);
+            var inFlight = sim.QueuedEventCount;
+            Console.WriteLine(
+                $"Recovered at tick {sim.Now}; resumed with {inFlight} in-flight events.");
+        }
+        else
+        {
+            sim = ColdStart(intentStore, snapStore);
+            Console.WriteLine(
+                $"Genesis seeded at {dataDir}; initial snapshot at tick 0.");
+        }
+
+        var cadence = new SnapshotCadence();
+        var shutdown = new ManualResetEventSlim(false);
+        using var sigterm = System.Runtime.InteropServices.PosixSignalRegistration.Create(
+            System.Runtime.InteropServices.PosixSignal.SIGTERM, _ => shutdown.Set());
+        using var sigint = System.Runtime.InteropServices.PosixSignalRegistration.Create(
+            System.Runtime.InteropServices.PosixSignal.SIGINT, c => { c.Cancel = true; shutdown.Set(); });
+
+        const long batch = 100;
+        while (sim.Now < DefaultTargetTick && !shutdown.IsSet)
+        {
+            var nextTick = Math.Min(sim.Now + batch, DefaultTargetTick);
+            var preNow = sim.Now;
+            sim.Run(until: nextTick);
+            cadence.AccumulateTicks(sim.Now - preNow);
+            if (cadence.ShouldSnapshot())
+            {
+                snapStore.SaveSnapshot(sim.Now, Snapshot.FormatVersion, Snapshot.Serialize(sim));
+                cadence.Reset();
+                Console.WriteLine($"  [tick {sim.Now}] snapshot saved.");
+            }
+            if (sim.Now == preNow) break; // queue empty
+        }
+
+        // Final snapshot on the way out — clean shutdown always leaves a
+        // recoverable state.
+        snapStore.SaveSnapshot(sim.Now, Snapshot.FormatVersion, Snapshot.Serialize(sim));
+        Console.WriteLine(
+            shutdown.IsSet
+                ? $"Shutdown requested; final snapshot at tick {sim.Now}."
+                : $"Target tick reached; final snapshot at tick {sim.Now}.");
+        Console.WriteLine($"Final hash: {Snapshot.Hash(sim)}");
+    }
+
+    // Cold-start: builds a fresh world and submits a script of intents
+    // durably. The scenario stays small and predictable so recovery is
+    // easy to reason about by hand.
+    static Simulation ColdStart(IIntentStore intents, ISnapshotStore snaps)
+    {
+        var spec = new GenesisSpec
+        {
+            Width = 20, Height = 20,
+            CastlePosition = new TileCoord(0, 0),
+            StartingHoldings = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 100,
+            },
+            Units = new[]
+            {
+                new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
+                new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+            },
+        };
+        var world = Genesis.Build(spec);
+        // Pre-place a stockpile for the hauler to walk to.
+        var stockpile = world.AddStructure(new Stockpile(new TileCoord(15, 0)) { OwnerId = 0 });
+        stockpile.Deposit(Resource.Wood, 50);
+
+        var sim = new Simulation(world, seed: Seed);
+        // Initial snapshot (BEFORE intents — so intent log replay handles
+        // the seed-time submissions just as it would post-crash).
+        snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(sim));
+
+        // Two long-running intents that overlap. Both get logged AND
+        // applied via the durable path.
+        DurableSubmit.SubmitIntentDurable(sim, intents, 0,
+            new MoveIntent(1, new TileCoord(18, 18)));
+        DurableSubmit.SubmitIntentDurable(sim, intents, 0,
+            new HaulIntent(2, new TileCoord(15, 0), new TileCoord(0, 0), Resource.Wood));
+
+        return sim;
     }
 }

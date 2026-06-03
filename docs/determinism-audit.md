@@ -273,6 +273,81 @@ M4 headline contract (mid-flight snapshot+restore = uninterrupted hash)
 extends to groups, proven by
 `GroupMovementTests.MovingGroup_SnapshotMidFlight_RestoreReachesSameHash`.
 
+## Persistence addendum (M4 — completed 2026-06-03)
+
+M4 added durable storage (SQLite intent log + snapshot store) and the
+`Recovery` orchestrator. The audit confirms the invariants that protect
+the durability contract.
+
+### Durable artifacts have schema-stable formats only
+
+| Artifact | Format | Schema stability |
+|---|---|---|
+| Intents | JSON via `System.Text.Json` with the hand-written `IntentJson` type-name registry | Stable — type-names are frozen at first ship; class-shape changes that don't break JSON round-trip are safe |
+| Snapshots | Binary, magic + 4-byte `FormatVersion` + canonical state encoding | Forward-compatibility via version refusal: `Snapshot.Restore` throws on mismatch, operator runs snapshot-on-deploy |
+
+```bash
+grep -rn "class.*: Intent\b" src/Sim.Core/
+# every intent class above appears in IntentJson.TypeNames + IntentJson.Deserialize.
+```
+
+**No `ScheduledEvent` subclass appears in any durable format.** Events are
+derived from `state × code`; persisting them would lock the durable store
+to specific event types and break the M4 architectural promise.
+
+```bash
+grep -rn "ScheduledEvent" src/Sim.Persistence/
+# returns only references in the Recovery orchestration path (sim.SubmitIntent
+# schedules IntentEvent internally); no event types serialized.
+```
+
+### `Simulation.ScheduleWithSeq` has exactly one production caller
+
+```bash
+grep -rn "ScheduleWithSeq" src/
+```
+
+| File | Site | Verdict |
+|---|---|---|
+| `Engine/Simulation.cs` | Definition | — |
+| `Persistence/RegenerateQueue.cs` (3 calls) | Reconstructing in-flight events from anchors | Allowed — the only production caller |
+| `tests/` | Test access via `InternalsVisibleTo` | Allowed |
+
+Live code uses `Simulation.Schedule(at, e)` (consumes the next monotonic
+`Seq`). `ScheduleWithSeq` exists solely to preserve original `Seq` values
+during recovery; if a future feature is tempted to call it directly,
+that's an architecture smell — file a decision doc instead.
+
+### `Recovery.Recover` anchors on the snapshot, not on genesis
+
+The insulation property is enforced by
+`RecoveryTests.PreSnapshotIntentsCanBeDeleted_StillRecovers`. The test
+deletes every intent with `tick <= snapshot.tick` from the durable log
+before calling `Recover`; recovery still completes successfully and
+reaches the uninterrupted hash. This proves that pre-snapshot intents are
+not load-bearing for live recovery — only for debug-mode genesis replay.
+
+### In-flight anchor fields are written only by event-driven sites
+
+The M4 anchors (`Unit.PathRemaining`, `Unit.NextArrivalTick/Seq`,
+`Unit.HaulPlan`, `Extractor.NextProductionTickSeq`,
+`ConstructionSite.BuildCompleteSeq`, `Group.PathRemaining`,
+`Group.NextArrivalTick/Seq`) are written exclusively from:
+
+- `MoveIntent.Resolve` / `MoveIntent.BeginMove` (movement anchor set on
+  command)
+- `MoveArrivalEvent.Apply` (per-hop pop + next-hop schedule)
+- `Extractor.ArmIfDormant` + `ProductionTickEvent.Apply`
+- `ConstructionSite.StartOrResume` + `ConstructionSite.Pause`
+- `HaulIntent.Resolve` / `HaulPickupEvent.Apply` / `HaulDepositEvent.Apply`
+- `FormGroupIntent` / `MoveGroupIntent` / `GroupArrivalEvent.Apply`
+- `Snapshot.Restore` (read-back from the snapshot blob)
+- `RegenerateQueue.From` (read-only — never writes back; only reads to
+  re-schedule)
+
+No view, no pure-read path, no host code outside the event-driven sites
+writes these fields.
+
 ## What would break these invariants and require re-running this audit
 
 Re-run the greps above when any of the following lands:
@@ -318,6 +393,23 @@ Re-run the greps above when any of the following lands:
 - **A new intent that targets a Unit** — must add the
   `unit.GroupId is not null` rejection check (consistent with §M5
   audit).
+- **A new `Intent` subclass** — must (a) be added to
+  `IntentJson.TypeNames` AND `IntentJson.Deserialize` with a frozen
+  type-name, (b) be `[JsonConstructor]`-annotated for round-trip,
+  (c) be exercised by `IntentStoreTests.RoundTrip_EveryIntentType` or
+  the equivalent. Skipping any of these breaks durability silently
+  (intent submitted live but unrecoverable from the log).
+- **A new in-flight anchor on an entity** — must (a) be serialized in
+  `Snapshot.cs`, (b) regenerated in `RegenerateQueue.From`, (c) cleared
+  to its sentinel ("not in flight") value when the process completes,
+  (d) be exercised by the M4 closure-gate test or an analogue. Anchors
+  that aren't cleared on completion will trigger phantom events on
+  next restore.
+- **A change to `Snapshot.FormatVersion`** — bump the constant, write
+  a one-paragraph entry in this audit describing what changed and the
+  operator's migration path. The version refusal in `Snapshot.Restore`
+  will already keep mismatched binaries from corrupting state; the
+  audit captures the *intent* of the bump.
 
 ## Reference
 

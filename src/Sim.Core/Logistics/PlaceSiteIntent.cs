@@ -16,6 +16,7 @@ public sealed class PlaceSiteIntent : Intent
     public TileCoord Tile { get; }
     public StructureKind Kind { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public PlaceSiteIntent(TileCoord tile, StructureKind kind)
     {
         Tile = tile;

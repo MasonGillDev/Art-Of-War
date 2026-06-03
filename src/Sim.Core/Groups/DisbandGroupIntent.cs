@@ -16,6 +16,7 @@ public sealed class DisbandGroupIntent : Intent
 {
     public int GroupId { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public DisbandGroupIntent(int groupId) { GroupId = groupId; }
 
     public override IntentOutcome Resolve(Simulation sim)

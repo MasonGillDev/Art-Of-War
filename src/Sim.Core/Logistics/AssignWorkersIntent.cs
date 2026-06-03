@@ -21,6 +21,7 @@ public sealed class AssignWorkersIntent : Intent
     public TileCoord StructureTile { get; }
     public IReadOnlyList<int> WorkerIds { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public AssignWorkersIntent(TileCoord structureTile, IReadOnlyList<int> workerIds)
     {
         StructureTile = structureTile;

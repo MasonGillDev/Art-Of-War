@@ -5,6 +5,7 @@ public sealed class MoveIntent : Intent
     public int UnitId { get; }
     public TileCoord Destination { get; }
 
+    [System.Text.Json.Serialization.JsonConstructor]
     public MoveIntent(int unitId, TileCoord destination)
     {
         UnitId = unitId;

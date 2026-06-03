@@ -10,6 +10,11 @@
     <!-- Tests reach internal hooks (e.g. Extractor.ArmIfDormant, Rng.SetState)
          that aren't part of the public sim contract. -->
     <InternalsVisibleTo Include="Sim.Tests" />
+    <!-- Sim.Persistence is a trusted extension of Sim.Core's durability
+         story (Simulation.NextSeq for log-then-apply, ScheduleWithSeq for
+         queue regeneration). Keeps these out of the public sim contract. -->
+    <InternalsVisibleTo Include="Sim.Persistence" />
+    <InternalsVisibleTo Include="Sim.Persistence.Tests" />
   </ItemGroup>
 
   <ItemGroup>
