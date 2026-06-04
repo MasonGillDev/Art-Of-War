@@ -23,7 +23,7 @@ public static class Biomes
     {
         Biome.Grassland => 10,
         Biome.Forest => 30,
-        Biome.Hills => 35,
+        Biome.Hills => 25,
         Biome.Mountain => 45,
         // Water is passable-but-expensive — sidesteps the entire "trapped
         // player / pathfinding returns no route" class of generation bugs.
