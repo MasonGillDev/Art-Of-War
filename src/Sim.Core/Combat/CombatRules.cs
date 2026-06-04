@@ -103,5 +103,10 @@ public static class CombatRules
 
         // 4. Remove from world.
         world.Units.Remove(unit.Id);
+
+        // 5. M8: notify population layer (Phase E). If the removed unit was
+        //    a breeding parent, this stops the breeding and frees the
+        //    survivor. Combat code never names Breeding directly.
+        Sim.Core.Population.Population.OnUnitRemoved(sim, unit);
     }
 }

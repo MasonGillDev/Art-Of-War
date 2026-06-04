@@ -75,6 +75,7 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         StructureKind.Mine       => new Extractor(StructureKind.Mine, at) { OwnerId = ownerId },
         StructureKind.Farm       => new Extractor(StructureKind.Farm, at) { OwnerId = ownerId },
         StructureKind.Tower      => new Tower(at) { OwnerId = ownerId },
+        StructureKind.House      => new House(at) { OwnerId = ownerId },
         _ => throw new InvalidOperationException(
             $"BuildCompleteEvent has no constructor for {kind} — extend BuildStructure when a new player-buildable kind lands."),
     };

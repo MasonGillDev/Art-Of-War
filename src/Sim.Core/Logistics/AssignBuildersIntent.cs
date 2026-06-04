@@ -40,6 +40,9 @@ public sealed class AssignBuildersIntent : Intent
             if (unit.Position != SiteTile) continue;
             if (unit.Role != UnitRole.Builder) continue;
             if (unit.Activity != Activity.Idle) continue;
+            // M8: training-age gate — children (< MinTrainAge) can't be
+            // assigned a role-required task. They can still move + haul.
+            if (!Sim.Core.Population.Population.CanTrain(unit, sim.Now, world.PopulationConfig)) continue;
             if (!unit.TrySetActivity(Activity.Building, SiteTile)) continue;
             assigned++;
         }

@@ -11,4 +11,5 @@ public enum StructureKind : byte
     Quarry = 6,
     Mine = 7,
     Farm = 8,
+    House = 9, // M8 — breeding structure
 }

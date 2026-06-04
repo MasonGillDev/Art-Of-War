@@ -112,6 +112,18 @@ public static class StructureCatalog
             RequiredBuilderCount = 1,
             // Vision contribution is read from Sight.RadiusFor — not duplicated here.
         },
+        [StructureKind.House] = new StructureSpec
+        {
+            Kind = StructureKind.House,
+            IsPlayerBuildable = true,
+            // Holdings cap kept small; the House is a breeding gate, not
+            // a general food store. Big enough to hold a few cycles' worth
+            // of BirthFoodCost so a player can pre-stock.
+            StorageCapacity = 100,
+            BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 30 },
+            BuildDurationTicks = 60,
+            RequiredBuilderCount = 1,
+        },
     };
 
     public static StructureSpec Spec(StructureKind kind) =>

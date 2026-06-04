@@ -86,6 +86,25 @@ public sealed class Unit
     // buff instances modify combat power without touching the round event.
     public List<Sim.Core.Combat.Buff> Buffs { get; } = new();
 
+    // ---- M8 population state ----
+    // The sim tick at which this unit was born. Immutable. Genesis units
+    // get a negative BornTick (= -StartingAgeYears * TicksPerYear) so
+    // they "age in" at the configured starting age. Hand-constructed
+    // units (test fixtures + dev tooling) default to a deeply-negative
+    // sentinel so they're effectively "adult-by-default" — the M8
+    // training gates pass without each test having to set BornTick.
+    // Tests that specifically exercise age behavior go through the
+    // spec-aware Simulation ctor (which sets BornTick correctly per
+    // FactionStartSpec.StartingAgeYears).
+    public long BornTick { get; init; } = long.MinValue / 2;
+
+    // The sim tick at which this unit will die of old age. Set by
+    // Population.ScheduleLifespan at unit-creation time (genesis or birth),
+    // never re-rolled. DeathSeq is the Seq of the scheduled DeathByAgeEvent
+    // — same M4-anchor pattern as NextArrivalTick/Seq for movement.
+    public long? DeathTick { get; set; }
+    public long? DeathSeq { get; set; }
+
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 
     // The single mutation path for Activity. Intents call this rather than

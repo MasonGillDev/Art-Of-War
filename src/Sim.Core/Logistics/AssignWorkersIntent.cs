@@ -42,6 +42,10 @@ public sealed class AssignWorkersIntent : Intent
             if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
             if (unit.Position != StructureTile) continue;
             if (unit.Activity != Activity.Idle) continue;
+            // M8: training-age gate — extractor workers are role-tied
+            // assignments (the role bonus affects rate). Children can't
+            // be worker-assigned; they can still haul to the camp.
+            if (!Sim.Core.Population.Population.CanTrain(unit, sim.Now, world.PopulationConfig)) continue;
             if (!unit.TrySetActivity(Activity.Working, StructureTile)) continue;
             extractor.Workers.Add(id);
             assigned++;

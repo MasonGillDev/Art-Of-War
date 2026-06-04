@@ -24,6 +24,26 @@ public sealed class Simulation
         Rng = new Rng(seed);
     }
 
+    // M8 — spec-aware ctor. Constructs the world via Genesis.Build, then
+    // immediately rolls each genesis unit's lifespan from this sim's Rng,
+    // in canonical (faction-id, unit-id) order. ALL genesis lifespan RNG
+    // consumption happens here, inside the sim's owned construction —
+    // never as a post-hoc wiring pass. See docs/population-model.md.
+    //
+    // The plain (GameWorld, seed) ctor is kept for Snapshot.Restore (which
+    // doesn't roll; lifespans are restored from persisted state) and for
+    // tests that hand-build worlds without caring about aging.
+    public Simulation(Sim.Core.World.GenesisSpec spec, ulong seed)
+        : this(Sim.Core.World.Genesis.Build(spec), seed)
+    {
+        // Iterate in canonical order — matches the snapshot's Units
+        // iteration so the RNG-consumption sequence is grep-checkable.
+        foreach (var unit in World.Units.Values)
+        {
+            Sim.Core.Population.Population.ScheduleLifespan(this, unit);
+        }
+    }
+
     // Schedule an event with the next monotonic Seq. Returns the Seq actually
     // assigned so callers can stash it on their in-flight anchor for M4
     // recovery (see Unit.NextArrivalSeq, Extractor.NextProductionTickSeq,

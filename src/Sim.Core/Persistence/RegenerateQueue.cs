@@ -67,6 +67,30 @@ public static class RegenerateQueue
             sim.ScheduleWithSeq(state.NextRoundTick, state.NextRoundSeq,
                 new Sim.Core.Combat.CombatRoundEvent(state.Tile));
         }
+
+        // M8: pending old-age deaths. Each unit with (DeathTick, DeathSeq)
+        // contributes one queued DeathByAgeEvent, restored at its original
+        // anchor. Iterated in canonical id order (SortedDictionary).
+        foreach (var (_, unit) in world.Units)
+        {
+            if (unit.DeathTick is not { } tick) continue;
+            if (unit.DeathSeq is not { } seq) continue;
+            sim.ScheduleWithSeq(tick, seq,
+                new Sim.Core.Population.DeathByAgeEvent(unit.Id));
+        }
+
+        // M8: pending births. Each House with non-null Occupation
+        // contributes one queued BirthEvent, restored at its original
+        // (BirthTick, BirthSeq). Iterated in canonical (y, x) order.
+        var houses = world.Structures.Values.OfType<House>()
+            .OrderBy(h => h.At.Y).ThenBy(h => h.At.X)
+            .ToList();
+        foreach (var h in houses)
+        {
+            if (h.Occupation is not { } occ) continue;
+            sim.ScheduleWithSeq(occ.BirthTick, occ.BirthSeq,
+                new Sim.Core.Population.BirthEvent(h.At));
+        }
     }
 
     private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)

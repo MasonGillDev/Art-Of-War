@@ -57,8 +57,7 @@ static GenesisSpec MakeSpec()
 static Simulation RunScenario(Action<string>? log = null)
 {
     var siteTile = new TileCoord(3, 3);
-    var world = Genesis.Build(MakeSpec());
-    var sim = new Simulation(world, seed: 0xC0FFEE);
+    var sim = new Simulation(MakeSpec(), seed: 0xC0FFEE);
 
     // M0 layer: unit 1 walks across the grid.
     sim.SubmitIntent(at: 0, new MoveIntent(unitId: 1, new TileCoord(9, 9)));
@@ -365,8 +364,7 @@ static class GeneratedDemo
                 },
             },
         };
-        var world = Genesis.Build(spec);
-        return new Simulation(world, seed: 0xCAFE);
+        return new Simulation(spec, seed: 0xCAFE);
     }
 
     private static TileCoord FindFarReachableTile(GeneratedMap map)
@@ -512,12 +510,10 @@ static class PersistentDemo
                 },
             },
         };
-        var world = Genesis.Build(spec);
+        var sim = new Simulation(spec, seed: Seed);
         // Pre-place a stockpile for the hauler to walk to.
-        var stockpile = world.AddStructure(new Stockpile(new TileCoord(15, 0)) { OwnerId = 0 });
+        var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(15, 0)) { OwnerId = 0 });
         stockpile.Deposit(Resource.Wood, 50);
-
-        var sim = new Simulation(world, seed: Seed);
         // Initial snapshot (BEFORE intents — so intent log replay handles
         // the seed-time submissions just as it would post-crash).
         snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(sim));

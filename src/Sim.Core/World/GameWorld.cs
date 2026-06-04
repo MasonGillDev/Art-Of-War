@@ -56,22 +56,33 @@ public sealed class GameWorld
     public Dictionary<TileCoord, Combat.CombatState> CombatStates { get; } = new();
     public Dictionary<TileCoord, SortedDictionary<Resource, int>> GroundResources { get; } = new();
 
+    // M8 — population config (lifespan, gestation, age gates) + monotonic
+    // unit-id counter for births. Genesis seeds NextUnitId = max(spawned
+    // ids) + 1; BirthEvent allocates fresh ids from here.
+    public Population.PopulationConfig PopulationConfig { get; private set; }
+    public int NextUnitId { get; internal set; } = 1;
+
     public GameWorld(TileGrid grid)
-        : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig()) { }
+        : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig()) { }
 
     public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig)
-        : this(grid, diplomacyConfig, new Combat.CombatConfig()) { }
+        : this(grid, diplomacyConfig, new Combat.CombatConfig(), new Population.PopulationConfig()) { }
 
     public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig, Combat.CombatConfig combatConfig)
+        : this(grid, diplomacyConfig, combatConfig, new Population.PopulationConfig()) { }
+
+    public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig, Combat.CombatConfig combatConfig, Population.PopulationConfig populationConfig)
     {
         Grid = grid;
         Diplomacy = new Diplomacy.Diplomacy(diplomacyConfig);
         CombatConfig = combatConfig;
+        PopulationConfig = populationConfig;
     }
 
     // Restore-only — used by Snapshot.Restore to swap in the serialized
-    // CombatConfig after the world is constructed with a placeholder.
+    // configs after the world is constructed with placeholders.
     internal void RestoreCombatConfig(Combat.CombatConfig config) => CombatConfig = config;
+    internal void RestorePopulationConfig(Population.PopulationConfig config) => PopulationConfig = config;
 
     public Unit AddUnit(int id, TileCoord position)
     {

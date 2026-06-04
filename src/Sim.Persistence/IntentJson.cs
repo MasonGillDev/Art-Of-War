@@ -4,6 +4,7 @@ using Sim.Core.Groups;
 using Sim.Core.Intents;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
+using Sim.Core.Population;
 
 namespace Sim.Persistence;
 
@@ -43,6 +44,7 @@ public static class IntentJson
         [typeof(DeclareWarIntent)]            = "DeclareWarIntent",
         [typeof(ProposeRelationshipIntent)]   = "ProposeRelationshipIntent",
         [typeof(RespondToProposalIntent)]     = "RespondToProposalIntent",
+        [typeof(BeginBreedingIntent)]         = "BeginBreedingIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -72,6 +74,7 @@ public static class IntentJson
             "DeclareWarIntent"             => JsonSerializer.Deserialize<DeclareWarIntent>(payload, Options),
             "ProposeRelationshipIntent"    => JsonSerializer.Deserialize<ProposeRelationshipIntent>(payload, Options),
             "RespondToProposalIntent"      => JsonSerializer.Deserialize<RespondToProposalIntent>(payload, Options),
+            "BeginBreedingIntent"          => JsonSerializer.Deserialize<BeginBreedingIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

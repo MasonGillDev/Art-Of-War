@@ -5,6 +5,7 @@ using Sim.Core.Groups;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
 using Sim.Core.Persistence;
+using Sim.Core.Population;
 using Sim.Core.World;
 using Sim.Persistence;
 
@@ -292,6 +293,121 @@ public class RecoveryTests
 
         var recovered = Recovery.Recover(intents, snaps, LocalSeed, targetTick: 1000);
         Assert.Equal(hashA, Snapshot.Hash(recovered));
+    }
+
+    // ---------- M8: pending death survives crash+recover ----------
+
+    [Fact]
+    public void DeathByAge_RecoveryFiresAtCorrectTick()
+    {
+        // Snapshot a sim with a pending old-age death anchor, recover,
+        // and verify the unit dies at the same tick an uninterrupted run
+        // would produce.
+        var cfg = new PopulationConfig(
+            TicksPerYear: 10,
+            MinTrainAge: 15, MinFertileAge: 18, MaxFertileAge: 40,
+            GestationTicks: 50, BirthFoodCost: 5,
+            LifespanMinYears: 20, LifespanMaxYears: 20);
+        GenesisSpec MakeSpec() => new()
+        {
+            Width = 10, Height = 10,
+            Population = cfg,
+            FactionStarts = new[]
+            {
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(0, 0),
+                    StartingAgeYears = 0,
+                    UnitSpawns = new[] { new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder) },
+                },
+            },
+        };
+        const ulong LocalSeed = 0xA8E;
+
+        var simA = new Simulation(MakeSpec(), LocalSeed);
+        var deathTick = simA.World.Units[1].DeathTick!.Value;
+        simA.Run(until: deathTick + 5);
+        var hashA = Snapshot.Hash(simA);
+
+        using var intents = SqliteIntentStore.OpenInMemory();
+        using var snaps   = SqliteSnapshotStore.OpenInMemory();
+
+        var simB = new Simulation(MakeSpec(), LocalSeed);
+        snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(simB));
+        simB.Run(until: deathTick / 2);
+        snaps.SaveSnapshot(simB.Now, Snapshot.FormatVersion, Snapshot.Serialize(simB));
+        // simB falls out of scope = crash.
+
+        var recovered = Recovery.Recover(intents, snaps, LocalSeed, targetTick: deathTick + 5);
+        Assert.Equal(hashA, Snapshot.Hash(recovered));
+        Assert.False(recovered.World.Units.ContainsKey(1));
+    }
+
+    // ---------- M8: mid-gestation crash recovery produces child ----------
+
+    [Fact]
+    public void MidGestation_RecoveryProducesChild()
+    {
+        // Snapshot a mid-gestation world via the durable store, recover,
+        // verify the birth fires at the original tick with identical hash.
+        const long Gestation = 50;
+        const int Food = 5;
+        var cfg = new PopulationConfig(
+            TicksPerYear: 10,
+            MinTrainAge: 15, MinFertileAge: 18, MaxFertileAge: 40,
+            GestationTicks: Gestation, BirthFoodCost: Food,
+            LifespanMinYears: 500, LifespanMaxYears: 500);
+        var tile = new TileCoord(5, 5);
+        GenesisSpec MakeSpec() => new()
+        {
+            Width = 10, Height = 10,
+            Population = cfg,
+            FactionStarts = new[]
+            {
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(0, 0),
+                    StartingAgeYears = 25,
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(1, tile, UnitRole.Builder, StartingAgeYears: 25),
+                        new UnitSpawn(2, tile, UnitRole.Builder, StartingAgeYears: 25),
+                    },
+                },
+            },
+        };
+        const ulong LocalSeed = 0xA8E;
+        const long EndTick = Gestation + 30;
+
+        Simulation BuildPrimed()
+        {
+            var s = new Simulation(MakeSpec(), LocalSeed);
+            var h = s.World.AddStructure(new House(tile) { OwnerId = 0 });
+            h.Deposit(Resource.Food, Food);
+            return s;
+        }
+
+        var simA = BuildPrimed();
+        simA.SubmitIntent(0, new BeginBreedingIntent(tile, 1, 2));
+        simA.Run(until: EndTick);
+        var hashA = Snapshot.Hash(simA);
+
+        using var intents = SqliteIntentStore.OpenInMemory();
+        using var snaps   = SqliteSnapshotStore.OpenInMemory();
+
+        var simB = BuildPrimed();
+        DurableSubmit.SubmitIntentDurable(simB, intents, at: 0,
+            new BeginBreedingIntent(tile, 1, 2));
+        snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(simB));
+        simB.Run(until: Gestation / 2);
+        snaps.SaveSnapshot(simB.Now, Snapshot.FormatVersion, Snapshot.Serialize(simB));
+        // crash.
+
+        var recovered = Recovery.Recover(intents, snaps, LocalSeed, targetTick: EndTick);
+        Assert.Equal(hashA, Snapshot.Hash(recovered));
+        Assert.Single(recovered.World.Units.Values.Where(u => u.OwnerId == 0 && u.Role == UnitRole.None));
     }
 
     // ---------- Helpers ----------

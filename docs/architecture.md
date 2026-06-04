@@ -338,15 +338,16 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | **M5** | **Group movement (Form / MoveGroup / Disband; solo-intent rejection on grouped units)** | **✅** |
 | **M6** | **Multi-faction & diplomacy (configurable N factions; three-state symmetric relationships; unilateral-telegraphed war + bilateral peace/ally)** | **✅** |
 | **M7** | **Combat (force-vs-force on a tile; multi-round linear-proportional; per-unit Health + Buffs seam; capture-on-death; mid-fight crash recovery)** | **✅** |
+| **M8** | **Population (derived age from BornTick; seeded lifespan; House + breeding; stop-on-removal one rule; mid-gestation crash recovery)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
 
-### After M7 — the big systems
+### After M8 — the big systems
 
 These are the milestones the design doc (`persistent-rts-design.md`) calls out and that the engine is now ready for. (M5 was originally slotted as Combat; group movement landed first because the abstraction underpins both caravans and combat formations.)
 
 **M5 Phase 2 — Split / Merge / Dispatch.** Atomic group restructuring intents. Cleanest once Form is exercised in practice — the design questions ("what if a group is mid-move when split?") become concrete.
 
-**Next big system — Spawning / population.** The paired birth-rate to combat's death-rate. Combat sets units' demise; spawning sets their genesis-after-genesis. Separate milestone with its own deliberation; design questions include who spawns (factions? structures? events?), what limits the rate, and how it interacts with food/economy.
+**Next big system — open.** Likely candidates: **mobs** (a new faction whose intents come from an AI/intent-generator layer; reuses the M8 birth/age shape for wildlife population and M7 capture-on-death for hunting drops), or **trade** (barter posts on top of the now-meaningful demographic economy — caravans, exchanges, the M7 capture-on-death pipeline applied to raiding trade routes).
 
 **M7 — Trade.** Async trade posts (§11): list / deposit / accept / withdraw via menu UI but with goods physically moving in the sim. Caravans (multi-unit haulers built on the Group primitive) become natural here. Trade composes with roads, raids (M6), and diplomacy.
 

@@ -42,7 +42,9 @@ public static class Snapshot
     //   3 — M6 diplomacy (DiplomacyConfig + Relationships + Proposals).
     //   4 — M7 combat (Unit.Health + Buffs; GameWorld.CombatStates +
     //       GroundResources + CombatConfig).
-    public const int FormatVersion = 4;
+    //   5 — M8 population (Unit.BornTick + DeathTick + DeathSeq;
+    //       GameWorld.PopulationConfig + NextUnitId).
+    public const int FormatVersion = 5;
 
     public static string Hash(Simulation sim)
     {
@@ -68,6 +70,7 @@ public static class Snapshot
             WriteDiplomacy(bw, sim.World);
             WriteCombat(bw, sim.World);
             WriteGroundResources(bw, sim.World);
+            WritePopulation(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -100,6 +103,7 @@ public static class Snapshot
         ReadDiplomacy(br, world);
         ReadCombat(br, world);
         ReadGroundResources(br, world);
+        ReadPopulation(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -207,6 +211,10 @@ public static class Snapshot
             // M7: combat state.
             bw.Write(u.Health);
             WriteBuffs(bw, u.Buffs);
+            // M8: population state.
+            bw.Write(u.BornTick);
+            WriteNullableLong(bw, u.DeathTick);
+            WriteNullableLong(bw, u.DeathSeq);
         }
     }
 
@@ -316,8 +324,11 @@ public static class Snapshot
             var groupId = ReadNullableInt(br);
             var health = br.ReadInt32();
             var buffs = ReadBuffs(br);
+            var bornTick = br.ReadInt64();
+            var deathTick = ReadNullableLong(br);
+            var deathSeq = ReadNullableLong(br);
 
-            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId };
+            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId, BornTick = bornTick };
             u.CargoResource = cargoR;
             u.CargoAmount = cargoA;
 
@@ -329,6 +340,8 @@ public static class Snapshot
             u.GroupId  = groupId;
             u.Health   = health;
             foreach (var b in buffs) u.Buffs.Add(b);
+            u.DeathTick = deathTick;
+            u.DeathSeq  = deathSeq;
             if (activity != Activity.Idle)
             {
                 // Idle is the default; only call TrySet if we actually move off it.
@@ -360,6 +373,9 @@ public static class Snapshot
             bw.Write(s.OwnerId);
             switch (s)
             {
+                // House must come before StorageStructure: it IS a
+                // StorageStructure but carries extra breeding state.
+                case House h:             WriteStorage(bw, h); WriteHouseOccupation(bw, h); break;
                 case StorageStructure ss: WriteStorage(bw, ss); break;
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
@@ -388,6 +404,7 @@ public static class Snapshot
                   or StructureKind.Farm        => ReadExtractor(br, new Extractor(kind, at) { OwnerId = ownerId }),
                 StructureKind.ConstructionSite => ReadConstruction(br, at, ownerId),
                 StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
+                StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };
             world.AddStructure(s);
@@ -493,6 +510,33 @@ public static class Snapshot
         c.ScheduledCompletion = ReadNullableLong(br);
         c.BuildCompleteSeq = ReadNullableLong(br);
         return c;
+    }
+
+    // ----- house (M8) ----------------------------------------------------
+
+    private static void WriteHouseOccupation(BinaryWriter bw, House h)
+    {
+        if (h.Occupation is null) { bw.Write((byte)0); return; }
+        bw.Write((byte)1);
+        bw.Write(h.Occupation.ParentAId);
+        bw.Write(h.Occupation.ParentBId);
+        bw.Write(h.Occupation.BirthTick);
+        bw.Write(h.Occupation.BirthSeq);
+    }
+
+    private static House ReadHouseWithOccupation(BinaryReader br, TileCoord at, int ownerId)
+    {
+        var h = new House(at) { OwnerId = ownerId };
+        ReadStorage(br, h);
+        if (br.ReadByte() == 0) return h;
+        h.Occupation = new BreedingOccupation
+        {
+            ParentAId = br.ReadInt32(),
+            ParentBId = br.ReadInt32(),
+            BirthTick = br.ReadInt64(),
+            BirthSeq  = br.ReadInt64(),
+        };
+        return h;
     }
 
     private static void WriteNullableLong(BinaryWriter bw, long? value)
@@ -741,6 +785,38 @@ public static class Snapshot
             }
             world.GroundResources[tile] = pile;
         }
+    }
+
+    // ----- population (M8) ----------------------------------------------
+
+    private static void WritePopulation(BinaryWriter bw, GameWorld world)
+    {
+        var c = world.PopulationConfig;
+        bw.Write(c.TicksPerYear);
+        bw.Write(c.MinTrainAge);
+        bw.Write(c.MinFertileAge);
+        bw.Write(c.MaxFertileAge);
+        bw.Write(c.GestationTicks);
+        bw.Write(c.BirthFoodCost);
+        bw.Write(c.LifespanMinYears);
+        bw.Write(c.LifespanMaxYears);
+        bw.Write(world.NextUnitId);
+    }
+
+    private static void ReadPopulation(BinaryReader br, GameWorld world)
+    {
+        var ticksPerYear = br.ReadInt64();
+        var minTrain = br.ReadInt32();
+        var minFert = br.ReadInt32();
+        var maxFert = br.ReadInt32();
+        var gestation = br.ReadInt64();
+        var birthFood = br.ReadInt32();
+        var lifeMin = br.ReadInt32();
+        var lifeMax = br.ReadInt32();
+        var nextUnitId = br.ReadInt32();
+        world.RestorePopulationConfig(new Sim.Core.Population.PopulationConfig(
+            ticksPerYear, minTrain, minFert, maxFert, gestation, birthFood, lifeMin, lifeMax));
+        world.NextUnitId = nextUnitId;
     }
 
     // ----- groups (id-sorted) -------------------------------------------

@@ -31,6 +31,10 @@ public sealed record GenesisSpec
     // M7: world-level combat configuration (RoundIntervalTicks). Defaulted.
     public Combat.CombatConfig Combat { get; init; } = new();
 
+    // M8: world-level population configuration (lifespan band, age gates,
+    // gestation, food cost). Defaulted.
+    public Population.PopulationConfig Population { get; init; } = new();
+
     public int FactionCount => FactionStarts.Count;
 }
 
@@ -44,6 +48,10 @@ public sealed record FactionStartSpec
     public IReadOnlyDictionary<Resource, int> CastleHoldings { get; init; } =
         new SortedDictionary<Resource, int>();
     public IReadOnlyList<UnitSpawn> UnitSpawns { get; init; } = Array.Empty<UnitSpawn>();
+
+    // M8: per-faction default starting age (years) for spawned units that
+    // don't override via UnitSpawn.StartingAgeYears. 30 = productive adult.
+    public int StartingAgeYears { get; init; } = 30;
 }
 
 public sealed record UnitSpawn(
@@ -51,7 +59,9 @@ public sealed record UnitSpawn(
     TileCoord Position,
     UnitRole Role = UnitRole.None,
     int CargoCapacity = 1,
-    int OwnerId = 0);
+    int OwnerId = 0,
+    // M8: optional per-unit starting-age override (null inherits faction).
+    int? StartingAgeYears = null);
 
 public static class Genesis
 {
@@ -70,7 +80,7 @@ public static class Genesis
         foreach (var (coord, biome) in spec.Biomes)
             grid.SetBiome(coord, biome);
 
-        var world = new GameWorld(grid, spec.Diplomacy, spec.Combat);
+        var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population);
 
         // Iterate factions in OwnerId order — deterministic placement,
         // matches the snapshot canonical Players order (sorted-by-id).
@@ -91,15 +101,26 @@ public static class Genesis
 
             foreach (var u in fs.UnitSpawns)
             {
+                // M8: BornTick = -StartingAgeYears * TicksPerYear (sim.Now
+                // is 0 at genesis), so age = now - BornTick = startingAge
+                // years at tick 0. Per-unit override wins over the
+                // faction default.
+                var startingAge = u.StartingAgeYears ?? fs.StartingAgeYears;
+                var bornTick = -(long)startingAge * spec.Population.TicksPerYear;
                 var unit = world.AddUnit(new Unit(u.Id, u.Position) {
                     Role = u.Role,
                     CargoCapacity = u.CargoCapacity,
                     OwnerId = u.OwnerId,
+                    BornTick = bornTick,
                 });
                 // M3 Phase B: each spawned unit reveals around its spawn tile.
                 Sight.Reveal(world, unit.OwnerId, unit.Position, Sight.RadiusFor(unit.Role));
             }
         }
+
+        // M8: seed the monotonic unit-id counter so BirthEvent allocates
+        // ids that don't collide with any spawned unit.
+        world.NextUnitId = world.Units.Count == 0 ? 1 : world.Units.Keys.Max() + 1;
 
         return world;
     }

@@ -5,7 +5,7 @@ namespace Sim.Core.Vision;
 // other players' units (a viewer shouldn't know whether an enemy unit is
 // Hauling vs Idle). Own-player views fall through full detail elsewhere
 // via direct world access.
-public sealed record UnitView(int Id, TileCoord Position, UnitRole Role, int OwnerId, int Health);
+public sealed record UnitView(int Id, TileCoord Position, UnitRole Role, int OwnerId, int Health, int AgeYears);
 
 public sealed record StructureView(TileCoord At, StructureKind Kind, int OwnerId);
 
@@ -105,7 +105,13 @@ public static class View
     //   - OWN units/structures: always included regardless of fog.
     //   - other-player entities: included only if standing on a
     //     currently-visible tile.
-    public static PlayerView BuildPlayerView(GameWorld world, int playerId)
+    public static PlayerView BuildPlayerView(GameWorld world, int playerId) =>
+        BuildPlayerView(world, playerId, now: 0);
+
+    // M8 — overload taking the sim's current tick so derived age is
+    // accurate. The zero-now overload above is kept for callers that don't
+    // care about age (most existing tests).
+    public static PlayerView BuildPlayerView(GameWorld world, int playerId, long now)
     {
         var visible = VisibleTiles(world, playerId);
         var explored = world.Explored.TryGetValue(playerId, out var e)
@@ -120,10 +126,14 @@ public static class View
 
         // Units: own unconditionally; others only if their tile is visible.
         var visibleUnits = new List<UnitView>();
+        var popCfg = world.PopulationConfig;
         foreach (var u in world.Units.Values)
         {
             if (u.OwnerId == playerId || visible.Contains(u.Position))
-                visibleUnits.Add(new UnitView(u.Id, u.Position, u.Role, u.OwnerId, u.Health));
+            {
+                var age = Sim.Core.Population.Population.AgeYears(u, now, popCfg);
+                visibleUnits.Add(new UnitView(u.Id, u.Position, u.Role, u.OwnerId, u.Health, age));
+            }
         }
 
         // Structures: same rule against the structure tile.
