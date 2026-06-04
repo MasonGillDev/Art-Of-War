@@ -46,10 +46,10 @@ public class WorldGenTests
             for (var x = 0; x < map.Width; x++)
             {
                 var b = map.Grid[x, y];
-                // Append-only enum: known values are None..Water.
+                // Append-only enum: known values are None..Desert.
                 Assert.True(b == Biome.Grassland || b == Biome.Forest
                           || b == Biome.Hills || b == Biome.Mountain
-                          || b == Biome.Water,
+                          || b == Biome.Water || b == Biome.Desert,
                     $"unknown biome at ({x},{y}): {b}");
             }
     }
@@ -101,9 +101,31 @@ public class WorldGenTests
         Assert.InRange(Share(Biome.Water),    0.00, 0.50);
         Assert.InRange(Share(Biome.Mountain), 0.00, 0.40);
         Assert.InRange(Share(Biome.Hills),    0.00, 0.50);
+        // Desert is meant to be a minority biome — wide enough range to
+        // tolerate seed variance, narrow enough to catch a regression that
+        // floods the map with sand.
+        Assert.InRange(Share(Biome.Desert),   0.00, 0.20);
         // The playable zone (Grassland + Forest) should be a meaningful share.
         Assert.True(Share(Biome.Grassland) + Share(Biome.Forest) > 0.20,
             "playable Grassland + Forest share too small for a meaningful map");
+    }
+
+    [Fact]
+    public void Desert_AppearsAcrossSeeds()
+    {
+        // The proportions test allows Desert share = 0, since with some seeds
+        // the dry-low-elevation pocket may simply not materialise. Across a
+        // handful of seeds, though, at least one map should grow some desert
+        // — otherwise the classifier's Desert branch is silently dead.
+        var seenAny = false;
+        for (var seed = 1; seed <= 8 && !seenAny; seed++)
+        {
+            var map = MapGenerator.Build(DefaultConfig(seed));
+            for (var y = 0; y < map.Height && !seenAny; y++)
+                for (var x = 0; x < map.Width && !seenAny; x++)
+                    if (map.Grid[x, y] == Biome.Desert) seenAny = true;
+        }
+        Assert.True(seenAny, "no Desert tile produced across 8 seeds — classifier branch likely broken");
     }
 
     [Fact]

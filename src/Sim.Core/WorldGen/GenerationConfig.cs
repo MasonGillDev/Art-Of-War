@@ -28,14 +28,20 @@ public sealed record GenerationConfig
     public int MoistureSeedOffset { get; init; } = 1000;
 
     // Whittaker thresholds, on normalized noise output in [0, 1].
-    //   elevation < WaterMax        → Water
-    //   elevation > MountainMin     → Mountain
-    //   elevation > HillsMin        → Hills
-    //   else                        → Forest (moisture > MoistureSplit) or Grassland
+    //   elevation < WaterMax                 → Water
+    //   elevation > MountainMin              → Mountain
+    //   elevation > HillsMin                 → Hills
+    //   moisture  < DesertMoistureMax        → Desert (low-elevation only)
+    //   else                                 → Forest (moisture > MoistureSplit) or Grassland
     public double WaterMax { get; init; } = 0.30;
     public double HillsMin { get; init; } = 0.65;
     public double MountainMin { get; init; } = 0.85;
     public double MoistureSplit { get; init; } = 0.50;
+    // Below this moisture, low-elevation (non-water, non-hills, non-mountain)
+    // tiles become Desert. 0.20 carves the driest ~20% of moisture values in
+    // the low-elevation band → roughly 5–10% of total map area. "Not a lot of
+    // desert" is the design intent; tune this down to push it further.
+    public double DesertMoistureMax { get; init; } = 0.20;
 
     // Start picker scans for a Grassland tile within this Chebyshev radius
     // of Forest + Hills + Mountain (so every extractor can eventually be built).

@@ -388,6 +388,7 @@ static class GeneratedDemo
             [Biome.Hills]     = 'h',
             [Biome.Mountain]  = 'M',
             [Biome.Water]     = '~',
+            [Biome.Desert]    = 'd',
         };
         var sb = new System.Text.StringBuilder();
         for (var y = 0; y < map.Height; y++)

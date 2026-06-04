@@ -10,6 +10,7 @@ public enum Biome : byte
     Hills = 3,
     Mountain = 4,
     Water = 5,
+    Desert = 6,
 }
 
 public static class Biomes
@@ -30,6 +31,9 @@ public static class Biomes
         // crossing can't overflow. Real water mechanics (boats, swim, deep
         // water impassable) are a later design pass.
         Biome.Water => 250,
+        // Slower than Hills, faster than Mountain. No resources extractable
+        // here — no StructureCatalog entry has RequiredBiome = Desert.
+        Biome.Desert => 40,
         // None = unset/sentinel. Treat as default Grassland-ish to avoid divide-
         // by-zero in early scenarios; flagged so a forgotten SetBiome call shows up.
         Biome.None => 10,
@@ -43,6 +47,7 @@ public static class Biomes
         Biome.Hills => World.Resource.Ore,
         Biome.Mountain => World.Resource.Stone,
         Biome.Water => World.Resource.None,
+        Biome.Desert => World.Resource.None,
         Biome.None => World.Resource.None,
         _ => throw new ArgumentOutOfRangeException(nameof(b), b, null),
     };

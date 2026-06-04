@@ -43,12 +43,20 @@ We took option 3. The cost (250) is a "sane large integer, not `Impassable`" —
 
 A weighted random pick would have been nicer for multi-Castle placement, but multi-player start placement is out of scope here (it lands with combat, when fairness across starts actually matters).
 
+### Why Desert is a low-elevation moisture carve-out, not its own elevation band
+
+Desert is gated by **moisture, not elevation**: in the low-elevation band that would otherwise be Grassland/Forest, very dry tiles (`moisture < DesertMoistureMax`, default 0.20) become Desert. The classifier check sits after the water/mountain/hills elevation gates so deserts only appear on low ground — high ground stays Hills or Mountain regardless of how dry it is. This matches the real-world intuition (deserts are flat-and-dry, not "any dry tile"), keeps Hills/Mountain proportions stable, and costs one extra threshold rather than a re-shuffle of the elevation bands.
+
+`MoveCost(Desert) = 40` — slower than Hills (35), faster than Mountain (45). Desert is non-extractive: no `StructureCatalog` entry has `RequiredBiome = Desert`, so no extractor can be placed there. That's the entire "no resources in the desert" rule — it falls out of the existing biome-gated build check, no new machinery needed.
+
+The proportion knob is `DesertMoistureMax`. Lowering it pushes desert towards rarity; raising it past `MoistureSplit` (0.50) would invert the moisture meaning and produce nonsense, so the value is intentionally bounded well below that. The `Desert_AppearsAcrossSeeds` test guards against a future change that silently kills the branch.
+
 ## Future expansion
 
 The pipeline is structured so each stage can be swapped without touching the sim contract.
 
 - **Bigger worlds (M11 Phase 2).** Width/Height are config; the generator runs in O(W·H) at constant memory per pass. A 512×512 world is fine; a 4096×4096 world will want chunked noise generation and a smarter start picker but does not require touching the sim.
-- **More biomes.** `Biome` is an append-only enum (architecture §3 rule 5). Adding `Desert`, `Swamp`, `Tundra` is: append the enum value, add a `Biomes.MoveCost` entry, add a `BiomeClassifier` branch. Old snapshots keep working; new generation can produce them.
+- **More biomes.** `Biome` is an append-only enum (architecture §3 rule 5). Adding `Swamp`, `Tundra`, etc. follows the same recipe used for Desert: append the enum value, add a `Biomes.MoveCost` + `Biomes.Resource` entry (both switches throw on unknown — they're exhaustive on purpose), add a `BiomeClassifier` branch, add a host glyph for the smoke output. Old snapshots keep working; new generation can produce them.
 - **Named locations / fixed landmarks.** A post-classification "feature pass" can stamp specific biomes or future structure markers onto the grid before it is frozen. As long as the pass runs before `GeneratedMap` is constructed, the freeze rule still holds.
 - **Multi-player start placement.** `StartPicker` returns a single tile today. The natural shape for N players is a separate `StartPicker.PickMany(grid, n, fairness)` that returns N coordinates with a min-Chebyshev-distance constraint and equal local resource access. Lands with combat (M6).
 - **Real water mechanics.** When boats / swimming / coastlines become gameplay-visible, the integer `MoveCost` for `Biome.Water` is replaced by a structured cost (per-unit-role, per-adjacent-structure). The generator does not change; it still emits `Biome.Water` tiles.
