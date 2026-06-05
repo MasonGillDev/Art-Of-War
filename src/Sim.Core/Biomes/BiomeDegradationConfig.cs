@@ -73,6 +73,6 @@ public readonly record struct BiomeDegradationConfig(
         // Chebyshev radius around an extractor. Radius 1 = 3×3 area (8
         // neighbours + own tile). Tuneable once play surfaces the right
         // pressure curve.
-        DegradeRadius:       1)
+        DegradeRadius:       2)
     { }
 }
