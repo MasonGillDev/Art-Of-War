@@ -35,6 +35,24 @@ public sealed class GroupArrivalEvent : ScheduledEvent
             return;
         }
 
+        // HARD CAP: a group hop would deposit `group.Members.Count` units
+        // onto `To` (all members at once, atomic arrival semantics from M5).
+        // The current occupants of `To` are all non-members (group invariant:
+        // members are at group.Position == From). Reject the whole arrival
+        // if it'd exceed the cap; group yields on its previous tile, becomes
+        // Idle, the player can re-task. Bumps MovementEpoch so any queued
+        // GroupArrivalEvents from this chain fence on fire.
+        var existingOnDest = MovementCost.CountUnitsOnTile(world, To);
+        if (existingOnDest + group.Members.Count > MovementConstants.MaxUnitsPerTile)
+        {
+            MoveGroupIntent.ClearMovementAnchors(group);
+            group.State = GroupState.Idle;
+            group.BumpEpoch();
+            Outcome = IntentOutcome.Reject(
+                $"tile {To.X},{To.Y} cannot hold group ({existingOnDest} existing + {group.Members.Count} members > cap {MovementConstants.MaxUnitsPerTile})");
+            return;
+        }
+
         // Atomic per-member position update + per-member side effects.
         foreach (var memberId in group.Members)
         {

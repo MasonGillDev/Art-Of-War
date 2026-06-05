@@ -36,6 +36,28 @@ public sealed class MoveArrivalEvent : ScheduledEvent
             return;
         }
 
+        // HARD CAP: if accepting this arrival would push To over the cap,
+        // the unit yields on its previous tile, becomes Idle, and clears
+        // its committed path. The player can re-issue MoveIntent. This
+        // fires regardless of fog — physical tile capacity is ground truth,
+        // not visibility-gated. See MovementConstants.MaxUnitsPerTile.
+        //
+        // unit.Position is still the PREVIOUS tile here; the units already
+        // on To don't include this one, so the post-arrival count would be
+        // CountUnitsOnTile(To) + 1.
+        if (MovementCost.CountUnitsOnTile(sim.World, To) + 1 > MovementConstants.MaxUnitsPerTile)
+        {
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            // TrySetActivity(Idle) bumps AssignmentEpoch so any further
+            // queued events from this chain fence on fire.
+            unit.TrySetActivity(Activity.Idle);
+            Outcome = IntentOutcome.Reject($"tile {To.X},{To.Y} is full (cap {MovementConstants.MaxUnitsPerTile})");
+            return;
+        }
+
         unit.Position = To;
         // M2 Phase C: every real arrival credits the tile entered. THE one
         // mutation point for road condition. See Roads/Roads.cs.

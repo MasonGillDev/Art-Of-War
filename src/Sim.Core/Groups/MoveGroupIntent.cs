@@ -49,11 +49,15 @@ public sealed class MoveGroupIntent : Intent
         }
 
         var now = sim.Now;
+        // FOG-AWARE PLANNING: the group's owner is who the planner sees as.
+        // A* avoids visibly-crowded tiles but cannot route around fog'd
+        // congestion. See docs/movement-cost.md.
+        var visibleTiles = View.VisibleTiles(world, group.OwnerId);
         var path = Pathfinding.FindPath(
             world.Grid,
             group.Position,
             Destination,
-            tile => GroupCost(world, group, tile, now));
+            tile => MovementCost.PlanCost(world, tile, group.OwnerId, visibleTiles, now));
         if (path is null || path.Count < 2)
             return IntentOutcome.Reject(
                 $"no path for group {GroupId} from {group.Position.X},{group.Position.Y} " +
@@ -83,11 +87,12 @@ public sealed class MoveGroupIntent : Intent
         }
         var world = sim.World;
         var now = sim.Now;
+        var visibleTiles = View.VisibleTiles(world, group.OwnerId);
         var path = Pathfinding.FindPath(
             world.Grid,
             group.Position,
             dest,
-            tile => GroupCost(world, group, tile, now));
+            tile => MovementCost.PlanCost(world, tile, group.OwnerId, visibleTiles, now));
         if (path is null || path.Count < 2)
         {
             ClearMovementAnchors(group);
@@ -107,20 +112,17 @@ public sealed class MoveGroupIntent : Intent
             || group.PathFinalDest is null)
             return;
         var next = group.PathRemaining[0];
-        var arrival = sim.Now + GroupCost(sim.World, group, next, sim.Now);
+        // GROUND-TRUTH HOP COST: source crowding is what makes large groups
+        // slow — the group always sits on its own member crowd, so a
+        // 10-member group hops more slowly than a 2-member group on the
+        // same terrain. Destination crowding stretches caravans landing
+        // into bottlenecks (and triggers cap-rejection if it would push
+        // the destination over MaxUnitsPerTile — checked at arrival time).
+        var arrival = sim.Now + MovementCost.ExecutionCost(sim.World, group.Position, next, sim.Now);
         group.NextArrivalTick = arrival;
         group.NextArrivalSeq  = sim.Schedule(
             arrival,
             new GroupArrivalEvent(group.Id, next, group.PathFinalDest.Value, group.MovementEpoch));
-    }
-
-    // Cost of a tile for the group = max member cost. Today identical to
-    // Road.EffectiveCost (every unit pays the same road+biome cost). Future
-    // heterogeneity plugs in here.
-    internal static int GroupCost(GameWorld world, Group group, TileCoord tile, long now)
-    {
-        // Reading current condition; pure-read by contract.
-        return Road.EffectiveCost(world, tile, now);
     }
 
     internal static void ClearMovementAnchors(Group group)

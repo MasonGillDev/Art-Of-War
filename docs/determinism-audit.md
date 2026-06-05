@@ -414,6 +414,55 @@ events to regenerate — Fertility is **pure derived state**, so
 test (`BiomeDegradationTests.Degradation_SnapshotMidRun_RoundTrips`)
 pins this.
 
+## Movement cost & crowding addendum (post-M9)
+
+Crowding cost (new pure-read primitives on `world.Units`) and a per-tile
+unit cap (new rejection branches in `MoveArrivalEvent` / `GroupArrivalEvent`).
+
+### `MovementCost.PlanCost` and `ExecutionCost` are pure reads
+
+Both functions compute fresh values from `world.Units.Values`,
+`world.Structures.Values` (via `Road.EffectiveCost` and `View.VisibleTiles`),
+and the supplied `playerId` / `visibleTiles` parameters. Neither
+mutates anything. The 100×-no-mutation contract is pinned by
+`MovementCrowdingTests.CrowdingCountAndCost_Are_PureReads_NoMutation`.
+
+A* calls `PlanCost` many times per `FindPath` query — the pure-read
+invariant is what keeps path queries out of the simulation hash.
+
+### Fog-aware planning is deterministic
+
+`View.VisibleTiles(world, playerId)` is itself a pure read of world
+state (sources × radius, no global sweep). Same world → same visible
+set → same `PlanCost` per tile → same path. The fog-of-war contract
+(planner sees through own-unit tiles, sees enemies only on visible
+tiles) is a property of the cost function, not of any stored state, so
+no new mutation site is introduced.
+
+### Hard-cap rejection has bounded call sites
+
+`MovementConstants.MaxUnitsPerTile` is enforced in exactly two events:
+
+- `MoveArrivalEvent.Apply` — checks `CountUnitsOnTile(world, To) + 1`.
+  On overflow, clears the unit's path anchors and idles the unit
+  (`TrySetActivity(Activity.Idle)` bumps `AssignmentEpoch`, fencing any
+  surviving queued events from the prior chain).
+- `GroupArrivalEvent.Apply` — checks
+  `CountUnitsOnTile(world, To) + group.Members.Count`. On overflow,
+  clears the group's path anchors, sets `State = Idle`, and bumps
+  `MovementEpoch` (same fencing role as the unit case).
+
+The rejection paths never write `unit.Position` / `group.Position`
+beyond the Idle transition — the unit/group stays where it was. No
+position drift on a rejected arrival.
+
+### Snapshot format
+
+`Snapshot.FormatVersion` is **unchanged** at 6. Crowding is pure derived
+state (read from `world.Units.Values`, which is already snapshotted),
+and the hard cap is a behavioural threshold, not stored state. No new
+field, no new event type, no `RegenerateQueue` change.
+
 ## What would break these invariants and require re-running this audit
 
 Re-run the greps above when any of the following lands:

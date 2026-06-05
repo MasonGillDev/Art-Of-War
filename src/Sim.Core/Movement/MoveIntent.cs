@@ -90,11 +90,18 @@ public sealed class MoveIntent : Intent
 
         var world = sim.World;
         var now = sim.Now;
+        // FOG-AWARE PLANNING: the cost the planner sees on each tile is what
+        // the OWNING PLAYER could see — own units always counted, non-own
+        // only on currently-visible tiles. A* will route around visible
+        // crowds but cannot see through the fog. The unit may stumble into
+        // hidden congestion (paying ground-truth ExecutionCost) — that's the
+        // "cost of ignorance" gameplay loop. See docs/movement-cost.md.
+        var visibleTiles = View.VisibleTiles(world, unit.OwnerId);
         var path = Pathfinding.FindPath(
             world.Grid,
             unit.Position,
             finalDest,
-            tile => Road.EffectiveCost(world, tile, now));
+            tile => MovementCost.PlanCost(world, tile, unit.OwnerId, visibleTiles, now));
         if (path is null || path.Count < 2)
         {
             unit.PathRemaining = null;
@@ -119,7 +126,11 @@ public sealed class MoveIntent : Intent
             return;
         var next = unit.PathRemaining[0];
         var world = sim.World;
-        var arrival = sim.Now + Road.EffectiveCost(world, next, sim.Now);
+        // GROUND-TRUTH HOP COST: includes BOTH source and destination
+        // crowding (whichever is more crowded), regardless of fog. The
+        // unit pays the real cost of this hop even if it differs from
+        // what the plan assumed. See MovementCost.ExecutionCost.
+        var arrival = sim.Now + MovementCost.ExecutionCost(world, unit.Position, next, sim.Now);
         unit.NextArrivalTick = arrival;
         unit.NextArrivalSeq  = sim.Schedule(arrival,
             new MoveArrivalEvent(unit.Id, next, unit.PathFinalDest.Value, unit.AssignmentEpoch));
