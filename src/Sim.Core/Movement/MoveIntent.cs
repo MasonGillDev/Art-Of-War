@@ -18,6 +18,14 @@ public sealed class MoveIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
         if (unit.GroupId is not null)
             return IntentOutcome.Reject($"unit {UnitId} is in group {unit.GroupId}");
+        // M8 follow-up: breeding is a commitment, not a retaskable assignment.
+        // A parent in an active breeding cycle is locked to the house until
+        // BirthEvent (or stop-on-removal via combat / aging death) frees them.
+        // No cancel — the player can't back out. This is the one case where
+        // MoveIntent is NOT authoritative.
+        if (Sim.Core.Population.Population.GetActiveBreedingFor(sim.World, UnitId) is { } breedingHouse)
+            return IntentOutcome.Reject(
+                $"unit {UnitId} is breeding at house ({breedingHouse.At.X},{breedingHouse.At.Y}) and cannot be moved");
         if (!sim.World.Grid.InBounds(Destination))
             return IntentOutcome.Reject($"destination {Destination.X},{Destination.Y} out of bounds");
 
