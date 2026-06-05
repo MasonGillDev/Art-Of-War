@@ -80,7 +80,7 @@ public static class BiomeDegradation
         if (!IsOnLadder(worldgen)) return baseline;
         var (storedDev, lastUpdate) = ReadStored(world, tile);
         var (rateAmount, ratePeriod) = DeriveRate(storedDev, baseline, world, tile, now, config);
-        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline);
+        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline, config);
         return baseline + newDev;
     }
 
@@ -118,7 +118,7 @@ public static class BiomeDegradation
         var baseline = BaselineFertility(worldgen, config);
         var (storedDev, lastUpdate) = ReadStored(world, tile);
         var (rateAmount, ratePeriod) = DeriveRate(storedDev, baseline, world, tile, now, config);
-        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline);
+        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline, config);
         // Anchor: drop carry, set lastUpdateTick = now. Always write.
         if (world.Fertility.TryGetValue(tile, out var existing))
         {
@@ -143,7 +143,7 @@ public static class BiomeDegradation
         if (!IsOnLadder(worldgen)) return;
         var baseline = BaselineFertility(worldgen, config);
         var (storedDev, lastUpdate) = ReadStored(world, tile);
-        WriteCaughtUp(world, tile, baseline, storedDev, lastUpdate, now, ratePerPeriod, ratePeriod);
+        WriteCaughtUp(world, tile, baseline, storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, config);
     }
 
     // ---- internals -------------------------------------------------------
@@ -258,30 +258,101 @@ public static class BiomeDegradation
 
     // The integer-exact, observation-independent math. PURE.
     //
-    //   periods       = elapsed / ratePeriod    (integer floor)
-    //   newDeviation  = clamp(storedDev + periods * ratePerPeriod, -baseline, 0)
-    //   newLastUpdate = lastUpdate + periods * ratePeriod  (carry remainder)
+    // Two regimes:
     //
-    // The carry is what makes this observation-independent: partial elapsed
-    // time stays banked in lastUpdate rather than being silently dropped.
+    //   RECOVERY (ratePerPeriod > 0): smooth. No band-crossing bonus on
+    //     upward — "easy to cut, hard to regrow" is the design intent.
+    //       newDeviation  = clamp(storedDev + periods * rate, -baseline, 0)
+    //
+    //   DEGRADE (ratePerPeriod < 0): STEP-PENALTY on each downward band
+    //     crossing. When fertility crosses ForestThreshold going down, snap
+    //     to GrasslandBaseline (50, not 74). When it crosses DesertThreshold,
+    //     snap to DesertBaseline (10, not 24). Asymmetric to make the
+    //     biome flip a real, durable loss rather than a 1-tick blip the
+    //     player can sit out — see docs/biome-degradation.md §step-penalty.
+    //
+    // In both regimes:
+    //   newLastUpdate = lastUpdate + periods * ratePeriod   (carry the remainder)
+    // The remainder carry is what keeps the math observation-independent
+    // within a constant-rate segment.
     private static (int newDev, long newLastUpdate) ApplyMath(
         int storedDev, long lastUpdate, long now,
-        int ratePerPeriod, long ratePeriod, int baseline)
+        int ratePerPeriod, long ratePeriod, int baseline,
+        BiomeDegradationConfig config)
     {
         var elapsed = now - lastUpdate;
         if (elapsed <= 0) return (storedDev, lastUpdate);
         if (ratePerPeriod == 0 || ratePeriod <= 0) return (storedDev, lastUpdate);
-        var periods = elapsed / ratePeriod;
-        if (periods <= 0) return (storedDev, lastUpdate);  // sub-period; remainder banked
-        long delta = periods * ratePerPeriod;
-        long newDevLong = storedDev + delta;
-        // Clamp: deviation ∈ [-baseline, 0].
-        //   recovery cap at 0 (cannot exceed baseline; no positive-deviation source).
-        //   degrade floor at -baseline (current fertility never goes negative).
-        if (newDevLong > 0) newDevLong = 0;
-        if (newDevLong < -baseline) newDevLong = -baseline;
-        var newLastUpdate = lastUpdate + periods * ratePeriod;
-        return ((int)newDevLong, newLastUpdate);
+        var totalPeriods = elapsed / ratePeriod;
+        if (totalPeriods <= 0) return (storedDev, lastUpdate);  // sub-period; remainder banked
+        var newLastUpdate = lastUpdate + totalPeriods * ratePeriod;
+
+        // ---- recovery: smooth, no step bonus ----
+        if (ratePerPeriod > 0)
+        {
+            long recoverDev = storedDev + totalPeriods * ratePerPeriod;
+            if (recoverDev > 0) recoverDev = 0;          // clamp at baseline
+            if (recoverDev < -baseline) recoverDev = -baseline;
+            return ((int)recoverDev, newLastUpdate);
+        }
+
+        // ---- degrade: band-crossing snaps ----
+        // Walk forward in periods, detecting each downward crossing. At each
+        // crossing, snap fertility to the next band's baseline and continue
+        // applying the remaining periods from the new starting point. At most
+        // two snaps per call (Forest → Grassland → Desert).
+        long dev = storedDev;
+        long remaining = totalPeriods;
+        int absRate = -ratePerPeriod;
+        while (remaining > 0)
+        {
+            long currentFert = baseline + dev;
+            int snapTargetBaseline;
+            int nextThreshold;
+            if (currentFert >= config.ForestThreshold)
+            {
+                nextThreshold = config.ForestThreshold;
+                snapTargetBaseline = config.GrasslandBaseline;
+            }
+            else if (currentFert >= config.DesertThreshold)
+            {
+                nextThreshold = config.DesertThreshold;
+                snapTargetBaseline = config.DesertBaseline;
+            }
+            else
+            {
+                // Desert band → no further crossings; apply remaining smoothly
+                // with the [-baseline, 0] floor clamp.
+                dev += remaining * ratePerPeriod;
+                if (dev < -baseline) dev = -baseline;
+                if (dev > 0) dev = 0;
+                break;
+            }
+
+            // First period that strictly enters the new band:
+            //   N > (currentFert - nextThreshold) / absRate
+            // gap is non-negative because currentFert >= nextThreshold here.
+            long gap = currentFert - nextThreshold;
+            long periodsToCross = (gap / absRate) + 1;
+
+            if (periodsToCross > remaining)
+            {
+                // Not enough periods to cross the next threshold — apply the
+                // rest smoothly inside the current band.
+                dev += remaining * ratePerPeriod;
+                break;
+            }
+
+            // Cross. Snap fertility to the new band's baseline and continue.
+            dev = snapTargetBaseline - baseline;
+            remaining -= periodsToCross;
+        }
+
+        // Defensive clamp; the snap targets are configured ≤ baseline so this
+        // is normally a no-op, but it guards against weird configs.
+        if (dev > 0) dev = 0;
+        if (dev < -baseline) dev = -baseline;
+        return ((int)dev, newLastUpdate);
     }
 
     // Apply the math result back into world.Fertility, maintaining sparsity:
@@ -289,9 +360,9 @@ public static class BiomeDegradation
     private static void WriteCaughtUp(
         GameWorld world, TileCoord tile, int baseline,
         int storedDev, long lastUpdate, long now,
-        int ratePerPeriod, long ratePeriod)
+        int ratePerPeriod, long ratePeriod, BiomeDegradationConfig config)
     {
-        var (newDev, newLastUpdate) = ApplyMath(storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, baseline);
+        var (newDev, newLastUpdate) = ApplyMath(storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, baseline, config);
         if (newDev == storedDev && newLastUpdate == lastUpdate) return;  // no-op
         if (newDev == 0)
         {

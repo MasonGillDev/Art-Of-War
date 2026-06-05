@@ -164,21 +164,30 @@ public class BiomeFertilityCatchUpTests
     [Fact]
     public void DesertLatch_OncePushedBelowThreshold_RecoveryNoOps()
     {
-        // Forest baseline 100. Drive a long degrade so deviation goes deep
-        // negative (current fertility well below DesertThreshold 25).
+        // Forest baseline 100. Drive 800 ticks of -1/10 degrade. With the
+        // band-crossing step penalty (§step-penalty in docs/biome-
+        // degradation.md), this crosses BOTH thresholds and the tile lands
+        // in deep Desert:
+        //   t = 0..259  : Forest band, dev 0 → -25 (fert 75 at t=250)
+        //   t = 260     : crosses 75 → snap to GrasslandBaseline (50), dev=-50
+        //   t = 261..519: Grassland band, dev -50 → -75 (fert 25 at t=510)
+        //   t = 520     : crosses 25 → snap to DesertBaseline (10), dev=-90
+        //   t = 521..800: Desert band, dev continues from -90 downward
+        // With 800 ticks (80 periods) total: 26 spent on F→G, 26 on G→D,
+        // 28 remaining apply smoothly with the [-baseline, 0] floor clamp.
+        // dev = -90 - 28 = -118 → clamped to -100.
         var world = MakeWorld(Biome.Forest);
         var tile = new TileCoord(1, 1);
-        // Manual degrade to current fertility = 20 (< DesertThreshold).
         BiomeDegradation.CatchUpWithRate(world, tile, 800, ratePerPeriod: -1, ratePeriod: 10, Cfg);
-        // 800 / 10 = 80 periods × -1 = -80 deviation; current = 100 - 80 = 20 < 25 → latched.
         var fert = world.Fertility[tile];
-        Assert.Equal(-80, fert.Deviation);
+        Assert.Equal(-100, fert.Deviation);   // hit the degrade floor
         Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, tile, 800, Cfg));
 
-        // Now drive recovery (no extractor in range → CatchUp would normally
-        // apply recovery). Latch must hold: deviation stays at -80.
+        // Now drive a long stretch of recovery time (no extractor; DeriveRate
+        // would normally apply recovery if not latched). Latch must hold:
+        // deviation stays at -100, biome stays Desert.
         BiomeDegradation.CatchUp(world, tile, now: 10_000_000, Cfg);
-        Assert.Equal(-80, world.Fertility[tile].Deviation);
+        Assert.Equal(-100, world.Fertility[tile].Deviation);
         Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, tile, 10_000_000, Cfg));
     }
 
@@ -206,25 +215,183 @@ public class BiomeFertilityCatchUpTests
     [Fact]
     public void ForestGrassland_IsReversible_ViaRecovery()
     {
-        // The reversible side of the ladder: Forest tile, degraded to
-        // Grassland (current fertility between thresholds), then recover →
-        // climbs back to Forest. The implicit latch does NOT engage above
-        // DesertThreshold.
+        // The reversible side of the ladder: Forest tile, degraded across the
+        // F→G threshold (which snaps to GrasslandBaseline 50), then recover
+        // → climbs smoothly back to Forest. The recovery is smooth — no step
+        // bonus on the upward crossing — so the climb takes proportionally
+        // longer than the snap "cost" the tile paid on the way down. That's
+        // the design intent ("easy to cut, hard to regrow").
         var world = MakeWorld(Biome.Forest);
         var tile = new TileCoord(1, 1);
 
-        // Degrade: 400 ticks × -1/10 = -40 deviation. Current 60 ∈ [25, 75) → Grassland.
+        // Degrade: 400 ticks × -1/10 = 40 periods. F→G crossing at period 26
+        // → snap to dev=-50. Remaining 14 periods of smooth degrade →
+        // dev=-50-14 = -64. Fert=36 → Grassland.
         BiomeDegradation.CatchUpWithRate(world, tile, 400, ratePerPeriod: -1, ratePeriod: 10, Cfg);
-        Assert.Equal(-40, world.Fertility[tile].Deviation);
+        Assert.Equal(-64, world.Fertility[tile].Deviation);
         Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, 400, Cfg));
 
-        // Recover with explicit rate (no extractor in Phase A): apply enough
-        // periods to climb the 40 back. RecoveryAmount=1 per RecoveryPeriod=30
-        // → 1200 ticks should suffice. Use 30-tick-period recovery directly.
-        BiomeDegradation.CatchUpWithRate(world, tile, 400 + 1200, ratePerPeriod: 1, ratePeriod: 30, Cfg);
-        // 1200 / 30 = 40 periods × +1 = +40; deviation = -40 + 40 = 0 → sparse removal.
+        // Recovery: +1 per 30 ticks. To climb the 64-deviation gap back to 0
+        // we need 64 periods × 30 ticks = 1920 ticks of rest. Run a full
+        // recovery cycle and verify the entry is sparse-removed at baseline.
+        BiomeDegradation.CatchUpWithRate(world, tile, 400 + 1920, ratePerPeriod: 1, ratePeriod: 30, Cfg);
+        Assert.False(world.Fertility.ContainsKey(tile));     // sparse: at baseline
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 400 + 1920, Cfg));
+    }
+
+    // ====================================================================
+    // Band-crossing step penalty (degrade only)
+    //
+    // When degrade pushes fertility across ForestThreshold (75 → 74), the
+    // tile SNAPS to GrasslandBaseline (50) — NOT the threshold-minus-one
+    // value. Same for the G→D crossing: snap to DesertBaseline (10). This
+    // makes the biome flip a durable loss instead of a 1-tick blip that
+    // recovery walks back in 30 ticks. See docs/biome-degradation.md
+    // §step-penalty.
+    // ====================================================================
+
+    [Fact]
+    public void Degrade_OnForestGrasslandCrossing_SnapsToGrasslandBaseline()
+    {
+        // Forest baseline 100. Rate -1/10. The crossing happens at period 26
+        // (current fert reaches 74 — just below ForestThreshold 75). Instead
+        // of stopping at fert=74, fertility snaps DOWN to GrasslandBaseline=50.
+        var world = MakeWorld(Biome.Forest);
+        var tile = new TileCoord(1, 1);
+
+        // BEFORE the crossing: smooth math (still Forest).
+        BiomeDegradation.CatchUpWithRate(world, tile, 250, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+        Assert.Equal(-25, world.Fertility[tile].Deviation);          // fert=75, still Forest
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 250, Cfg));
+
+        // AT the crossing (period 26): fert would be 74 → snaps to 50.
+        // Reset and drive to exactly the crossing.
+        world.Fertility.Clear();
+        BiomeDegradation.CatchUpWithRate(world, tile, 260, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+        Assert.Equal(-50, world.Fertility[tile].Deviation);          // snapped, not -26
+        Assert.Equal(50, BiomeDegradation.FertilityAt(world, tile, 260, Cfg));
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, 260, Cfg));
+    }
+
+    [Fact]
+    public void Degrade_OnGrasslandDesertCrossing_SnapsToDesertBaseline()
+    {
+        // Pre-seed a tile in the Grassland band on a Forest-baseline tile
+        // (post F→G snap state: dev=-50). Drive 26 more periods under rate
+        // -1/10 to cross the G→D threshold. Snap target: DesertBaseline=10,
+        // which is dev = 10 - 100 = -90 relative to worldgen Forest.
+        var world = MakeWorld(Biome.Forest);
+        var tile = new TileCoord(1, 1);
+        SeedFertility(world, tile, deviation: -50, lastUpdate: 0);
+
+        BiomeDegradation.CatchUpWithRate(world, tile, 260, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+
+        Assert.Equal(-90, world.Fertility[tile].Deviation);          // snapped, not -76
+        Assert.Equal(10, BiomeDegradation.FertilityAt(world, tile, 260, Cfg));
+        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, tile, 260, Cfg));
+    }
+
+    [Fact]
+    public void Degrade_AcrossBothCrossings_InOnePass_AppliesBothSnaps()
+    {
+        // Single catch-up that traverses BOTH crossings + further degrade in
+        // Desert. Starting at Forest baseline (dev=0), drive 100 periods at
+        // -1/10. Stages:
+        //   period 0..25  : Forest (fert 100 → 75)
+        //   period 26     : F→G snap → dev=-50 (fert=50)
+        //   period 27..51 : Grassland (fert 50 → 25, but lands at 25 exactly
+        //                  at period 51; the crossing fires at period 52
+        //                  because 50→24 needs 26 more periods)
+        //   period 52     : G→D snap → dev=-90 (fert=10)
+        //   period 53..100: Desert (fert 10 → 0, clamped at floor)
+        // 100 - 26 - 26 = 48 remaining smooth periods. dev = -90 - 48 = -138
+        // → clamped at -100 (the [-baseline, 0] floor).
+        var world = MakeWorld(Biome.Forest);
+        var tile = new TileCoord(1, 1);
+
+        BiomeDegradation.CatchUpWithRate(world, tile, 1000, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+
+        Assert.Equal(-100, world.Fertility[tile].Deviation);
+        Assert.Equal(0, BiomeDegradation.FertilityAt(world, tile, 1000, Cfg));
+        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, tile, 1000, Cfg));
+    }
+
+    [Fact]
+    public void Degrade_SnapMath_IsObservationIndependent_AcrossCrossings()
+    {
+        // The observation-independence contract must extend across the snap.
+        // Two scenarios: catch up once at T=1000, vs catch up at many
+        // intermediate ticks. Final stored state identical.
+        const long T = 1000;
+        var tile = new TileCoord(1, 1);
+
+        var w1 = MakeWorld(Biome.Forest);
+        BiomeDegradation.CatchUpWithRate(w1, tile, T, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+
+        var w2 = MakeWorld(Biome.Forest);
+        foreach (var t in new long[] { 100, 250, 260, 300, 500, 519, 520, 700, T })
+            BiomeDegradation.CatchUpWithRate(w2, tile, t, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+
+        var f1 = w1.Fertility[tile];
+        var f2 = w2.Fertility[tile];
+        Assert.Equal(f1.Deviation, f2.Deviation);
+        Assert.Equal(f1.LastUpdateTick, f2.LastUpdateTick);
+    }
+
+    [Fact]
+    public void Recovery_AcrossGrasslandForestThreshold_DoesNotSnapUp()
+    {
+        // Asymmetry contract: degrade snaps DOWN at band crossings, but
+        // recovery climbs SMOOTHLY through the upward crossing. A tile
+        // started deep in Grassland recovers tick-by-tick (no upward bonus
+        // snap to ForestBaseline).
+        var world = MakeWorld(Biome.Forest);
+        var tile = new TileCoord(1, 1);
+        SeedFertility(world, tile, deviation: -50, lastUpdate: 0);   // mid-Grassland (fert 50)
+
+        // Drive recovery at +1/30 for 750 ticks = 25 periods. dev = -50 + 25 = -25.
+        // Fert = 75 → at the ForestThreshold; the Band function returns Forest
+        // (inclusive threshold). The intermediate value (75) is what a smooth
+        // climb produces, NOT a snap to 100.
+        BiomeDegradationConfig cfg = Cfg;  // explicit to silence shadowing nag
+        BiomeDegradation.CatchUpWithRate(world, tile, 750, ratePerPeriod: cfg.RecoveryAmount, ratePeriod: cfg.RecoveryPeriod, cfg);
+        Assert.Equal(-25, world.Fertility[tile].Deviation);
+        Assert.Equal(75, BiomeDegradation.FertilityAt(world, tile, 750, cfg));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 750, cfg));   // band is inclusive at 75
+
+        // Continue recovery past 750. Another 750 ticks → dev=0 → sparse remove.
+        BiomeDegradation.CatchUpWithRate(world, tile, 1500, ratePerPeriod: cfg.RecoveryAmount, ratePeriod: cfg.RecoveryPeriod, cfg);
         Assert.False(world.Fertility.ContainsKey(tile));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 400 + 1200, Cfg));
+    }
+
+    [Fact]
+    public void Snap_RecoveryFromSnapBaseline_TakesManyTicks_TheHeadline()
+    {
+        // The gameplay reason the step penalty exists: after a tile flips
+        // Forest → Grassland, recovery back to Forest is SLOW. Without the
+        // snap, dev was -26 and only 30 ticks of recovery returned the tile
+        // to Forest band. With the snap to GrasslandBaseline (50), dev is
+        // -50 and recovery to Forest needs the full climb of 25 fertility
+        // points = 25 periods × 30 ticks/period = 750 ticks of rest. Almost
+        // 25× the previous recovery time.
+        var world = MakeWorld(Biome.Forest);
+        var tile = new TileCoord(1, 1);
+
+        // Drive across the F→G crossing (period 26).
+        BiomeDegradation.CatchUpWithRate(world, tile, 260, ratePerPeriod: -1, ratePeriod: 10, Cfg);
+        Assert.Equal(-50, world.Fertility[tile].Deviation);
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, 260, Cfg));
+
+        // 30 ticks of recovery: would have been enough WITHOUT the snap.
+        // With the snap, 1 period × +1 = +1 deviation → dev=-49 → fert=51 →
+        // still Grassland.
+        BiomeDegradation.CatchUpWithRate(world, tile, 260 + 30, ratePerPeriod: Cfg.RecoveryAmount, ratePeriod: Cfg.RecoveryPeriod, Cfg);
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, 260 + 30, Cfg));
+
+        // 750 ticks of recovery total (25 periods × +1 = +25). dev=-25, fert=75.
+        BiomeDegradation.CatchUpWithRate(world, tile, 260 + 750, ratePerPeriod: Cfg.RecoveryAmount, ratePeriod: Cfg.RecoveryPeriod, Cfg);
+        Assert.Equal(-25, world.Fertility[tile].Deviation);
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 260 + 750, Cfg));
     }
 
     // ====================================================================

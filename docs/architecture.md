@@ -116,6 +116,8 @@ Assert.Equal(state(w1), state(w2));
 
 Reference implementation: `Sim.Core.Biomes.BiomeDegradation` (M9). The aggregator across in-range producers is **MAX, never sum** — overlapping producers do not stack their rates (that would invite a "cluster to instakill" exploit and break the lazy/local property).
 
+**Band-crossing step penalty (M9 follow-on).** When the value being decayed has discrete output bands (e.g. fertility → F/G/D biome), a smooth gradient at a band boundary collapses recovery into a 1-tick blip — defeating the gameplay pressure the dormancy was supposed to create. Solution: snap the value to the next band's baseline on the downward crossing (asymmetric — no bonus on upward). Implemented inside the catch-up math: detect crossings during the elapsed-time integration, apply rate up to the crossing, snap, continue with remaining periods. Bounded iteration (at most one snap per band traversed), observation-independent across crossings, pure-read-safe. See `docs/biome-degradation.md` §step-penalty.
+
 ### 2.6 Fencing tokens for stale events
 
 When a state change can invalidate an already-queued event, you need a way for the event to detect "I'm stale" at fire-time and no-op cleanly.

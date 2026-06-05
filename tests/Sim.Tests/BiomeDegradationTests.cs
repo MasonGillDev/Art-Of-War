@@ -122,11 +122,16 @@ public class BiomeDegradationTests
         world.AddStructure(b);
         var overlap = new TileCoord(4, 3);
 
-        // At t=500: 50 periods × -1 (NOT -2) → deviation -50 → current 50 → Grassland.
-        Assert.Equal(50, BiomeDegradation.FertilityAt(world, overlap, 500, Cfg));
-        // If degrade were SUM (2 per period), deviation would be -100 →
-        // current 0 → Desert. Anti-test:
-        Assert.NotEqual(Biome.Desert, BiomeDegradation.BiomeAt(world, overlap, 500, Cfg));
+        // At t=500 under -1/10 rate: 50 periods total. With the step penalty,
+        // the F→G crossing snaps to GrasslandBaseline at period 26 (dev=-50,
+        // fert=50). Remaining 24 periods of smooth Grassland degrade →
+        // dev=-74, fert=26 (still Grassland, just above DesertThreshold=25).
+        //
+        // If the rate were SUM=2 (the bug we're guarding against), 50 periods
+        // × -2 = ramp through TWO crossings into deep Desert (dev=-100,
+        // fert=0). The contrast (26 vs 0) pins MAX-not-sum.
+        Assert.Equal(26, BiomeDegradation.FertilityAt(world, overlap, 500, Cfg));
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, overlap, 500, Cfg));
     }
 
     [Fact]
@@ -142,8 +147,10 @@ public class BiomeDegradationTests
         world.AddStructure(farm);
         var overlap = new TileCoord(4, 3);
 
-        // At t=100: 10 periods × -MAX(1,2) = -2 each → deviation -20.
-        // If SUM (3), deviation would be -30. Anti-test pins the contract.
+        // At t=100: 10 periods × -MAX(1,2) = -2 each → no crossing yet
+        // (need 13 periods to cross F→G under rate -2). dev=-20, fert=80.
+        // If SUM (3), 10 periods × -3 = dev=-30, fert=70 (would have crossed
+        // → snap to 50). The 80-vs-50 contrast pins MAX-not-sum.
         Assert.Equal(80, BiomeDegradation.FertilityAt(world, overlap, 100, Cfg));
     }
 
@@ -365,32 +372,33 @@ public class BiomeDegradationTests
     [Fact]
     public void Latch_HoldsAcrossDormancy_DespiteRecoveryRateConfigured()
     {
-        // Push the own-tile fertility below the desert threshold, then stop
-        // the extractor and let arbitrary time pass. Recovery is configured
-        // (RecoveryAmount=1, RecoveryPeriod=30), but the implicit latch
-        // (storedFert < DesertThreshold) forces rate=0 so recovery never
-        // fires — even via the lazy pure-read path.
+        // Push the own-tile fertility below the desert threshold via a long
+        // degrade window. With the band-crossing step penalty, 900 ticks
+        // under -1/10 sends the tile through BOTH crossings:
+        //   F→G snap at period 26 (dev=-50)
+        //   G→D snap at period 52 (dev=-90)
+        //   Remaining 38 periods × -1 → dev=-128 → clamped to -baseline=-100.
+        // Once the latch holds (storedFert < DesertThreshold), recovery is
+        // forced to 0 even via the lazy pure-read path.
         var (world, ext) = MakeArmedExtractor(new TileCoord(4, 4), StructureKind.LumberCamp);
         var own = new TileCoord(4, 4);
 
-        // Stop at t=900 → -90 deviation → current 10 < threshold 25 → latched.
         BiomeDegradation.OnProductionTransition(world, ext, 900, Cfg);
         ext.TickArmed = false;
-        Assert.Equal(-90, world.Fertility[own].Deviation);
+        Assert.Equal(-100, world.Fertility[own].Deviation);
         Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 900, Cfg));
 
         // Far-future pure reads: latch holds, fertility unchanged, biome stays
-        // Desert. The stored entry is also unchanged because no transition
-        // fired to trigger a catch-up.
-        Assert.Equal(10, BiomeDegradation.FertilityAt(world, own, 1_000_000, Cfg));
+        // Desert. Stored entry untouched (no transition fired between).
+        Assert.Equal(0, BiomeDegradation.FertilityAt(world, own, 1_000_000, Cfg));
         Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 1_000_000, Cfg));
-        Assert.Equal(-90, world.Fertility[own].Deviation);  // stored, untouched
+        Assert.Equal(-100, world.Fertility[own].Deviation);
 
-        // If we DO trigger another transition (some other extractor far away
-        // arming, conceptually) and force a catch-up under the rate-since-
-        // latch (= 0), the stored state must still not move.
+        // Trigger another transition while the latch holds. Catch-up under
+        // the rate-since-latch (= 0, since the extractor is dormant) leaves
+        // stored state unchanged.
         BiomeDegradation.OnProductionTransition(world, ext, 1_000_000, Cfg);
-        Assert.Equal(-90, world.Fertility[own].Deviation);
+        Assert.Equal(-100, world.Fertility[own].Deviation);
         Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 1_000_000, Cfg));
     }
 

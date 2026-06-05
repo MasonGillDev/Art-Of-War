@@ -72,6 +72,55 @@ returned for a latched tile. No flag is stored or serialized.
 Trade-off: the latch decision is re-derived on every read. The cost is one
 addition and one comparison per FertilityAt call — trivial.
 
+### Why a step penalty on downward band crossings (and asymmetric — no upward bonus)
+
+The smooth-gradient model that landed first (deviation moves linearly with
+elapsed × rate, biome = `Band(current fertility)`) had a glaring problem:
+when a Forest tile crossed `ForestThreshold=75` going down, fertility
+settled at 74. Recovery at `+1/30` climbed back to 75 in 30 ticks. The
+biome-mismatch dormancy was a **30-tick pause** — barely a pause at all.
+"Extract forever" wasn't really fixed; it became "extract, brief nap,
+extract." Players could just duty-cycle and the strategic pressure
+disappeared.
+
+The fix: **when degrade crosses a band threshold going down, snap fertility
+to the next band's baseline** instead of stopping at threshold-1.
+
+| Crossing (degrade direction) | Without snap | **With snap** |
+|---|---|---|
+| Forest → Grassland (across 75) | settles at 74 | **snaps to GrasslandBaseline 50** |
+| Grassland → Desert (across 25) | settles at 24 | **snaps to DesertBaseline 10** |
+
+A Forest tile that crosses into Grassland now needs `(75 − 50) × 30 = 750`
+ticks of rest to climb back to Forest — vs. 30 in the smooth model. The
+biome flip becomes a durable loss, not a blip. The player really does have
+to move on.
+
+**The penalty is paid by the LAND**, not by the extractor. Every tile in
+any producing extractor's radius that crosses the threshold snaps. The
+extractor's own tile is one of those; the radius tiles share the same fate.
+This is the right primitive — extractors are mobile, the land isn't.
+
+**Asymmetric: only on the DOWN direction.** Recovery climbs smoothly
+through the upward crossings — there's no instant snap up to
+`ForestBaseline=100` when a recovering Grassland tile crosses 75. Matches
+the design intent ("easy to cut, hard to regrow") and avoids the
+exploitative inverse (let a tile dip, then recover for cheap).
+
+The snaps for Forest→Grassland (to 50) and Grassland→Desert (to 10) use
+the same mechanism for symmetry. The G→D snap doesn't materially change
+gameplay because the latch is already permanent once below
+`DesertThreshold`; the uniformity is for the model's clarity, and it
+makes the math at the deep-degrade boundary stable.
+
+**Implementation:** the catch-up math (`ApplyMath` in
+`Sim.Core.Biomes.BiomeDegradation`) iterates band crossings during the
+elapsed-time integration. At most two snaps per call
+(Forest → Grassland → Desert); recovery direction skips the snap branch.
+Observation-independent across the snap (a single catch-up at T equals
+many catch-ups summing to T). Pure reads (`FertilityAt`) apply the same
+logic — no mutation.
+
 ### Why F/G/D only, not Mountain/Hills
 
 Quarry (Mountain) and Mine (Hills) do not degrade their tiles in M9. The
@@ -234,6 +283,19 @@ Snapshot serialization adds the new field; the format-version bumps to 6.
   the right fertility values.
 - `BiomeFertilityCatchUpTests.GeneratedDesert_IsImplicitlyLatched_NeverRecovers`
   — generated-desert tiles never recover.
+- `BiomeFertilityCatchUpTests.Degrade_OnForestGrasslandCrossing_SnapsToGrasslandBaseline`
+  — fertility lands at 50 (the snap target), NOT at 74 (threshold-1).
+- `BiomeFertilityCatchUpTests.Degrade_OnGrasslandDesertCrossing_SnapsToDesertBaseline`
+  — fertility lands at 10, NOT at 24.
+- `BiomeFertilityCatchUpTests.Degrade_AcrossBothCrossings_InOnePass_AppliesBothSnaps`
+  — both snaps fire when a single catch-up traverses Forest → Grassland → Desert.
+- `BiomeFertilityCatchUpTests.Degrade_SnapMath_IsObservationIndependent_AcrossCrossings`
+  — single catch-up at T vs many intermediate catch-ups land at the same state.
+- `BiomeFertilityCatchUpTests.Recovery_AcrossGrasslandForestThreshold_DoesNotSnapUp`
+  — the asymmetry contract: recovery climbs smoothly, no upward bonus snap.
+- `BiomeFertilityCatchUpTests.Snap_RecoveryFromSnapBaseline_TakesManyTicks_TheHeadline`
+  — the gameplay headline: recovery from post-snap Grassland to Forest
+  takes 750 ticks (25× the pre-snap recovery cost).
 - `BiomeDegradationTests.TwoOverlappingLumberCamps_DegradeAtMax_NotSum` —
   the MAX (not sum) contract.
 - `BiomeDegradationTests.LumberCamp_OnForest_DegradesOwnTile_ThenStops_TheHeadline`
