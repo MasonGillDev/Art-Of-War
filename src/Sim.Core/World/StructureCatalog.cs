@@ -37,6 +37,10 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
             BuildDurationTicks = 40,
             RequiredBuilderCount = 1,
+            // M9 — degrades Forest at the BiomeDegradationConfig.DegradePeriod
+            // cadence. 1 fertility per period × ForestBaseline 100 →
+            // ~1000 ticks of continuous production exhaust a Forest tile.
+            DegradeAmount = 1,
         },
         [StructureKind.Quarry] = new StructureSpec
         {
@@ -92,6 +96,12 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
             BuildDurationTicks = 30,
             RequiredBuilderCount = 1,
+            // M9 — degrades Grassland faster than LumberCamp degrades Forest:
+            // farms are the path to permanent Desert (latch fires when current
+            // fertility crosses below 25). 2 fertility per period × Grassland
+            // baseline 50 → ~250 ticks of continuous production take a fresh
+            // Grassland tile into permanent Desert. Farming is meant to bite.
+            DegradeAmount = 2,
         },
         [StructureKind.ConstructionSite] = new StructureSpec
         {

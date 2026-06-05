@@ -42,7 +42,7 @@ public sealed class GroupArrivalEvent : ScheduledEvent
             unit.Position = To;
             // Each member is a real arrival on this tile.
             Road.CreditTraffic(world, To, sim.Now);
-            Sight.Reveal(world, unit.OwnerId, To, Sight.RadiusFor(unit.Role));
+            Sight.Reveal(world, unit.OwnerId, To, Sight.RadiusFor(unit.Role), sim.Now);
         }
 
         // Group's own position follows.

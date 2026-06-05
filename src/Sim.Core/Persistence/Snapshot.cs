@@ -44,7 +44,9 @@ public static class Snapshot
     //       GroundResources + CombatConfig).
     //   5 — M8 population (Unit.BornTick + DeathTick + DeathSeq;
     //       GameWorld.PopulationConfig + NextUnitId).
-    public const int FormatVersion = 5;
+    //   6 — M9 biome degradation (GameWorld.BiomeDegradationConfig +
+    //       sparse Fertility dict — pure derived state, no new scheduled events).
+    public const int FormatVersion = 6;
 
     public static string Hash(Simulation sim)
     {
@@ -71,6 +73,8 @@ public static class Snapshot
             WriteCombat(bw, sim.World);
             WriteGroundResources(bw, sim.World);
             WritePopulation(bw, sim.World);
+            WriteBiomeDegradation(bw, sim.World);
+            WriteRememberedBiome(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -104,6 +108,8 @@ public static class Snapshot
         ReadCombat(br, world);
         ReadGroundResources(br, world);
         ReadPopulation(br, world);
+        ReadBiomeDegradation(br, world);
+        ReadRememberedBiome(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -817,6 +823,117 @@ public static class Snapshot
         world.RestorePopulationConfig(new Sim.Core.Population.PopulationConfig(
             ticksPerYear, minTrain, minFert, maxFert, gestation, birthFood, lifeMin, lifeMax));
         world.NextUnitId = nextUnitId;
+    }
+
+    // ----- biome degradation (M9) ---------------------------------------
+
+    private static void WriteBiomeDegradation(BinaryWriter bw, GameWorld world)
+    {
+        // Config first — twelve fields, fixed order matches the record-struct
+        // positional layout.
+        var c = world.BiomeDegradationConfig;
+        bw.Write(c.ForestBaseline);
+        bw.Write(c.GrasslandBaseline);
+        bw.Write(c.DesertBaseline);
+        bw.Write(c.HillsBaseline);
+        bw.Write(c.MountainBaseline);
+        bw.Write(c.WaterBaseline);
+        bw.Write(c.ForestThreshold);
+        bw.Write(c.DesertThreshold);
+        bw.Write(c.RecoveryAmount);
+        bw.Write(c.RecoveryPeriod);
+        bw.Write(c.DegradePeriod);
+        bw.Write(c.DegradeRadius);
+
+        // Sparse fertility dict in canonical (y, x) order. Entries with
+        // Deviation == 0 should not exist (CatchUp removes them); guard
+        // anyway so a hand-constructed test world doesn't break canonical
+        // hashing.
+        var list = world.Fertility
+            .Where(kv => kv.Value.Deviation != 0)
+            .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
+            .ToList();
+        bw.Write(list.Count);
+        foreach (var kv in list)
+        {
+            bw.Write(kv.Key.X);
+            bw.Write(kv.Key.Y);
+            bw.Write(kv.Value.Deviation);
+            bw.Write(kv.Value.LastUpdateTick);
+        }
+    }
+
+    // ----- remembered biome (M9, per-player per-tile) -------------------
+
+    private static void WriteRememberedBiome(BinaryWriter bw, GameWorld world)
+    {
+        // Canonical: sort by player id; per player, tiles in (y, x) order.
+        var byPlayer = world.RememberedBiome
+            .OrderBy(kv => kv.Key)
+            .ToList();
+        bw.Write(byPlayer.Count);
+        foreach (var (playerId, perTile) in byPlayer)
+        {
+            bw.Write(playerId);
+            var tiles = perTile
+                .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
+                .ToList();
+            bw.Write(tiles.Count);
+            foreach (var (tile, biome) in tiles)
+            {
+                bw.Write(tile.X);
+                bw.Write(tile.Y);
+                bw.Write((byte)biome);
+            }
+        }
+    }
+
+    private static void ReadRememberedBiome(BinaryReader br, GameWorld world)
+    {
+        var playerCount = br.ReadInt32();
+        for (var i = 0; i < playerCount; i++)
+        {
+            var playerId = br.ReadInt32();
+            var tileCount = br.ReadInt32();
+            var perTile = new Dictionary<TileCoord, Biome>(capacity: tileCount);
+            for (var j = 0; j < tileCount; j++)
+            {
+                var x = br.ReadInt32();
+                var y = br.ReadInt32();
+                var biome = (Biome)br.ReadByte();
+                perTile[new TileCoord(x, y)] = biome;
+            }
+            world.RememberedBiome[playerId] = perTile;
+        }
+    }
+
+    private static void ReadBiomeDegradation(BinaryReader br, GameWorld world)
+    {
+        var forestBase = br.ReadInt32();
+        var grassBase = br.ReadInt32();
+        var desertBase = br.ReadInt32();
+        var hillsBase = br.ReadInt32();
+        var mountainBase = br.ReadInt32();
+        var waterBase = br.ReadInt32();
+        var forestThresh = br.ReadInt32();
+        var desertThresh = br.ReadInt32();
+        var recoveryAmount = br.ReadInt32();
+        var recoveryPeriod = br.ReadInt64();
+        var degradePeriod = br.ReadInt64();
+        var degradeRadius = br.ReadInt32();
+        world.RestoreBiomeDegradationConfig(new Sim.Core.Biomes.BiomeDegradationConfig(
+            forestBase, grassBase, desertBase, hillsBase, mountainBase, waterBase,
+            forestThresh, desertThresh, recoveryAmount, recoveryPeriod, degradePeriod, degradeRadius));
+
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var x = br.ReadInt32();
+            var y = br.ReadInt32();
+            var dev = br.ReadInt32();
+            var lastUpdate = br.ReadInt64();
+            world.Fertility[new TileCoord(x, y)] = new Sim.Core.Biomes.Fertility(dev, lastUpdate);
+        }
     }
 
     // ----- groups (id-sorted) -------------------------------------------

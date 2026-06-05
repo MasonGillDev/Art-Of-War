@@ -109,6 +109,13 @@ Assert.Equal(state(w1), state(w2));
 
 **Forbidden:** condition-dependent decay rates. A rate that depends on the value being decayed creates a coupled-interval trap — you'd have to integrate over the elapsed time, which makes the math fragile and observation-sensitive. If you ever want "stone holds up longer than dirt," do it **band-stepped** (catch up to the next band at the current flat rate; switch rate at the boundary), never continuously coupled.
 
+**Spatial extension (M9).** When the rate at a tile depends on **other entities at varying positions** (e.g. nearby extractors degrading fertility), the same lazy-catch-up shape works — with two extra disciplines:
+
+1. **Catch-up only at rate-changing events** (e.g. extractor production start/stop). Between such events, the rate at any tile is invariant by construction. Reads then derive the rate from the current world state (which equals the rate that's held since the last catch-up) and apply it over `(now - lastUpdateTick)`. Pure: no mutation.
+2. **Anchor `lastUpdateTick = now` at every transition catch-up** (drop the carry-remainder). The remainder is fine within a constant-rate segment; across rate transitions it would re-interpret partial old-rate elapsed-time as partial new-rate elapsed-time, which is wrong. So at every transition, finalise the old rate's effect to `now` and start the new rate's window cleanly. This also means the catch-up writes an entry even when the math is a no-op, which is what makes a "first time this tile sees any rate" tile correct.
+
+Reference implementation: `Sim.Core.Biomes.BiomeDegradation` (M9). The aggregator across in-range producers is **MAX, never sum** — overlapping producers do not stack their rates (that would invite a "cluster to instakill" exploit and break the lazy/local property).
+
 ### 2.6 Fencing tokens for stale events
 
 When a state change can invalidate an already-queued event, you need a way for the event to detect "I'm stale" at fire-time and no-op cleanly.
@@ -339,6 +346,7 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | **M6** | **Multi-faction & diplomacy (configurable N factions; three-state symmetric relationships; unilateral-telegraphed war + bilateral peace/ally)** | **✅** |
 | **M7** | **Combat (force-vs-force on a tile; multi-round linear-proportional; per-unit Health + Buffs seam; capture-on-death; mid-fight crash recovery)** | **✅** |
 | **M8** | **Population (derived age from BornTick; seeded lifespan; House + breeding; stop-on-removal one rule; mid-gestation crash recovery)** | **✅** |
+| **M9** | **Biome degradation (spatial lazy field: per-tile fertility, MAX over in-range producers, implicit Desert latch, biome-mismatch dormancy ends infinite single-tile extraction)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
 
 ### After M8 — the big systems

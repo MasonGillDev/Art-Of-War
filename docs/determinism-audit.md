@@ -348,6 +348,72 @@ The M4 anchors (`Unit.PathRemaining`, `Unit.NextArrivalTick/Seq`,
 No view, no pure-read path, no host code outside the event-driven sites
 writes these fields.
 
+## Biome degradation addendum (M9 — completed 2026-06-05)
+
+Three new pieces of state — `GameWorld.Fertility` (sparse per-tile),
+`GameWorld.BiomeDegradationConfig`, and `GameWorld.RememberedBiome`
+(per-player per-tile) — plus a derived-biome API on top of the
+worldgen biome. All three must respect the inverted-pure-read-wall
+contract: written only by event-driven sites, read by views without
+mutation.
+
+### `world.Fertility` has exactly two production write sites
+
+`BiomeDegradation.CatchUp` (called from `OnProductionTransition` which
+in turn is called from `Extractor.ArmIfDormant` and the three
+"going dormant" branches in `ProductionTickEvent.Apply`) is the
+production-path mutator. The catch-up scope is **radius-bounded**:
+`OnProductionTransition` iterates a Chebyshev box of size
+`(2*DegradeRadius+1)^2` around the transitioning extractor — never
+the whole world.
+
+`Snapshot.ReadBiomeDegradation` is the restore-only mutator.
+
+The test-only `BiomeDegradation.CatchUpWithRate` exists (no
+production caller) — it's the integer-math driver for the Phase A
+observation-independence tests. Internal accessibility limits its
+callers to `Sim.Tests`. If a production code path ever needs to
+write Fertility outside the transition discipline, that path is the
+bug.
+
+### `BiomeDegradation.FertilityAt` / `BiomeAt` are pure reads
+
+Both compute fresh values from `world.Fertility` + `world.Structures`
++ `world.BiomeDegradationConfig` on every call. The 100×-no-mutation
+contract is pinned by
+`BiomeFertilityCatchUpTests.FertilityAt_IsPureRead_NoMutation` and
+`BiomeAt_IsPureRead_NoMutation`. The same tests cover
+`world.RememberedBiome` is not touched by reads.
+
+### The implicit Desert latch is observation-independent
+
+There is no stored "is this tile latched?" boolean. The latch
+predicate is `(baseline + Fertility[tile].Deviation) < DesertThreshold`
+evaluated against the stored value at the most recent transition. The
+M9 invariant — that the rate at a tile is constant between transition
+catch-ups — guarantees the predicate is exact and observation-
+independent.
+
+### `world.RememberedBiome` has the same write sites as `world.Explored`
+
+`Sight.Reveal` writes both in lock-step. The `now` parameter on
+`Reveal` carries the tick at which the biome snapshot is taken;
+Genesis passes `now: 0` (no degradation yet at world genesis), event-
+driven callers pass `sim.Now`. View reads `RememberedBiome[playerId]`
+for explored-but-not-visible tiles; visible tiles fall through to
+the live `BiomeAt(now)` instead.
+
+### Snapshot format
+
+`Snapshot.FormatVersion` bumped to `6`. New sections:
+`BiomeDegradationConfig` (12 fields, fixed positional order),
+sparse `Fertility` dict in canonical (y, x) order, and
+`RememberedBiome` in (player-id, then y, x) order. No new scheduled
+events to regenerate — Fertility is **pure derived state**, so
+`RegenerateQueue.From` is unchanged. The mid-degradation round-trip
+test (`BiomeDegradationTests.Degradation_SnapshotMidRun_RoundTrips`)
+pins this.
+
 ## What would break these invariants and require re-running this audit
 
 Re-run the greps above when any of the following lands:

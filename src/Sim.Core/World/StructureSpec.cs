@@ -36,4 +36,12 @@ public sealed record StructureSpec
         new SortedDictionary<Resource, int>();
     public int BuildDurationTicks { get; init; }
     public int RequiredBuilderCount { get; init; }
+
+    // M9 — fertility degrade contribution while actively producing. Combined
+    // with BiomeDegradationConfig.DegradePeriod (global) to give a rate.
+    // Zero = this extractor type does NOT degrade in M9 (Quarry, Mine — out
+    // of scope; Hills/Mountain don't participate in the F/G/D ladder).
+    // MAX over overlapping in-range producers (NEVER sum) is enforced in
+    // BiomeDegradation.MaxInRangeProducingDegradeAmount.
+    public int DegradeAmount { get; init; }
 }

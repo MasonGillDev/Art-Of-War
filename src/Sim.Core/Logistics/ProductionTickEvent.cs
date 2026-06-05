@@ -4,10 +4,14 @@ namespace Sim.Core.Logistics;
 //
 // Fires every spec.ProductionPeriodTicks. On fire:
 //   1. Validate the structure still exists and is the right type (fencing).
-//   2. If workers == 0 or buffer is full, clear TickArmed and reject cleanly.
+//   2. M9 biome-mismatch guard: if the tile's DERIVED biome (BiomeAt) no
+//      longer matches the spec's RequiredBiome (i.e. the LumberCamp's Forest
+//      tile has degraded to Grassland), go dormant. This is the keystone
+//      "extract-forever" fix — see docs/biome-degradation.md §D.
+//   3. If workers == 0 or buffer is full, clear TickArmed and reject cleanly.
 //      Re-arm comes from AssignWorkersIntent (when workers come back) or
 //      Extractor.ArmIfDormant called from a future haul-pickup (Phase E).
-//   3. Otherwise compute the discrete extract amount for this period, bump
+//   4. Otherwise compute the discrete extract amount for this period, bump
 //      the buffer, and reschedule the next tick.
 //
 // Each tick is a discrete event producing a discrete integer amount of work.
@@ -28,8 +32,40 @@ public sealed class ProductionTickEvent : ScheduledEvent
             return;
         }
 
+        // M9: biome-mismatch dormancy check. If this extractor's tile has
+        // degraded out of its required biome, it cannot produce. Goes dormant
+        // — the player must relocate. This is the closure of "extract forever
+        // from one tile."
+        //
+        // Only check kinds that HAVE a RequiredBiome (Castle / Stockpile /
+        // House don't, but they aren't Extractors anyway — they're filtered
+        // by the cast above). Among Extractors only LumberCamp + Farm have
+        // DegradeAmount > 0; for the others (Quarry / Mine) the derived
+        // biome matches the worldgen biome (Hills/Mountain are off-ladder),
+        // so the check is harmless.
+        if (extractor.Spec.RequiredBiome != Biome.None)
+        {
+            var currentBiome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                world, extractor.At, sim.Now, world.BiomeDegradationConfig);
+            if (currentBiome != extractor.Spec.RequiredBiome)
+            {
+                // Pre-stop catch-up (TickArmed still true → includes us).
+                Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+                    world, extractor, sim.Now, world.BiomeDegradationConfig);
+                extractor.TickArmed = false;
+                extractor.NextProductionTickSeq = null;
+                Outcome = IntentOutcome.Reject(
+                    $"tile biome is {currentBiome}, requires {extractor.Spec.RequiredBiome}");
+                return;
+            }
+        }
+
         if (extractor.Workers.Count == 0)
         {
+            // M9: catch up tiles in radius using the PRE-STOP rate (this
+            // extractor still counts because TickArmed is true here).
+            Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+                world, extractor, sim.Now, world.BiomeDegradationConfig);
             extractor.TickArmed = false;
             extractor.NextProductionTickSeq = null;
             Outcome = IntentOutcome.Reject("no workers");
@@ -38,6 +74,8 @@ public sealed class ProductionTickEvent : ScheduledEvent
 
         if (extractor.BufferFull())
         {
+            Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+                world, extractor, sim.Now, world.BiomeDegradationConfig);
             extractor.TickArmed = false;
             extractor.NextProductionTickSeq = null;
             Outcome = IntentOutcome.Reject("buffer full");
@@ -69,6 +107,11 @@ public sealed class ProductionTickEvent : ScheduledEvent
         }
         else
         {
+            // M9: buffer-just-filled (or workers vanished mid-tick) — going
+            // dormant. Catch up tiles in radius using PRE-STOP rate (TickArmed
+            // still true here).
+            Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+                world, extractor, sim.Now, world.BiomeDegradationConfig);
             extractor.TickArmed = false;
             extractor.NextProductionTickSeq = null;
         }

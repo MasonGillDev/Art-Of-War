@@ -37,7 +37,12 @@ public sealed class PlaceSiteIntent : Intent
 
         if (spec.RequiredBiome != Biome.None)
         {
-            var biome = sim.World.Grid.BiomeAt(Tile);
+            // M9: validate against the DERIVED biome (BiomeAt), not the
+            // worldgen biome. A formerly-Forest tile that has degraded to
+            // Grassland is now legitimately Grassland — it rejects a
+            // LumberCamp and accepts a Farm. See docs/biome-degradation.md.
+            var biome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                sim.World, Tile, sim.Now, sim.World.BiomeDegradationConfig);
             if (biome != spec.RequiredBiome)
                 return IntentOutcome.Reject(
                     $"{Kind} requires {spec.RequiredBiome} but tile is {biome}");

@@ -125,6 +125,13 @@ public sealed class Extractor : Structure
         if (TickArmed) return;
         if (Workers.Count == 0) return;
         if (BufferFull()) return;
+        // M9: catch up tiles in radius using the PRE-START rate. TickArmed is
+        // still false at this point, so the catch-up's rate scan correctly
+        // EXCLUDES this extractor; after the catch-up the new (higher) rate
+        // kicks in for future reads/transitions. See
+        // BiomeDegradation.OnProductionTransition.
+        Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+            sim.World, this, sim.Now, sim.World.BiomeDegradationConfig);
         TickArmed = true;
         NextProductionTickSeq = sim.Schedule(
             sim.Now + Spec.ProductionPeriodTicks,

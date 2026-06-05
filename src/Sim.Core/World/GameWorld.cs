@@ -39,6 +39,19 @@ public sealed class GameWorld
     // docs/persistence-model.md and Vision/Vision.cs.
     public Dictionary<int, HashSet<TileCoord>> Explored { get; } = new();
 
+    // M9 — per-player per-tile remembered biome, snapshotted at each
+    // Sight.Reveal call. View.BuildPlayerView reports the stored biome (the
+    // last-seen value) for remembered-but-not-visible tiles. Currently-
+    // visible tiles always show derived BiomeAt(now) regardless. This is
+    // what makes "the world changes behind the fog" work: a tile that
+    // degraded while the player wasn't looking still shows its last-seen
+    // biome until re-scouted.
+    //
+    // INVERTED PURE-READ WALL: same call sites as Explored. Written in
+    // lock-step (every Reveal that adds/refreshes an Explored tile also
+    // writes the biome here).
+    public Dictionary<int, Dictionary<TileCoord, Biome>> RememberedBiome { get; } = new();
+
     // M6 — per-pair diplomacy + world-level config. Genesis seeds Config
     // from GenesisSpec; relationships start empty (every pair defaults to
     // Neutral until a transition fires). Diplomatic state is public
@@ -62,27 +75,45 @@ public sealed class GameWorld
     public Population.PopulationConfig PopulationConfig { get; private set; }
     public int NextUnitId { get; internal set; } = 1;
 
+    // M9 — biome-degradation config (thresholds, baselines, recovery, radius)
+    // + sparse per-tile fertility deviation. Only tiles whose Deviation != 0
+    // live in the dict (matches the Roads pattern). The latch is IMPLICIT
+    // (no per-tile flag): a tile is "desert-latched" iff
+    // (baseline + Deviation) < DesertThreshold. See Biomes/BiomeDegradation.cs.
+    //
+    // INVERTED PURE-READ WALL: written ONLY by BiomeDegradation.CatchUp
+    // (called from extractor production-state transitions). Read by
+    // BiomeDegradation.FertilityAt / BiomeAt — pure, no-mutation. A view or
+    // intent writing here would corrupt snapshotted state.
+    public Sim.Core.Biomes.BiomeDegradationConfig BiomeDegradationConfig { get; private set; }
+    public Dictionary<TileCoord, Sim.Core.Biomes.Fertility> Fertility { get; } = new();
+
     public GameWorld(TileGrid grid)
-        : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig()) { }
+        : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 
     public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig)
-        : this(grid, diplomacyConfig, new Combat.CombatConfig(), new Population.PopulationConfig()) { }
+        : this(grid, diplomacyConfig, new Combat.CombatConfig(), new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 
     public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig, Combat.CombatConfig combatConfig)
-        : this(grid, diplomacyConfig, combatConfig, new Population.PopulationConfig()) { }
+        : this(grid, diplomacyConfig, combatConfig, new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 
     public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig, Combat.CombatConfig combatConfig, Population.PopulationConfig populationConfig)
+        : this(grid, diplomacyConfig, combatConfig, populationConfig, new Sim.Core.Biomes.BiomeDegradationConfig()) { }
+
+    public GameWorld(TileGrid grid, Diplomacy.DiplomacyConfig diplomacyConfig, Combat.CombatConfig combatConfig, Population.PopulationConfig populationConfig, Sim.Core.Biomes.BiomeDegradationConfig biomeDegradationConfig)
     {
         Grid = grid;
         Diplomacy = new Diplomacy.Diplomacy(diplomacyConfig);
         CombatConfig = combatConfig;
         PopulationConfig = populationConfig;
+        BiomeDegradationConfig = biomeDegradationConfig;
     }
 
     // Restore-only — used by Snapshot.Restore to swap in the serialized
     // configs after the world is constructed with placeholders.
     internal void RestoreCombatConfig(Combat.CombatConfig config) => CombatConfig = config;
     internal void RestorePopulationConfig(Population.PopulationConfig config) => PopulationConfig = config;
+    internal void RestoreBiomeDegradationConfig(Sim.Core.Biomes.BiomeDegradationConfig config) => BiomeDegradationConfig = config;
 
     public Unit AddUnit(int id, TileCoord position)
     {

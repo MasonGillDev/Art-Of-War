@@ -107,7 +107,7 @@ public class ExploredMemoryTests
         // Reveal near a corner — clamping must keep us in-bounds.
         var world = Genesis.Build(MakeSpec());
         var beforeCount = world.Explored[0].Count;
-        Sight.Reveal(world, 0, new TileCoord(0, 0), 5);
+        Sight.Reveal(world, 0, new TileCoord(0, 0), 5, now: 0);
         Assert.True(world.Explored[0].Count > beforeCount);
         // No negative coordinates leaked in.
         foreach (var t in world.Explored[0])

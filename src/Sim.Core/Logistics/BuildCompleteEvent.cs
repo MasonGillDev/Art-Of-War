@@ -63,7 +63,7 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         // Tower), reveal its area for the owner.
         var visionRadius = Sight.RadiusFor(built.Kind);
         if (visionRadius > 0)
-            Sight.Reveal(world, built.OwnerId, built.At, visionRadius);
+            Sight.Reveal(world, built.OwnerId, built.At, visionRadius, sim.Now);
     }
 
     // Catalog dispatch. Every player-buildable kind needs a row here.

@@ -118,11 +118,22 @@ public static class View
             ? new HashSet<TileCoord>(e)
             : new HashSet<TileCoord>();
 
-        // Remembered terrain = biome lookup for explored-but-not-visible tiles.
+        // Remembered terrain = LAST-SEEN biome for explored-but-not-visible
+        // tiles (M9). Falls back to the worldgen biome if the player hasn't
+        // had a Reveal at this tile under the new (M9+) code path — that
+        // case only arises for tiles explored via a snapshot from before
+        // FormatVersion 6, in which case the worldgen value matches the
+        // last-seen value (no degradation had happened yet).
         var remembered = new Dictionary<TileCoord, Biome>();
+        world.RememberedBiome.TryGetValue(playerId, out var perPlayerBiomes);
         foreach (var t in explored)
-            if (!visible.Contains(t))
+        {
+            if (visible.Contains(t)) continue;
+            if (perPlayerBiomes is not null && perPlayerBiomes.TryGetValue(t, out var seen))
+                remembered[t] = seen;
+            else
                 remembered[t] = world.Grid.BiomeAt(t);
+        }
 
         // Units: own unconditionally; others only if their tile is visible.
         var visibleUnits = new List<UnitView>();

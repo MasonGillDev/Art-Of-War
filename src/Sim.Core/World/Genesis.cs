@@ -97,7 +97,7 @@ public static class Genesis
                         $"Castle capacity ({castle.Capacity}) too small for starting holdings.");
             }
             // M3 Phase B: the castle is a vision source; reveal its area.
-            Sight.Reveal(world, castle.OwnerId, castle.At, Sight.RadiusFor(StructureKind.Castle));
+            Sight.Reveal(world, castle.OwnerId, castle.At, Sight.RadiusFor(StructureKind.Castle), now: 0);
 
             foreach (var u in fs.UnitSpawns)
             {
@@ -114,7 +114,7 @@ public static class Genesis
                     BornTick = bornTick,
                 });
                 // M3 Phase B: each spawned unit reveals around its spawn tile.
-                Sight.Reveal(world, unit.OwnerId, unit.Position, Sight.RadiusFor(unit.Role));
+                Sight.Reveal(world, unit.OwnerId, unit.Position, Sight.RadiusFor(unit.Role), now: 0);
             }
         }
 

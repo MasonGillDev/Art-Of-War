@@ -31,7 +31,8 @@ public static class Sight
     };
 
     // INVERTED PURE-READ WALL — this is the ONE write path for
-    // GameWorld.Explored. Called only from deterministic events:
+    // GameWorld.Explored AND GameWorld.RememberedBiome. Called only from
+    // deterministic events:
     //   * MoveArrivalEvent.Apply (after position update + road credit)
     //   * BuildCompleteEvent.Apply (vision structures becoming visible)
     //   * Genesis.Build (initial Castle + unit placements)
@@ -40,9 +41,15 @@ public static class Sight
     // `playerId`'s explored set. Squared-distance comparison keeps the
     // math integer-exact and runtime-deterministic. Clamps to grid bounds.
     //
+    // M9: also writes RememberedBiome[playerId][tile] = BiomeAt(world, tile,
+    // now, config) for each tile in the disc. This is the "last-seen biome"
+    // record consulted by View.BuildPlayerView when the tile is explored-
+    // but-not-visible. Genesis passes now=0; event-driven callers pass
+    // sim.Now.
+    //
     // No-op when r <= 0 (non-vision structure kinds return 0 from
     // RadiusFor, so callers can union safely).
-    internal static void Reveal(GameWorld world, int playerId, TileCoord center, int r)
+    internal static void Reveal(GameWorld world, int playerId, TileCoord center, int r, long now)
     {
         if (r <= 0) return;
         if (!world.Explored.TryGetValue(playerId, out var set))
@@ -50,6 +57,12 @@ public static class Sight
             set = new HashSet<TileCoord>();
             world.Explored[playerId] = set;
         }
+        if (!world.RememberedBiome.TryGetValue(playerId, out var remembered))
+        {
+            remembered = new Dictionary<TileCoord, Biome>();
+            world.RememberedBiome[playerId] = remembered;
+        }
+        var config = world.BiomeDegradationConfig;
         var grid = world.Grid;
         var rSquared = r * r;
         var xLo = Math.Max(0, center.X - r);
@@ -64,7 +77,13 @@ public static class Sight
             {
                 var dx = x - center.X;
                 if (dx * dx + dy2 <= rSquared)
-                    set.Add(new TileCoord(x, y));
+                {
+                    var tile = new TileCoord(x, y);
+                    set.Add(tile);
+                    // M9: refresh the last-seen biome.
+                    remembered[tile] = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                        world, tile, now, config);
+                }
             }
         }
     }

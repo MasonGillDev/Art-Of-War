@@ -175,6 +175,7 @@ static void Print(string label, Simulation sim)
 // stable regression target).
 var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
+var degradationDemo = args.Length > 0 && args[0] == "--degradation";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
 var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
@@ -185,6 +186,10 @@ if (persistentDemo)
 else if (groupsDemo)
 {
     GroupDemo.Run();
+}
+else if (degradationDemo)
+{
+    DegradationDemo.Run();
 }
 else if (!generate)
 {
@@ -527,5 +532,124 @@ static class PersistentDemo
             new HaulIntent(2, new TileCoord(15, 0), new TileCoord(0, 0), Resource.Wood));
 
         return sim;
+    }
+}
+
+// M9 — biome-degradation smoke. Builds a LumberCamp on Forest with one
+// Lumberjack and lets production run to the dormancy point. Prints the
+// own-tile biome and fertility at intervals — should show Forest → Grassland
+// (the M9 headline "extract-forever fix") and the eventual biome-mismatch
+// dormancy.
+static class DegradationDemo
+{
+    public static void Run()
+    {
+        // Genesis spec: a Forest world with a Castle, a Builder, a
+        // Lumberjack, and a Hauler. The Builder constructs the LumberCamp;
+        // the Lumberjack staffs it; the Hauler drains the buffer so the
+        // camp keeps producing past its tiny buffer cap and we see the
+        // own-tile degrade through Forest → Grassland → biome-mismatch
+        // dormancy.
+        var campAt = new TileCoord(4, 4);
+        var spec = new GenesisSpec
+        {
+            Width = 10,
+            Height = 10,
+            DefaultBiome = Sim.Core.World.Biome.Forest,
+            FactionStarts = new[]
+            {
+                new FactionStartSpec
+                {
+                    OwnerId = 0,
+                    CastlePosition = new TileCoord(0, 0),
+                    CastleHoldings = new SortedDictionary<Resource, int>
+                    {
+                        [Resource.Wood] = 50,
+                    },
+                    UnitSpawns = new[]
+                    {
+                        new UnitSpawn(Id: 1, campAt, UnitRole.Builder),
+                        new UnitSpawn(Id: 2, campAt, UnitRole.Lumberjack),
+                        new UnitSpawn(Id: 3, campAt, UnitRole.Hauler, CargoCapacity: 5),
+                    },
+                },
+            },
+        };
+        var sim = new Simulation(spec, seed: 0xDEAD_BEEF);
+
+        // Place the LumberCamp construction site at campAt, hand-deposit the
+        // materials (skipping the haul-from-Castle ceremony for clarity),
+        // and start the build.
+        sim.SubmitIntent(0, new PlaceSiteIntent(campAt, StructureKind.LumberCamp));
+        sim.Run(until: 0);
+        var site = (ConstructionSite)sim.World.Structures[campAt];
+        foreach (var (r, n) in StructureCatalog.Spec(StructureKind.LumberCamp).BuildCost)
+            site.Deposit(r, n);
+        sim.SubmitIntent(sim.Now, new AssignBuildersIntent(campAt, new[] { 1 }));
+        sim.Run(until: StructureCatalog.Spec(StructureKind.LumberCamp).BuildDurationTicks);
+
+        // Staff with Lumberjack — production arms here, M9 catches up the
+        // (still-Forest) radius.
+        sim.SubmitIntent(sim.Now, new AssignWorkersIntent(campAt, new[] { 2 }));
+        sim.Run(until: sim.Now);
+
+        Console.WriteLine("M9 degradation smoke: LumberCamp on Forest, single Lumberjack.");
+        Console.WriteLine("Each step: run 5 production ticks, manually drain the buffer (simulating");
+        Console.WriteLine("instant haul), re-arm. Stops when the camp goes dormant via biome-mismatch.");
+        Console.WriteLine();
+        Console.WriteLine("step | sim.Now | TickArmed | Buffer | own-tile biome | own-tile fertility");
+        Console.WriteLine("-----+---------+-----------+--------+----------------+--------------------");
+        PrintRow(0, sim, campAt);
+
+        var cfg = sim.World.BiomeDegradationConfig;
+        var step = 1;
+        var totalProduced = 0;
+        // Bounded loop. Each iteration advances sim by ~5 production periods
+        // (50 ticks), drains the buffer. Re-arm only if the tile is still
+        // the right biome; otherwise the camp has gone dormant via biome-
+        // mismatch (the M9 headline) and we exit.
+        var period = StructureCatalog.Spec(StructureKind.LumberCamp).ProductionPeriodTicks;
+        while (sim.Now < 5_000)
+        {
+            sim.Run(until: sim.Now + period * 5);
+            var camp = (Extractor)sim.World.Structures[campAt];
+            totalProduced += camp.Buffer;
+            camp.Buffer = 0;   // instant haul
+
+            PrintRow(step, sim, campAt);
+
+            // EXIT CHECK before re-arming: did the camp go dormant via
+            // biome-mismatch? Two signals together:
+            //   - !camp.TickArmed (dormancy fired this iteration)
+            //   - The own tile's derived biome no longer matches Forest.
+            var currentBiome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(sim.World, campAt, sim.Now, cfg);
+            if (!camp.TickArmed && currentBiome != Biome.Forest)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Headline: LumberCamp went dormant via biome-mismatch.");
+                Console.WriteLine($"  Wood produced (cumulative across drains): {totalProduced}");
+                Console.WriteLine($"  Own-tile biome now: {currentBiome}");
+                Console.WriteLine($"  Sim ticks elapsed:  {sim.Now}");
+                Console.WriteLine();
+                Console.WriteLine("No infinite single-tile extraction. The player must relocate.");
+                return;
+            }
+            // Otherwise re-arm and continue (M1 buffer-full dormancy is the
+            // re-armable kind — that's not the M9 headline).
+            sim.SubmitIntent(sim.Now, new AssignWorkersIntent(campAt, new[] { 2 }));
+            sim.Run(until: sim.Now);
+            step++;
+        }
+        Console.WriteLine();
+        Console.WriteLine("Reached step limit without dormancy — rates may need re-tuning.");
+    }
+
+    private static void PrintRow(int step, Simulation sim, TileCoord at)
+    {
+        var cfg = sim.World.BiomeDegradationConfig;
+        var ext = (Extractor)sim.World.Structures[at];
+        var biome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(sim.World, at, sim.Now, cfg);
+        var fert = Sim.Core.Biomes.BiomeDegradation.FertilityAt(sim.World, at, sim.Now, cfg);
+        Console.WriteLine($"{step,4} | {sim.Now,7} | {ext.TickArmed,9} | {ext.Buffer,6} | {biome,-14} | {fert}");
     }
 }
