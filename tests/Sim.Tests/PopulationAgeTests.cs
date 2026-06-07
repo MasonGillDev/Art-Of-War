@@ -38,9 +38,12 @@ public class PopulationAgeTests
     public void Genesis_Default_StartingAge_IsBakedIntoBornTick()
     {
         var world = MakeWorld(startingAgeYears: 30);
+        var cfg = world.PopulationConfig;
         // At sim.Now = 0, age = (0 - BornTick) / TicksPerYear should equal 30.
-        Assert.Equal(-30 * 100, world.Units[1].BornTick);
-        Assert.Equal(30, Population.AgeYears(world.Units[1], now: 0, world.PopulationConfig));
+        // Use cfg.TicksPerYear rather than a literal so this test stays
+        // correct as the default tuning evolves.
+        Assert.Equal(-30 * cfg.TicksPerYear, world.Units[1].BornTick);
+        Assert.Equal(30, Population.AgeYears(world.Units[1], now: 0, cfg));
     }
 
     [Fact]
@@ -48,11 +51,12 @@ public class PopulationAgeTests
     {
         var world = MakeWorld(startingAgeYears: 20);
         var u = world.Units[1];
+        var cfg = world.PopulationConfig;
         var bornTickBefore = u.BornTick;
         // Advance simulated time WITHOUT mutating any per-unit field.
-        Assert.Equal(20, Population.AgeYears(u, now: 0, world.PopulationConfig));
-        Assert.Equal(25, Population.AgeYears(u, now: 500, world.PopulationConfig));
-        Assert.Equal(30, Population.AgeYears(u, now: 1000, world.PopulationConfig));
+        Assert.Equal(20, Population.AgeYears(u, now: 0, cfg));
+        Assert.Equal(25, Population.AgeYears(u, now: 5 * cfg.TicksPerYear, cfg));
+        Assert.Equal(30, Population.AgeYears(u, now: 10 * cfg.TicksPerYear, cfg));
         // BornTick is immutable — derived age changed but state did not.
         Assert.Equal(bornTickBefore, u.BornTick);
     }
@@ -77,10 +81,12 @@ public class PopulationAgeTests
         var u = world.Units[1];
         var cfg = world.PopulationConfig;
         long T(int years) => u.BornTick + years * cfg.TicksPerYear;
-        Assert.False(Population.CanBreed(u, T(17), cfg));
-        Assert.True(Population.CanBreed(u, T(18), cfg));
-        Assert.True(Population.CanBreed(u, T(40), cfg));
-        Assert.False(Population.CanBreed(u, T(41), cfg));
+        // Bounds use cfg.MinFertileAge / MaxFertileAge so the test stays
+        // correct as the default fertility window is retuned.
+        Assert.False(Population.CanBreed(u, T(cfg.MinFertileAge - 1), cfg));
+        Assert.True(Population.CanBreed(u, T(cfg.MinFertileAge), cfg));
+        Assert.True(Population.CanBreed(u, T(cfg.MaxFertileAge), cfg));
+        Assert.False(Population.CanBreed(u, T(cfg.MaxFertileAge + 1), cfg));
     }
 
     [Fact]

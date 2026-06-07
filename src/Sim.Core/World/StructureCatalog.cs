@@ -96,12 +96,16 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
             BuildDurationTicks = 30,
             RequiredBuilderCount = 1,
-            // M9 — degrades Grassland faster than LumberCamp degrades Forest:
-            // farms are the path to permanent Desert (latch fires when current
-            // fertility crosses below 25). 2 fertility per period × Grassland
-            // baseline 50 → ~250 ticks of continuous production take a fresh
-            // Grassland tile into permanent Desert. Farming is meant to bite.
-            DegradeAmount = 2,
+            // M9 — Farm drives Grassland into PERMANENT Desert (latch fires
+            // when current fertility crosses below 25). 1 fertility per
+            // DegradePeriod (10 ticks) × Grassland headroom (50→24 = 26
+            // points) → ~260 ticks of continuous production make a fresh
+            // Grassland tile permanently dead. The PERMANENCE is the
+            // punishment (LumberCamp's Forest→Grassland is reversible; this
+            // is not), not the speed: Farm now takes the same wall-clock
+            // time per band as LumberCamp does, but its band crossing is
+            // one-way.
+            DegradeAmount = 1,
         },
         [StructureKind.ConstructionSite] = new StructureSpec
         {

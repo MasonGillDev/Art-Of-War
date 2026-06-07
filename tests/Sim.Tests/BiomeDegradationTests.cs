@@ -79,13 +79,15 @@ public class BiomeDegradationTests
     [Fact]
     public void LumberCamp_DegradesRadius_OverTime()
     {
-        // DegradeRadius=1 → 3×3 area including center. All 9 tiles should
-        // degrade in lockstep (single rate source, identical elapsed time).
-        var center = new TileCoord(4, 4);
-        var (world, _) = MakeArmedExtractor(center, StructureKind.LumberCamp);
+        // The (2r+1)×(2r+1) Chebyshev box around the camp degrades in lockstep
+        // — single rate source, identical elapsed time. Drives over Cfg.DegradeRadius
+        // so the test stays correct under any radius tuning.
+        var center = new TileCoord(7, 7);
+        var (world, _) = MakeArmedExtractor(center, StructureKind.LumberCamp, gridSize: 16);
+        var r = Cfg.DegradeRadius;
 
-        for (var dy = -1; dy <= 1; dy++)
-        for (var dx = -1; dx <= 1; dx++)
+        for (var dy = -r; dy <= r; dy++)
+        for (var dx = -r; dx <= r; dx++)
         {
             var t = new TileCoord(center.X + dx, center.Y + dy);
             Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, t, 500, Cfg));
@@ -95,10 +97,12 @@ public class BiomeDegradationTests
     [Fact]
     public void LumberCamp_DoesNotDegradeOutsideRadius()
     {
-        // A tile 2 steps away (Chebyshev) is outside radius=1 → stays Forest.
-        var center = new TileCoord(4, 4);
-        var (world, _) = MakeArmedExtractor(center, StructureKind.LumberCamp);
-        var outside = new TileCoord(6, 4);   // Chebyshev = 2
+        // A tile just past the configured radius (Chebyshev = DegradeRadius+1)
+        // is outside the camp's footprint → stays Forest. Uses Cfg.DegradeRadius
+        // so the test follows the active tuning rather than hard-coding a radius.
+        var center = new TileCoord(7, 7);
+        var (world, _) = MakeArmedExtractor(center, StructureKind.LumberCamp, gridSize: 16);
+        var outside = new TileCoord(center.X + Cfg.DegradeRadius + 1, center.Y);
 
         Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, outside, 100_000, Cfg));
     }
@@ -137,8 +141,12 @@ public class BiomeDegradationTests
     [Fact]
     public void LumberCampPlusFarm_OverlappingTile_DegradesAtMaxOfTheTwoRates()
     {
-        // LumberCamp.DegradeAmount = 1, Farm.DegradeAmount = 2. An overlap
-        // tile should pick the MAX (= Farm's 2), not their sum (= 3).
+        // LumberCamp.DegradeAmount = 1, Farm.DegradeAmount = 1 (both kinds
+        // currently share a rate; the Farm rate was tuned down from 2 to 1
+        // because Farms were depleting Grassland into permanent Desert too
+        // fast). The MAX-not-sum contract holds independently of whether
+        // the rates happen to be equal: the overlap tile pays the higher of
+        // the two, never their sum.
         var grid = new TileGrid(8, 8, Biome.Forest);
         var world = new GameWorld(grid);
         var camp = new Extractor(StructureKind.LumberCamp, new TileCoord(3, 3)) { TickArmed = true };
@@ -147,11 +155,17 @@ public class BiomeDegradationTests
         world.AddStructure(farm);
         var overlap = new TileCoord(4, 3);
 
-        // At t=100: 10 periods × -MAX(1,2) = -2 each → no crossing yet
-        // (need 13 periods to cross F→G under rate -2). dev=-20, fert=80.
-        // If SUM (3), 10 periods × -3 = dev=-30, fert=70 (would have crossed
-        // → snap to 50). The 80-vs-50 contrast pins MAX-not-sum.
-        Assert.Equal(80, BiomeDegradation.FertilityAt(world, overlap, 100, Cfg));
+        // At t=100 under MAX(1,1)=1: 10 periods × -1 = dev=-10, fert=90,
+        // still Forest. If SUM (=2), it'd be -20, fert=80 — also Forest
+        // numerically distinguishable from MAX.
+        Assert.Equal(90, BiomeDegradation.FertilityAt(world, overlap, 100, Cfg));
+
+        // The qualitative MAX-not-sum check: at t=300 under MAX(1)=1, only
+        // the F→G crossing fires (one snap, lands in Grassland band). Under
+        // SUM(2), BOTH crossings fire and the tile lands in permanent
+        // Desert. Biome contrast (Grassland vs Desert) pins the contract
+        // semantically.
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, overlap, 300, Cfg));
     }
 
     // ====================================================================
@@ -167,21 +181,24 @@ public class BiomeDegradationTests
         // this is what makes a deferred-arm scenario correct (without the
         // anchor, a later read would over-apply post-arm rate over elapsed
         // = now - 0 instead of now - armTime).
-        var (sim, _) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
+        var (sim, _) = MakeSimWithArmedLumberCamp(new TileCoord(7, 7), gridSize: 16);
 
-        // 3×3 anchor entries written at lastUpdate=0 (armed at sim.Now=0).
-        Assert.Equal(9, sim.World.Fertility.Count);
+        // (2r+1)² anchor entries written at lastUpdate=0 (armed at sim.Now=0).
+        // Counted off Cfg.DegradeRadius so the test follows the tuning.
+        var expected = (2 * Cfg.DegradeRadius + 1) * (2 * Cfg.DegradeRadius + 1);
+        Assert.Equal(expected, sim.World.Fertility.Count);
         foreach (var (_, f) in sim.World.Fertility)
         {
             Assert.Equal(0, f.Deviation);
             Assert.Equal(0, f.LastUpdateTick);
         }
 
-        // A pure read at t=200 sees the live degrade — and importantly, gets
-        // the SAME answer as it would without the anchor (because armTime=0,
-        // anchor==0). The anchor-vs-no-anchor difference shows up when arm
-        // happens at t > 0; covered by Phase D's end-to-end tests.
-        Assert.Equal(80, BiomeDegradation.FertilityAt(sim.World, new TileCoord(4, 4), 200, Cfg));
+        // A pure read at t=200 on the camp's own tile (always inside the
+        // radius regardless of tuning) sees the live degrade. Under default
+        // LumberCamp DegradeAmount=1 / DegradePeriod=10, that's 20 periods ×
+        // -1 = dev=-20, fert=80. The anchor-vs-no-anchor difference shows
+        // up when arm happens at t > 0; covered by Phase D end-to-end tests.
+        Assert.Equal(80, BiomeDegradation.FertilityAt(sim.World, new TileCoord(7, 7), 200, Cfg));
     }
 
     [Fact]
