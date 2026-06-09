@@ -33,11 +33,11 @@ public readonly record struct PopulationConfig(
 {
     public PopulationConfig() : this(
         TicksPerYear: Time.Year,
-        MinTrainAge: 15,
+        MinTrainAge: 13,
         MinFertileAge: 18,
         MaxFertileAge: 45,
         GestationTicks: 9 * Time.Month,
-        BirthFoodCost: 40,
+        BirthFoodCost: 20,
         LifespanMinYears: 50,
         LifespanMaxYears: 80)
     { }

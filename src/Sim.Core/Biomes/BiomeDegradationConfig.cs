@@ -65,11 +65,11 @@ public readonly record struct BiomeDegradationConfig(
         // (deviation -50) takes 1500 minutes (~25 hr) to climb back to
         // Forest baseline.
         RecoveryAmount:      1,
-        RecoveryPeriod:     30 * Time.Minute,
+        RecoveryPeriod:     40 * Time.Minute,
         // Single period for all extractor-driven degrade. MAX-over-overlap
         // becomes a simple integer compare on StructureSpec.DegradeAmount.
         // 20 game-minutes paces extraction's environmental cost; tunable.
-        DegradePeriod:      20 * Time.Minute,
+        DegradePeriod:      30 * Time.Minute,
         // Chebyshev radius around an extractor. Radius 1 = 3×3 area (8
         // neighbours + own tile). Tuneable once play surfaces the right
         // pressure curve.

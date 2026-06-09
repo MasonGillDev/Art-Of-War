@@ -18,7 +18,7 @@ namespace Sim.Core.Food;
 // timing surface lives in one file.
 public static class FoodConsumptionConstants
 {
-    public const int FoodConsumptionPeriod = Time.Hour;
+    public const int FoodConsumptionPeriod = 6 * Time.Hour;
     public const int FoodPerCitizenPerPeriod = 1;
 
     // Phase D — first death occurs StarvationStartDelay ticks after the

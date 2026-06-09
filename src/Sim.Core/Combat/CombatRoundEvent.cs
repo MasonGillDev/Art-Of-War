@@ -60,6 +60,19 @@ public sealed class CombatRoundEvent : ScheduledEvent
         foreach (var (ownerId, units) in forces)
             startPower[ownerId] = units.Sum(CombatRules.EffectivePower);
 
+        // 3b) No-progress guard. If no belligerent can deal positive damage
+        //     (e.g. two hostile but power-0 forces — empty boats pinned by the
+        //     engagement trigger), the fight can never resolve. End it now
+        //     instead of rescheduling a zero-damage round forever.
+        var anyDamage = false;
+        foreach (var a in owners)
+        {
+            foreach (var b in owners)
+                if (b != a && diplomacy.AreHostile(a, b) && startPower[b] > 0) { anyDamage = true; break; }
+            if (anyDamage) break;
+        }
+        if (!anyDamage) { world.CombatStates.Remove(Tile); return; }
+
         // 4) Apply damage. Each owner takes damage = sum of all hostile
         //    counterparts' start-of-round power.
         foreach (var ownerId in owners)
