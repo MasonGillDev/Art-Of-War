@@ -13,4 +13,5 @@ public enum StructureKind : byte
     Farm = 8,
     House = 9, // M8 — breeding structure
     Dock = 10, // M12 — boat shipyard + embark/disembark seam
+    School = 11, // training — flips a unit's UnitRole
 }

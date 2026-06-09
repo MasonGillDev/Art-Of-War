@@ -138,6 +138,17 @@ public static class StructureCatalog
             BuildDurationTicks = 60,
             RequiredBuilderCount = 1,
         },
+        // Training — School. A placeable seam where TrainUnitIntent
+        // resolves. No production, no storage. Cheap-ish: training is a
+        // capital investment more than an ongoing one.
+        [StructureKind.School] = new StructureSpec
+        {
+            Kind = StructureKind.School,
+            IsPlayerBuildable = true,
+            BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 80 },
+            BuildDurationTicks = 50,
+            RequiredBuilderCount = 1,
+        },
         // M12 — Dock. Expensive: a long write-down up front that pays
         // off forever in fast water travel (the design contract from
         // docs/boats.md). Phase C wires boat production from this

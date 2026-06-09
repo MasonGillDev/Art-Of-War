@@ -79,6 +79,7 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         StructureKind.Farm       => new Extractor(StructureKind.Farm, at) { OwnerId = ownerId },
         StructureKind.Tower      => new Tower(at) { OwnerId = ownerId },
         StructureKind.House      => new House(at) { OwnerId = ownerId },
+        StructureKind.School     => new School(at) { OwnerId = ownerId },
         StructureKind.Dock       => new Dock(at, dockSlip
             ?? throw new InvalidOperationException(
                 $"Dock at {at.X},{at.Y} has no DockSlip recorded on its ConstructionSite."))

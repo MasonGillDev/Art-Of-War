@@ -317,6 +317,15 @@ public sealed class Tower : Structure
     public Tower(TileCoord at) : base(at) { }
 }
 
+// Training — School. A unit standing on this tile can issue
+// TrainUnitIntent to flip its UnitRole. No production, no storage; the
+// structure just exists as a placeable seam for training intents.
+public sealed class School : Structure
+{
+    public override StructureKind Kind => StructureKind.School;
+    public School(TileCoord at) : base(at) { }
+}
+
 // M12 — Dock. Built on a land tile 4-adjacent to at least one Water
 // tile. The Water tile chosen at build-time is the dock's "slip": new
 // boats spawn there (Phase C production-job) and embarking units must

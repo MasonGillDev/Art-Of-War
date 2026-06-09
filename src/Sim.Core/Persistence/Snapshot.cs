@@ -414,6 +414,7 @@ public static class Snapshot
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
                 case Tower:               /* no fields */ break;
+                case School:              /* no fields */ break;
                 // M12 — Dock carries slip + production state.
                 case Dock d:
                     bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
@@ -446,6 +447,7 @@ public static class Snapshot
                 StructureKind.ConstructionSite => ReadConstruction(br, at, ownerId),
                 StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
                 StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
+                StructureKind.School           => new School(at) { OwnerId = ownerId },
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };

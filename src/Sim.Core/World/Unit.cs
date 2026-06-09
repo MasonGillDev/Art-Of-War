@@ -18,7 +18,13 @@ public sealed class Unit
 {
     public int Id { get; }
     public TileCoord Position { get; set; }
-    public UnitRole Role { get; init; } = UnitRole.None;
+    // Init-from-outside, mutate-only-via-SetRoleForTraining. The setter
+    // is `init` so object initializers (Snapshot, Genesis, Host, tests)
+    // can populate at creation; the backing field is private so the only
+    // post-construction writer is SetRoleForTraining below (called from
+    // TrainUnitIntent.Resolve).
+    private UnitRole _role = UnitRole.None;
+    public UnitRole Role { get => _role; init => _role = value; }
     public int CargoCapacity { get; init; } = 1;
 
     // M12 — per-unit movement domain. Foot is the default for every
@@ -156,4 +162,11 @@ public sealed class Unit
     // Restore-only. Used by Snapshot.Restore to rebuild a Unit's epoch without
     // running through TrySetActivity's bump logic.
     internal void RestoreAssignmentEpoch(byte epoch) => AssignmentEpoch = epoch;
+
+    // Training — the post-construction mutation site for Role. Called
+    // only from TrainUnitIntent.Resolve. The Role property's setter is
+    // also internal (Snapshot needs object-initializer access), but this
+    // helper is the documented mutation path; future audits can grep for
+    // it to verify nothing else flips Role at runtime.
+    internal void SetRoleForTraining(UnitRole newRole) => _role = newRole;
 }
