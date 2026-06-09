@@ -480,3 +480,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local-only workspace items not tracked in this repo
+client/
+src/Sim.Server/
+run.sh
