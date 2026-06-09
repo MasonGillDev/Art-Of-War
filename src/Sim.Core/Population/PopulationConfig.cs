@@ -5,10 +5,10 @@ namespace Sim.Core.Population;
 // DiplomacyConfig and CombatConfig.
 //
 // TicksPerYear         — the conversion from sim ticks to "years" (the
-//                        unit used for age gates and lifespan).
-//                        Default 100 keeps tests tractable while making
-//                        age non-trivial: a 60-year lifespan = 6000
-//                        ticks.
+//                        unit used for age gates and lifespan). Default
+//                        is Time.Year (1 tick = 1 game-minute, 360-day
+//                        calendar). Tests scale this down to keep
+//                        scenarios short — see PopulationDeathTests etc.
 // MinTrainAge          — minimum age (years) to be assigned a worker
 //                        role at an extractor or as a builder at a site.
 // MinFertileAge        — lower bound (inclusive) of the breeding window.
@@ -32,12 +32,12 @@ public readonly record struct PopulationConfig(
     int LifespanMaxYears)
 {
     public PopulationConfig() : this(
-        TicksPerYear: 150,
+        TicksPerYear: Time.Year,
         MinTrainAge: 15,
         MinFertileAge: 18,
         MaxFertileAge: 45,
-        GestationTicks: 300,
-        BirthFoodCost: 20,
+        GestationTicks: 9 * Time.Month,
+        BirthFoodCost: 40,
         LifespanMinYears: 50,
         LifespanMaxYears: 80)
     { }

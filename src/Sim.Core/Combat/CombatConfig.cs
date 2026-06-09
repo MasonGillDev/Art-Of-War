@@ -10,5 +10,5 @@ namespace Sim.Core.Combat;
 //                      retreating units can walk out. Tunable.
 public readonly record struct CombatConfig(long RoundIntervalTicks)
 {
-    public CombatConfig() : this(RoundIntervalTicks: 10) { }
+    public CombatConfig() : this(RoundIntervalTicks: 1 * Time.Hour) { }
 }

@@ -44,10 +44,11 @@ public static class RoadConstants
     public const int GAIN_FLOOR = 1;
 
     // Constant-rate decay (DECAY_PER_PERIOD condition units per DECAY_PERIOD
-    // ticks). With (1, 100): an abandoned maxed road takes 100,000 ticks to
-    // vanish — durable infrastructure, asynchronous-game friendly. NOT
-    // condition-dependent: that's the coupled-interval trap (the same one
-    // production tick math avoided in Phase D of M1).
+    // game-minutes). With (1, 100): an abandoned maxed road takes
+    // 100,000 minutes (~70 game-days) to vanish — durable infrastructure,
+    // asynchronous-game friendly. NOT condition-dependent: that's the
+    // coupled-interval trap (the same one production tick math avoided in
+    // Phase D of M1).
     public const int DECAY_PER_PERIOD = 1;
-    public const int DECAY_PERIOD = 100;
+    public const int DECAY_PERIOD = 2 * Time.Hour;
 }

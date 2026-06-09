@@ -18,13 +18,13 @@ namespace Sim.Core.Food;
 // timing surface lives in one file.
 public static class FoodConsumptionConstants
 {
-    public const int FoodConsumptionPeriod = 60;
+    public const int FoodConsumptionPeriod = Time.Hour;
     public const int FoodPerCitizenPerPeriod = 1;
 
     // Phase D — first death occurs StarvationStartDelay ticks after the
     // famine started. Subsequent deaths follow at StarvationDeathInterval
-    // ticks apart. ≈ 1 sim-day delay then ≈ 1 sim-hour per death is a
+    // ticks apart. 1 game-day grace, then 1 game-hour per death — a
     // reasonable first-pass tuning; revisit with playtesting.
-    public const int StarvationStartDelay = 60 * 24;
-    public const int StarvationDeathInterval = 60;
+    public const int StarvationStartDelay = Time.Day;
+    public const int StarvationDeathInterval = Time.Hour;
 }

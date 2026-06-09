@@ -18,5 +18,10 @@ namespace Sim.Core.Diplomacy;
 public readonly record struct DiplomacyConfig(long Delay, long ProposalExpiryTicks)
 {
     // Sensible defaults; tests and the host can override at world-build time.
-    public DiplomacyConfig() : this(Delay: 100, ProposalExpiryTicks: 200) { }
+    // War telegraph = 6 game-hours, matching the "effective in 6 hours" line
+    // from the original design doc — a half-day window in which the target
+    // can see the pending war in their PlayerView before it bites.
+    // ProposalExpiryTicks left at the legacy ~3.3-hour value, pending a
+    // dedicated tuning pass.
+    public DiplomacyConfig() : this(Delay: 1 * Time.Month, ProposalExpiryTicks: 2 * Time.Week) { }
 }

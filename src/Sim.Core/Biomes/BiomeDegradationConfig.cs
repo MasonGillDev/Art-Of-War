@@ -61,15 +61,15 @@ public readonly record struct BiomeDegradationConfig(
         ForestThreshold:    75,
         DesertThreshold:    25,
         // Recovery is slower than degrade ("regrows takes longer" — design
-        // doc). 1 fertility per 30 ticks; abandoned Grassland (deviation -50)
-        // takes 1500 ticks to climb back to Forest baseline.
+        // doc). 1 fertility per 30 game-minutes; abandoned Grassland
+        // (deviation -50) takes 1500 minutes (~25 hr) to climb back to
+        // Forest baseline.
         RecoveryAmount:      1,
-        RecoveryPeriod:     30,
+        RecoveryPeriod:     30 * Time.Minute,
         // Single period for all extractor-driven degrade. MAX-over-overlap
         // becomes a simple integer compare on StructureSpec.DegradeAmount.
-        // 10 ticks aligns with ProductionPeriodTicks (LumberCamp=10, Farm=10)
-        // so degrade and production tick at the same cadence.
-        DegradePeriod:      10,
+        // 20 game-minutes paces extraction's environmental cost; tunable.
+        DegradePeriod:      20 * Time.Minute,
         // Chebyshev radius around an extractor. Radius 1 = 3×3 area (8
         // neighbours + own tile). Tuneable once play surfaces the right
         // pressure curve.

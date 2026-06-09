@@ -18,7 +18,7 @@ public static class StructureCatalog
             IsPlayerBuildable = true,
             StorageCapacity = 500,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 20 },
-            BuildDurationTicks = 50,
+            BuildDurationTicks = 20 * Time.Hour,
             RequiredBuilderCount = 1,
         },
         [StructureKind.LumberCamp] = new StructureSpec
@@ -28,14 +28,14 @@ public static class StructureCatalog
             RequiredBiome = Biome.Forest,
             OutputResource = Resource.Wood,
             BaseRatePerWorker = 1,
-            ProductionPeriodTicks = 10,
+            ProductionPeriodTicks = 6 * Time.Hour,
             WorkerCap = 3,
             BufferCap = 30,
             PreferredRole = UnitRole.Lumberjack,
             RoleBonusNumerator = 2,
             RoleBonusDenominator = 1,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
-            BuildDurationTicks = 40,
+            BuildDurationTicks = 10 * Time.Hour,
             RequiredBuilderCount = 1,
             // M9 — degrades Forest at the BiomeDegradationConfig.DegradePeriod
             // cadence. 1 fertility per period × ForestBaseline 100 →
@@ -49,14 +49,14 @@ public static class StructureCatalog
             RequiredBiome = Biome.Mountain,
             OutputResource = Resource.Stone,
             BaseRatePerWorker = 1,
-            ProductionPeriodTicks = 15,
+            ProductionPeriodTicks = 1 * Time.Day,
             WorkerCap = 3,
             BufferCap = 20,
             PreferredRole = UnitRole.Quarryman,
             RoleBonusNumerator = 2,
             RoleBonusDenominator = 1,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 15 },
-            BuildDurationTicks = 50,
+            BuildDurationTicks = 15 * Time.Hour,
             RequiredBuilderCount = 2,
         },
         [StructureKind.Mine] = new StructureSpec
@@ -66,7 +66,7 @@ public static class StructureCatalog
             RequiredBiome = Biome.Hills,
             OutputResource = Resource.Ore,
             BaseRatePerWorker = 1,
-            ProductionPeriodTicks = 15,
+            ProductionPeriodTicks = 3 * Time.Day,
             WorkerCap = 3,
             BufferCap = 20,
             PreferredRole = UnitRole.Miner,
@@ -77,7 +77,7 @@ public static class StructureCatalog
                 [Resource.Wood] = 15,
                 [Resource.Stone] = 10,
             },
-            BuildDurationTicks = 60,
+            BuildDurationTicks = 25 * Time.Hour,
             RequiredBuilderCount = 2,
         },
         [StructureKind.Farm] = new StructureSpec
@@ -87,14 +87,14 @@ public static class StructureCatalog
             RequiredBiome = Biome.Grassland,
             OutputResource = Resource.Food,
             BaseRatePerWorker = 2,
-            ProductionPeriodTicks = 10,
+            ProductionPeriodTicks = 12 * Time.Hour,
             WorkerCap = 3,
             BufferCap = 40,
             PreferredRole = UnitRole.Farmer,
             RoleBonusNumerator = 2,
             RoleBonusDenominator = 1,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
-            BuildDurationTicks = 30,
+            BuildDurationTicks = 10 * Time.Hour,
             RequiredBuilderCount = 1,
             // M9 — Farm drives Grassland into PERMANENT Desert (latch fires
             // when current fertility crosses below 25). 1 fertility per
@@ -122,7 +122,7 @@ public static class StructureCatalog
                 [Resource.Wood] = 20,
                 [Resource.Stone] = 10,
             },
-            BuildDurationTicks = 60,
+            BuildDurationTicks = 30 * Time.Hour,
             RequiredBuilderCount = 1,
             // Vision contribution is read from Sight.RadiusFor — not duplicated here.
         },
@@ -135,7 +135,7 @@ public static class StructureCatalog
             // of BirthFoodCost so a player can pre-stock.
             StorageCapacity = 100,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 30 },
-            BuildDurationTicks = 60,
+            BuildDurationTicks = 30 * Time.Hour,
             RequiredBuilderCount = 1,
         },
         // Training — School. A placeable seam where TrainUnitIntent
@@ -146,7 +146,7 @@ public static class StructureCatalog
             Kind = StructureKind.School,
             IsPlayerBuildable = true,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 80 },
-            BuildDurationTicks = 50,
+            BuildDurationTicks = 80 * Time.Minute,
             RequiredBuilderCount = 1,
         },
         // M12 — Dock. Expensive: a long write-down up front that pays
@@ -165,11 +165,11 @@ public static class StructureCatalog
                 [Resource.Wood] = 200,
                 [Resource.Stone] = 50,
             },
-            BuildDurationTicks = 200,
+            BuildDurationTicks = 10 * Time.Day,
             RequiredBuilderCount = 2,
-            // M12 — boat-production cadence. One boat per 300 ticks
+            // M12 — boat-production cadence. One boat per 5 game-hours
             // while the slip is free; stalls when slip is occupied.
-            ProductionPeriodTicks = 300,
+            ProductionPeriodTicks = 10 * Time.Day,
         },
     };
 
