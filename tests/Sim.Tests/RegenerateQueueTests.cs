@@ -39,7 +39,7 @@ public class RegenerateQueueTests
                     UnitSpawns = new[]
                     {
                         new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
-                        new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                        new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler),
                     },
                 },
             },

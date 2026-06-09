@@ -25,7 +25,11 @@ public sealed class Unit
     // TrainUnitIntent.Resolve).
     private UnitRole _role = UnitRole.None;
     public UnitRole Role { get => _role; init => _role = value; }
-    public int CargoCapacity { get; init; } = 1;
+
+    // Derived from Role via UnitCargoCatalog. When TrainUnitIntent flips
+    // a citizen to Hauler, the cap jumps to HaulerCapacity automatically
+    // — no second mutation needed, no risk of role/cap drift.
+    public int CargoCapacity => Sim.Core.Logistics.UnitCargoCatalog.CapacityFor(_role);
 
     // M12 — per-unit movement domain. Foot is the default for every
     // existing role; boats (Phase C) set Water. Snapshot.WriteUnits

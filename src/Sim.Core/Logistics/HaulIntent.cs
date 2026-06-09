@@ -4,10 +4,13 @@ namespace Sim.Core.Logistics;
 // deposit. One submission = one trip. Multi-resource hauls = multiple intents.
 //
 // Resolution validates the plan is well-formed *at submission time*:
-//   - Hauler exists, is Idle, has CargoCapacity > 0.
+//   - Hauler exists, is Idle.
 //   - Source and dest tiles are in-bounds.
 //   - Source and dest both currently have structures.
 //   - Resource is meaningful (not None).
+//
+// CargoCapacity is derived from Role via UnitCargoCatalog — every role
+// has a positive capacity, so there's no "no capacity" reject path.
 //
 // Runtime correctness (source actually has the resource when we arrive,
 // dest still exists when we get there) is re-checked by HaulPickupEvent
@@ -42,8 +45,6 @@ public sealed class HaulIntent : Intent
             return IntentOutcome.Reject($"hauler {HaulerId} is embarked on boat {hauler.EmbarkedOn}");
         if (hauler.Activity != Activity.Idle)
             return IntentOutcome.Reject("hauler is not Idle");
-        if (hauler.CargoCapacity <= 0)
-            return IntentOutcome.Reject("hauler has no cargo capacity");
         if (Resource == Resource.None)
             return IntentOutcome.Reject("resource is None");
         if (!world.Grid.InBounds(SourceTile))

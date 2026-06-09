@@ -50,7 +50,7 @@ public class EndToEndLoopTests
         //   5 Farmer (at the Farm-site tile, will staff the Farm once built)
         world.AddUnit(new Unit(1, CampAt)     { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, CampAt)     { Role = UnitRole.Lumberjack });
-        world.AddUnit(new Unit(3, CampAt)     { Role = UnitRole.Hauler, CargoCapacity = 10 });
+        world.AddUnit(new Unit(3, CampAt)     { Role = UnitRole.Hauler });
         world.AddUnit(new Unit(4, FarmSiteAt) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(5, FarmSiteAt) { Role = UnitRole.Farmer });
 

@@ -477,7 +477,6 @@ public class BoatsPhaseDTests
         {
             Role = UnitRole.Boat, OwnerId = 0, Traversal = Traversal.Water,
             PassengerCap = BoatConstants.DefaultPassengerCap,
-            CargoCapacity = BoatConstants.DefaultCargoCapacity,
             BornTick = 0,
         });
         var citizen = sim.World.Units[1];

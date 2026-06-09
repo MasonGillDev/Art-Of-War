@@ -153,7 +153,7 @@ public class GroupDisbandTests
         world.AddStructure(new Stockpile(new TileCoord(5, 5)) { OwnerId = 0 });
 
         // Form a haul-capable unit into a group.
-        world.AddUnit(new Unit(1, new TileCoord(5, 5)) { Role = UnitRole.Hauler, CargoCapacity = 5 });
+        world.AddUnit(new Unit(1, new TileCoord(5, 5)) { Role = UnitRole.Hauler });
         sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, new TileCoord(5, 5)));
         sim.Run(until: 0);
 

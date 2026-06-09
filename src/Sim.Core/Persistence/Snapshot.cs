@@ -53,7 +53,7 @@ public static class Snapshot
     //   8 — M12 boats (Unit.Traversal). Phases B–F extend further
     //       (Dock structure + Slip, Unit.PassengerCap / Passengers /
     //       EmbarkedOn); the version stays 8 across the milestone.
-    public const int FormatVersion = 8;
+    public const int FormatVersion = 9;
 
     public static string Hash(Simulation sim)
     {
@@ -199,7 +199,8 @@ public static class Snapshot
             bw.Write(u.Position.X);
             bw.Write(u.Position.Y);
             bw.Write((byte)u.Role);
-            bw.Write(u.CargoCapacity);
+            // M14: CargoCapacity is derived from Role via UnitCargoCatalog.
+            // Not serialised — it's recomputed on read from the role byte above.
             bw.Write((byte)u.Activity);
             if (u.Assignment is TileCoord a)
             {
@@ -330,7 +331,6 @@ public static class Snapshot
             var id = br.ReadInt32();
             var pos = new TileCoord(br.ReadInt32(), br.ReadInt32());
             var role = (UnitRole)br.ReadByte();
-            var capacity = br.ReadInt32();
             var activity = (Activity)br.ReadByte();
             TileCoord? assignment = br.ReadByte() == 1
                 ? new TileCoord(br.ReadInt32(), br.ReadInt32())
@@ -357,7 +357,7 @@ public static class Snapshot
             for (var p = 0; p < passengerCount; p++) passengers.Add(br.ReadInt32());
             var embarkedOn = ReadNullableInt(br);
 
-            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
+            var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
             foreach (var pid in passengers) u.Passengers.Add(pid);
             u.EmbarkedOn = embarkedOn;
             u.CargoResource = cargoR;

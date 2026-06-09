@@ -145,7 +145,7 @@ public class CombatDeathTests
         stockpile.Deposit(Resource.Wood, 50);
         var dstStockpile = sim.World.AddStructure(new Stockpile(dst) { OwnerId = 0 });
         var hauler = sim.World.AddUnit(new Unit(100, src)
-            { Role = UnitRole.Hauler, CargoCapacity = 5, OwnerId = 0 });
+            { Role = UnitRole.Hauler, OwnerId = 0 });
         hauler.Health = 1;
 
         // Ambusher on the path — overwhelming.

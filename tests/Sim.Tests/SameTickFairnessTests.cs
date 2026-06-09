@@ -45,8 +45,8 @@ public class SameTickFairnessTests
         world.AddStructure(new Stockpile(home2));
 
         var sim = new Simulation(world, seed: 1);
-        world.AddUnit(new Unit(1, home1) { Role = UnitRole.Hauler, CargoCapacity = 5 });
-        world.AddUnit(new Unit(2, home2) { Role = UnitRole.Hauler, CargoCapacity = 5 });
+        world.AddUnit(new Unit(1, home1) { Role = UnitRole.Hauler });
+        world.AddUnit(new Unit(2, home2) { Role = UnitRole.Hauler });
 
         return (sim, ex, home1, home2);
     }
@@ -140,7 +140,7 @@ public class SameTickFairnessTests
         // Two haulers on the site tile, each holding 1 Wood.
         foreach (var id in new[] { 1, 2 })
         {
-            var u = world.AddUnit(new Unit(id, siteTile) { Role = UnitRole.Hauler, CargoCapacity = 1 });
+            var u = world.AddUnit(new Unit(id, siteTile) { Role = UnitRole.Hauler });
             u.TrySetActivity(Activity.Hauling);
             u.CargoResource = Resource.Wood;
             u.CargoAmount = 1;
@@ -184,7 +184,7 @@ public class SameTickFairnessTests
 
             foreach (var id in new[] { 1, 2 })
             {
-                var u = world.AddUnit(new Unit(id, siteTile) { Role = UnitRole.Hauler, CargoCapacity = 1 });
+                var u = world.AddUnit(new Unit(id, siteTile) { Role = UnitRole.Hauler });
                 u.TrySetActivity(Activity.Hauling);
                 u.CargoResource = Resource.Wood;
                 u.CargoAmount = 1;
@@ -299,7 +299,7 @@ public class SameTickFairnessTests
             var sim = new Simulation(world, seed: 0xF1);
             world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Builder });    // unrelated mover
             world.AddUnit(new Unit(2, new TileCoord(5, 5)) { Role = UnitRole.Builder });    // will build
-            world.AddUnit(new Unit(3, new TileCoord(0, 0)) { Role = UnitRole.Hauler, CargoCapacity = 5 });
+            world.AddUnit(new Unit(3, new TileCoord(0, 0)) { Role = UnitRole.Hauler });
 
             sim.SubmitIntent(0, new MoveIntent(unitId: 1, new TileCoord(9, 9)));
             sim.SubmitIntent(0, new AssignBuildersIntent(new TileCoord(5, 5), new[] { 2 }));

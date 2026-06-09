@@ -105,7 +105,7 @@ public class MoveOnBusyTests
         var c = world.AddStructure(new Castle(castle));
         c.Deposit(Resource.Wood, 20);
         world.AddStructure(new Stockpile(stockpile));
-        world.AddUnit(new Unit(1, castle) { Role = UnitRole.Hauler, CargoCapacity = 5 });
+        world.AddUnit(new Unit(1, castle) { Role = UnitRole.Hauler });
         var sim = new Simulation(world, seed: 1);
 
         // Start a haul. Hauler picks up Wood at castle, walks toward stockpile.
@@ -114,7 +114,9 @@ public class MoveOnBusyTests
         sim.Run(until: 30); // enough to pick up + walk a few steps
         var hauler = sim.World.Units[1];
         Assert.Equal(Activity.Hauling, hauler.Activity);
-        Assert.Equal(5, hauler.CargoAmount);
+        // Hauler cap is 25 (UnitCargoCatalog.HaulerCapacity); castle stock
+        // is 20, so the pickup is stock-limited at 20.
+        Assert.Equal(20, hauler.CargoAmount);
 
         // Move-on-busy: divert the hauler somewhere else mid-trip.
         var diversion = new TileCoord(3, 0);
@@ -125,7 +127,7 @@ public class MoveOnBusyTests
         // preserves it), Activity cleared.
         Assert.Equal(diversion, hauler.Position);
         Assert.Equal(Activity.Idle, hauler.Activity);
-        Assert.Equal(5, hauler.CargoAmount);
+        Assert.Equal(20, hauler.CargoAmount);
         Assert.Equal(Resource.Wood, hauler.CargoResource);
 
         // The fence intercepts at the move-chain level: stale
@@ -161,7 +163,7 @@ public class MoveOnBusyTests
         c.Deposit(Resource.Stone, 50);
         world.AddStructure(new Stockpile(stockA));
         var stockpileB = world.AddStructure(new Stockpile(stockB));
-        world.AddUnit(new Unit(1, castle) { Role = UnitRole.Hauler, CargoCapacity = 5 });
+        world.AddUnit(new Unit(1, castle) { Role = UnitRole.Hauler });
         var sim = new Simulation(world, seed: 1);
 
         // Haul #1: wood to stockA. Mid-walk diversion via MoveIntent. Then new
@@ -174,20 +176,15 @@ public class MoveOnBusyTests
         Assert.Equal(castle, hauler.Position);
         Assert.Equal(Activity.Idle, hauler.Activity);
         // Hauler is back at castle with old Wood cargo still on them.
-        Assert.Equal(5, hauler.CargoAmount);
+        // Hauler cap = 25 (UnitCargoCatalog.HaulerCapacity), castle had 50
+        // wood, so the pickup was cap-limited at 25.
+        Assert.Equal(UnitCargoCatalog.HaulerCapacity, hauler.CargoAmount);
         Assert.Equal(Resource.Wood, hauler.CargoResource);
 
-        // For Haul #2, the hauler must drop their cargo first. Simulate this
-        // by issuing a haul back to the castle itself (deposit returns wood).
-        // Actually simpler: the hauler still has cargo; new HaulIntent will
-        // be rejected because the hauler isn't Idle... wait, hauler IS Idle.
-        // The new haul will pick up Stone at castle, overwriting cargo? No —
-        // pickup checks capacity. Capacity=5, current cargo=5, free=0, picks
-        // up 0, rejects "nothing to pick up." Hmm.
-        //
-        // Cleanest: first haul the wood back into the castle by issuing a
-        // self-haul (castle -> castle). The deposit succeeds, cargo clears,
-        // then start Haul #2.
+        // For Haul #2 the hauler must drop their cargo first. A new
+        // HaulIntent doesn't reject (hauler IS Idle), but pickup checks
+        // free capacity — full cargo means it would pick up 0 and reject.
+        // Cleanest: self-haul (castle → castle) to drop the wood back in.
         sim.SubmitIntent(sim.Now, new HaulIntent(1, castle, castle, Resource.Wood));
         sim.Run();
         Assert.Equal(0, hauler.CargoAmount);
@@ -195,8 +192,8 @@ public class MoveOnBusyTests
         sim.SubmitIntent(sim.Now, new HaulIntent(1, castle, stockB, Resource.Stone));
         sim.Run();
 
-        // New haul completed: stockB has Stone.
-        Assert.Equal(5, stockpileB.AmountOf(Resource.Stone));
+        // New haul completed: stockB has Stone (pickup cap-limited at 25).
+        Assert.Equal(UnitCargoCatalog.HaulerCapacity, stockpileB.AmountOf(Resource.Stone));
         Assert.Equal(Activity.Idle, hauler.Activity);
         Assert.Equal(stockB, hauler.Position);
 

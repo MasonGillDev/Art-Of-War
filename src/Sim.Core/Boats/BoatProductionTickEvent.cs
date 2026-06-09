@@ -55,7 +55,8 @@ public sealed class BoatProductionTickEvent : ScheduledEvent
             OwnerId = dock.OwnerId,
             Traversal = Traversal.Water,
             PassengerCap = BoatConstants.DefaultPassengerCap,
-            CargoCapacity = BoatConstants.DefaultCargoCapacity,
+            // CargoCapacity is derived from Role via UnitCargoCatalog
+            // (Role=Boat → BoatCapacity).
             BornTick = sim.Now,
         });
 

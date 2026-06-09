@@ -14,9 +14,10 @@ public class HaulIntentTests
         return new Simulation(world, seed: 1);
     }
 
-    private static Unit AddHauler(Simulation sim, int id, TileCoord pos, int capacity = 5)
+    private static Unit AddHauler(Simulation sim, int id, TileCoord pos)
     {
-        var u = new Unit(id, pos) { Role = UnitRole.Hauler, CargoCapacity = capacity };
+        // Capacity is derived from Role (Hauler → UnitCargoCatalog.HaulerCapacity).
+        var u = new Unit(id, pos) { Role = UnitRole.Hauler };
         sim.World.AddUnit(u);
         return u;
     }
@@ -26,17 +27,21 @@ public class HaulIntentTests
     [Fact]
     public void HaulIntent_HappyPath_CastleToStockpile()
     {
+        // Hauler cap is now 25 (UnitCargoCatalog.HaulerCapacity). Stock
+        // the castle with 30 so the haul is cap-limited (picks 25),
+        // leaving 5 behind — the test still demonstrates "pickup +
+        // deliver" without being a trivial drain-everything case.
         var sim = MakeSim();
         var castle = sim.World.AddStructure(new Castle(new TileCoord(0, 0)));
         var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(5, 0)));
-        castle.Deposit(Resource.Wood, 20);
-        AddHauler(sim, 1, new TileCoord(0, 0), capacity: 5);
+        castle.Deposit(Resource.Wood, 30);
+        AddHauler(sim, 1, new TileCoord(0, 0));
 
         sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(5, 0), Resource.Wood));
         sim.Run();
 
-        Assert.Equal(15, castle.AmountOf(Resource.Wood));
-        Assert.Equal(5, stockpile.AmountOf(Resource.Wood));
+        Assert.Equal(5, castle.AmountOf(Resource.Wood));
+        Assert.Equal(UnitCargoCatalog.HaulerCapacity, stockpile.AmountOf(Resource.Wood));
         var hauler = sim.World.Units[1];
         Assert.Equal(Activity.Idle, hauler.Activity);
         Assert.Equal(new TileCoord(5, 0), hauler.Position);
@@ -47,11 +52,14 @@ public class HaulIntentTests
     [Fact]
     public void HaulIntent_HaulerAlreadyAtSource_SkipsFirstMoveLeg()
     {
+        // Castle stock < hauler cap, so the pickup is stock-limited.
+        // We're testing leg-skipping here, not capacity — assert the
+        // hauler delivered everything the castle had.
         var sim = MakeSim();
         var castle = sim.World.AddStructure(new Castle(new TileCoord(0, 0)));
         var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(3, 0)));
         castle.Deposit(Resource.Wood, 10);
-        AddHauler(sim, 1, new TileCoord(0, 0), capacity: 5);
+        AddHauler(sim, 1, new TileCoord(0, 0));
 
         sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(3, 0), Resource.Wood));
         sim.Run();
@@ -59,7 +67,7 @@ public class HaulIntentTests
         // No move-to-source leg means total ticks = move-to-dest only.
         // 3 tiles at Grassland (cost 10) = 30 ticks.
         Assert.Equal(30, sim.Now);
-        Assert.Equal(5, stockpile.AmountOf(Resource.Wood));
+        Assert.Equal(10, stockpile.AmountOf(Resource.Wood));
     }
 
     [Fact]
@@ -160,16 +168,18 @@ public class HaulIntentTests
 
         world.AddStructure(new Stockpile(new TileCoord(0, 0)));
         var sim = new Simulation(world, seed: 1);
-        AddHauler(sim, 1, new TileCoord(0, 0), capacity: 5);
+        AddHauler(sim, 1, new TileCoord(0, 0));
 
         sim.SubmitIntent(0, new HaulIntent(1, camp, new TileCoord(0, 0), Resource.Wood));
         sim.Run();
 
-        // Hauler took 5 from buffer; production may have refilled some on the
-        // return trip. Either way, the camp is no longer dormant — TickArmed
-        // flipped, or it refilled to cap and re-dormant'd via that path.
+        // Hauler took HaulerCapacity (25) from the LumberCamp buffer (cap
+        // 30); production may have refilled some on the return trip.
+        // Either way the camp is no longer dormant — TickArmed flipped,
+        // or it refilled to cap and re-dormant'd via that path.
         Assert.True(ex.TickArmed || ex.BufferFull());
-        Assert.Equal(5, ((Stockpile)sim.World.Structures[new TileCoord(0, 0)]).AmountOf(Resource.Wood));
+        Assert.Equal(UnitCargoCatalog.HaulerCapacity,
+            ((Stockpile)sim.World.Structures[new TileCoord(0, 0)]).AmountOf(Resource.Wood));
         // The buffer was lowered (or refilled past) at some point — verify
         // a re-arming ProductionTickEvent was scheduled and ran.
         Assert.Contains(sim.ResolvedLog.OfType<Sim.Core.Logistics.ProductionTickEvent>(),
@@ -193,7 +203,7 @@ public class HaulIntentTests
 
         var builder = world.AddUnit(new Unit(2, siteTile) { Role = UnitRole.Builder });
         builder.TrySetActivity(Activity.Building, siteTile);
-        AddHauler(sim, 1, new TileCoord(0, 0), capacity: woodNeeded);
+        AddHauler(sim, 1, new TileCoord(0, 0));
 
         Assert.False(site.IsActive);
 
@@ -216,7 +226,7 @@ public class HaulIntentTests
         var siteTile = new TileCoord(3, 0);
         sim.World.AddStructure(new ConstructionSite(siteTile, StructureKind.Stockpile));
         castle.Deposit(Resource.Wood, 5);
-        AddHauler(sim, 1, new TileCoord(0, 0), capacity: 5);
+        AddHauler(sim, 1, new TileCoord(0, 0));
         var spec = StructureCatalog.Spec(StructureKind.Stockpile);
         var requirement = spec.BuildCost[Resource.Wood]; // 20
 
@@ -246,7 +256,7 @@ public class HaulIntentTests
             sim.World.AddStructure(new Stockpile(new TileCoord(5, 5)));
             castle.Deposit(Resource.Wood, 25);
             castle.Deposit(Resource.Stone, 10);
-            AddHauler(sim, 1, new TileCoord(0, 0), capacity: 5);
+            AddHauler(sim, 1, new TileCoord(0, 0));
             sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(5, 5), Resource.Wood));
             return sim;
         }
@@ -265,7 +275,7 @@ public class HaulIntentTests
         var castle = sim.World.AddStructure(new Castle(new TileCoord(0, 0)));
         sim.World.AddStructure(new Stockpile(new TileCoord(3, 0)));
         castle.Deposit(Resource.Wood, 10);
-        AddHauler(sim, 1, new TileCoord(0, 0), capacity: 5);
+        AddHauler(sim, 1, new TileCoord(0, 0));
 
         sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(3, 0), Resource.Wood));
         sim.Run(); // runs to completion → hauler Idle, queue empty

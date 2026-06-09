@@ -47,7 +47,7 @@ public class IntentAuthorizationTests
         var sim = MakeSim();
         var otherUnit = sim.World.AddUnit(new Unit(2, new TileCoord(0, 0))
         {
-            OwnerId = 1, Role = UnitRole.Hauler, CargoCapacity = 5,
+            OwnerId = 1, Role = UnitRole.Hauler,
         });
         sim.World.AddStructure(new Castle(new TileCoord(0, 0)) { OwnerId = 1 })
             .Deposit(Resource.Wood, 10);

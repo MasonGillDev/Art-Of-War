@@ -58,7 +58,6 @@ public sealed record UnitSpawn(
     int Id,
     TileCoord Position,
     UnitRole Role = UnitRole.None,
-    int CargoCapacity = 1,
     int OwnerId = 0,
     // M8: optional per-unit starting-age override (null inherits faction).
     int? StartingAgeYears = null);
@@ -109,7 +108,6 @@ public static class Genesis
                 var bornTick = -(long)startingAge * spec.Population.TicksPerYear;
                 var unit = world.AddUnit(new Unit(u.Id, u.Position) {
                     Role = u.Role,
-                    CargoCapacity = u.CargoCapacity,
                     OwnerId = u.OwnerId,
                     BornTick = bornTick,
                 });

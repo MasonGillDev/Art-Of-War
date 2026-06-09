@@ -127,6 +127,27 @@ public class TrainUnitTests
     }
 
     [Fact]
+    public void TrainUnit_ToHauler_ImmediatelyGrantsCargoBuff()
+    {
+        // The whole point of training a Hauler: cargo capacity is
+        // derived from Role via UnitCargoCatalog, so the flip is
+        // atomic — no second mutation, no stale cap. A freshly-trained
+        // Hauler can haul HaulerCapacity (25) on their next pickup.
+        var (sim, _, citizen) = MakeSchoolAndCitizen();
+        Assert.Equal(UnitRole.None, citizen.Role);
+        Assert.Equal(Sim.Core.Logistics.UnitCargoCatalog.DefaultCapacity,
+            citizen.CargoCapacity);
+
+        var outcome = new TrainUnitIntent(citizen.Id, UnitRole.Hauler)
+            { PlayerId = 0 }.Resolve(sim);
+        Assert.True(outcome.IsApplied);
+
+        Assert.Equal(UnitRole.Hauler, citizen.Role);
+        Assert.Equal(Sim.Core.Logistics.UnitCargoCatalog.HaulerCapacity,
+            citizen.CargoCapacity);
+    }
+
+    [Fact]
     public void TrainUnit_BumpsAssignmentEpoch()
     {
         var (sim, _, citizen) = MakeSchoolAndCitizen();

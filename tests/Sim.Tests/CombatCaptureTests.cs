@@ -38,7 +38,7 @@ public class CombatCaptureTests
 
         // Laden hauler from owner 0.
         var hauler = sim.World.AddUnit(new Unit(100, tile)
-            { Role = UnitRole.Hauler, CargoCapacity = 5, OwnerId = 0 });
+            { Role = UnitRole.Hauler, OwnerId = 0 });
         hauler.CargoResource = Resource.Wood;
         hauler.CargoAmount = 5;
         hauler.Health = 1;
@@ -65,7 +65,7 @@ public class CombatCaptureTests
         for (var id = 100; id <= 102; id++)
         {
             var u = sim.World.AddUnit(new Unit(id, tile)
-                { Role = UnitRole.Hauler, CargoCapacity = 5, OwnerId = 0 });
+                { Role = UnitRole.Hauler, OwnerId = 0 });
             u.CargoResource = Resource.Wood;
             u.CargoAmount = 3;
             u.Health = 1;
@@ -95,7 +95,7 @@ public class CombatCaptureTests
                     CastlePosition = new TileCoord(0, 0),
                     UnitSpawns = new[]
                     {
-                        new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                        new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Hauler),
                     },
                 },
             },

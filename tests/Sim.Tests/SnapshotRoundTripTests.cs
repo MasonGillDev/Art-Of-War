@@ -75,7 +75,7 @@ public class SnapshotRoundTripTests
         var u1 = world.AddUnit(new Unit(1, new TileCoord(4, 3)) { Role = UnitRole.Builder });
         u1.TrySetActivity(Activity.Building, new TileCoord(4, 3));
 
-        var u2 = world.AddUnit(new Unit(2, new TileCoord(5, 5)) { Role = UnitRole.Hauler, CargoCapacity = 8 });
+        var u2 = world.AddUnit(new Unit(2, new TileCoord(5, 5)) { Role = UnitRole.Hauler });
         u2.TrySetActivity(Activity.Hauling);
         u2.CargoResource = Resource.Wood;
         u2.CargoAmount = 6;

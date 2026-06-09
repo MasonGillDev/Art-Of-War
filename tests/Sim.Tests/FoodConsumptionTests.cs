@@ -399,7 +399,7 @@ public class FoodConsumptionTests
         // rate from the moment it's added.
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
-            Role = UnitRole.Hauler, OwnerId = 0, CargoCapacity = 100,
+            Role = UnitRole.Hauler, OwnerId = 0,
             CargoResource = Resource.Food, CargoAmount = 100, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
@@ -558,7 +558,7 @@ public class FoodConsumptionPhaseCTests
         // Add a hauler at the castle with food.
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
-            Role = UnitRole.Hauler, OwnerId = 0, CargoCapacity = 100,
+            Role = UnitRole.Hauler, OwnerId = 0,
             CargoResource = Resource.Food, CargoAmount = 100, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
@@ -868,7 +868,7 @@ public class FoodConsumptionPhaseDTests
         // Deposit food, ending famine.
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
-            Role = UnitRole.Hauler, OwnerId = 0, CargoCapacity = 100,
+            Role = UnitRole.Hauler, OwnerId = 0,
             CargoResource = Resource.Food, CargoAmount = 100, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
@@ -912,7 +912,7 @@ public class FoodConsumptionPhaseDTests
         // capture popBeforeDeath AFTER the bump.)
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
-            Role = UnitRole.Hauler, OwnerId = 0, CargoCapacity = 100,
+            Role = UnitRole.Hauler, OwnerId = 0,
             CargoResource = Resource.Food, CargoAmount = 5, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);

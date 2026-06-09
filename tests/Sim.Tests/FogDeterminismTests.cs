@@ -36,7 +36,7 @@ public class FogDeterminismTests
                 {
                     new UnitSpawn(1, new TileCoord(5, 5), UnitRole.Builder),
                     new UnitSpawn(2, new TileCoord(5, 5), UnitRole.Scout),
-                    new UnitSpawn(3, new TileCoord(5, 5), UnitRole.Hauler, CargoCapacity: 5),
+                    new UnitSpawn(3, new TileCoord(5, 5), UnitRole.Hauler),
                 },
             },
         },

@@ -98,7 +98,7 @@ public class GroupFormationTests
     public void FormWith_NonIdleMember_Rejected()
     {
         var (sim, world) = MakeWorld();
-        var u1 = world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Hauler, CargoCapacity = 5 });
+        var u1 = world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Hauler });
         u1.TrySetActivity(Activity.Hauling);
         sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, new TileCoord(5, 5)));
         sim.Run();
