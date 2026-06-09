@@ -18,6 +18,13 @@ public sealed class MoveIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
         if (unit.GroupId is not null)
             return IntentOutcome.Reject($"unit {UnitId} is in group {unit.GroupId}");
+        // M12 — embarked units are off-tile passengers; solo intents
+        // are blocked until the boat disembarks them. (Note: boats
+        // themselves use MoveIntent for water travel; their Traversal
+        // selects the BoatMovementCost table inside BeginMove. MoveBoat
+        // is not a separate intent type.)
+        if (unit.IsEmbarked)
+            return IntentOutcome.Reject($"unit {UnitId} is embarked on boat {unit.EmbarkedOn}");
         // M8 follow-up: breeding is a commitment, not a retaskable assignment.
         // A parent in an active breeding cycle is locked to the house until
         // BirthEvent (or stop-on-removal via combat / aging death) frees them.
@@ -105,11 +112,12 @@ public sealed class MoveIntent : Intent
         // hidden congestion (paying ground-truth ExecutionCost) — that's the
         // "cost of ignorance" gameplay loop. See docs/movement-cost.md.
         var visibleTiles = View.VisibleTiles(world, unit.OwnerId);
+        var trav = unit.Traversal;
         var path = Pathfinding.FindPath(
             world.Grid,
             unit.Position,
             finalDest,
-            tile => MovementCost.PlanCost(world, tile, unit.OwnerId, visibleTiles, now));
+            tile => MovementCost.PlanCost(world, tile, unit.OwnerId, visibleTiles, now, trav));
         if (path is null || path.Count < 2)
         {
             unit.PathRemaining = null;
@@ -138,7 +146,7 @@ public sealed class MoveIntent : Intent
         // crowding (whichever is more crowded), regardless of fog. The
         // unit pays the real cost of this hop even if it differs from
         // what the plan assumed. See MovementCost.ExecutionCost.
-        var arrival = sim.Now + MovementCost.ExecutionCost(world, unit.Position, next, sim.Now);
+        var arrival = sim.Now + MovementCost.ExecutionCost(world, unit.Position, next, sim.Now, unit.Traversal);
         unit.NextArrivalTick = arrival;
         unit.NextArrivalSeq  = sim.Schedule(arrival,
             new MoveArrivalEvent(unit.Id, next, unit.PathFinalDest.Value, unit.AssignmentEpoch));

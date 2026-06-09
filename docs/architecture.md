@@ -351,6 +351,7 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | **M9** | **Biome degradation (spatial lazy field: per-tile fertility, MAX over in-range producers, implicit Desert latch, biome-mismatch dormancy ends infinite single-tile extraction)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
 | **M13** | **Food consumption (castle sink: per-period drain by population; M9-style lazy catch-up; predicted-dry-out FamineCheckEvent; staggered StarvationDeathEvent — oldest first; recovery-clean)** | **✅** |
+| **M12** | **Boats (per-unit Traversal enum; water-only BoatMovementCost; Dock = shipyard + embark/disembark seam with Slip + auto-production + stall/re-arm; embarked passengers off-tile; Embark/MoveIntent/Disembark; sink-drowns; recovery-clean)** | **✅** |
 
 ### After M8 — the big systems
 

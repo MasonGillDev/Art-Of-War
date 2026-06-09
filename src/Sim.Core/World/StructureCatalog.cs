@@ -138,6 +138,28 @@ public static class StructureCatalog
             BuildDurationTicks = 60,
             RequiredBuilderCount = 1,
         },
+        // M12 — Dock. Expensive: a long write-down up front that pays
+        // off forever in fast water travel (the design contract from
+        // docs/boats.md). Phase C wires boat production from this
+        // structure to the slip tile. ProductionPeriodTicks doubles as
+        // the boat-production cadence.
+        [StructureKind.Dock] = new StructureSpec
+        {
+            Kind = StructureKind.Dock,
+            IsPlayerBuildable = true,
+            // No RequiredBiome: PlaceSiteIntent does the dock-specific
+            // "land tile with adjacent water" validation directly.
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 200,
+                [Resource.Stone] = 50,
+            },
+            BuildDurationTicks = 200,
+            RequiredBuilderCount = 2,
+            // M12 — boat-production cadence. One boat per 300 ticks
+            // while the slip is free; stalls when slip is occupied.
+            ProductionPeriodTicks = 300,
+        },
     };
 
     public static StructureSpec Spec(StructureKind kind) =>

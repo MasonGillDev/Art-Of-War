@@ -11,6 +11,7 @@ public enum UnitRole : byte
     Quarryman = 5,
     Hauler = 6,
     Scout = 7,
+    Boat = 8, // M12 — water vehicle (carries passengers + cargo)
 }
 
 public sealed class Unit
@@ -19,6 +20,30 @@ public sealed class Unit
     public TileCoord Position { get; set; }
     public UnitRole Role { get; init; } = UnitRole.None;
     public int CargoCapacity { get; init; } = 1;
+
+    // M12 — per-unit movement domain. Foot is the default for every
+    // existing role; boats (Phase C) set Water. Snapshot.WriteUnits
+    // serialises this; restore reads it before AddUnit so it persists.
+    public Traversal Traversal { get; init; } = Traversal.Foot;
+
+    // M12 — carrier semantics. For boats, PassengerCap is the maximum
+    // number of units this hull can hold; Passengers is the live list
+    // of embarked unit ids (canonical ascending iteration). Non-boats
+    // have cap = 0 and an always-empty list.
+    public int PassengerCap { get; init; }
+    public SortedSet<int> Passengers { get; } = new();
+
+    // M12 — passenger semantics. While EmbarkedOn is non-null, this
+    // unit is off the TileGrid (removed from any per-tile index by
+    // EmbarkIntent), invisible to combat, ineligible for solo intents
+    // (Phase D audit), and contributes no vision. Cleared by
+    // DisembarkIntent (passenger comes back onto the dock tile) or by
+    // the carrier dying (drown — Phase E).
+    public int? EmbarkedOn { get; set; }
+
+    // Pure-read convenience. Tests + intents check this before applying
+    // solo work.
+    public bool IsEmbarked => EmbarkedOn is not null;
     // Player who owns this unit. Defaults to 0 for single-player scenarios.
     // Read by Vision (for explored/live-visibility) and by player-view filters.
     public int OwnerId { get; init; } = 0;

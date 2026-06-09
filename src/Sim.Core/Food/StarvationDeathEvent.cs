@@ -93,6 +93,9 @@ public sealed class StarvationDeathEvent : ScheduledEvent
         foreach (var u in world.Units.Values)
         {
             if (u.OwnerId != ownerId) continue;
+            // M12 — boats are vehicles, not citizens; never starvation
+            // victims and never the oldest-citizen target.
+            if (u.Role == UnitRole.Boat) continue;
             if (oldest is null
                 || u.BornTick < oldest.BornTick
                 || (u.BornTick == oldest.BornTick && u.Id < oldest.Id))

@@ -50,7 +50,10 @@ public static class Snapshot
     //       extend this further (Castle anchors, famine state, event
     //       anchors); the version stays 7 across the milestone since
     //       no shipped snapshot ever sees the intermediate phases.
-    public const int FormatVersion = 7;
+    //   8 — M12 boats (Unit.Traversal). Phases B–F extend further
+    //       (Dock structure + Slip, Unit.PassengerCap / Passengers /
+    //       EmbarkedOn); the version stays 8 across the milestone.
+    public const int FormatVersion = 8;
 
     public static string Hash(Simulation sim)
     {
@@ -228,6 +231,13 @@ public static class Snapshot
             bw.Write(u.BornTick);
             WriteNullableLong(bw, u.DeathTick);
             WriteNullableLong(bw, u.DeathSeq);
+            // M12: movement domain.
+            bw.Write((byte)u.Traversal);
+            // M12: carrier state.
+            bw.Write(u.PassengerCap);
+            bw.Write(u.Passengers.Count);
+            foreach (var pid in u.Passengers) bw.Write(pid); // SortedSet → ascending
+            WriteNullableInt(bw, u.EmbarkedOn);
         }
     }
 
@@ -340,8 +350,16 @@ public static class Snapshot
             var bornTick = br.ReadInt64();
             var deathTick = ReadNullableLong(br);
             var deathSeq = ReadNullableLong(br);
+            var traversal = (Traversal)br.ReadByte();
+            var passengerCap = br.ReadInt32();
+            var passengerCount = br.ReadInt32();
+            var passengers = new List<int>(passengerCount);
+            for (var p = 0; p < passengerCount; p++) passengers.Add(br.ReadInt32());
+            var embarkedOn = ReadNullableInt(br);
 
-            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId, BornTick = bornTick };
+            var u = new Unit(id, pos) { Role = role, CargoCapacity = capacity, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
+            foreach (var pid in passengers) u.Passengers.Add(pid);
+            u.EmbarkedOn = embarkedOn;
             u.CargoResource = cargoR;
             u.CargoAmount = cargoA;
 
@@ -396,6 +414,13 @@ public static class Snapshot
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
                 case Tower:               /* no fields */ break;
+                // M12 — Dock carries slip + production state.
+                case Dock d:
+                    bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
+                    bw.Write(d.ProductionArmed);
+                    bw.Write(d.LastProductionTick);
+                    WriteNullableLong(bw, d.NextProductionTickSeq);
+                    break;
                 default:
                     throw new InvalidOperationException($"No serializer for {s.GetType().Name}");
             }
@@ -421,6 +446,7 @@ public static class Snapshot
                 StructureKind.ConstructionSite => ReadConstruction(br, at, ownerId),
                 StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
                 StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
+                StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };
             world.AddStructure(s);
@@ -492,6 +518,8 @@ public static class Snapshot
         WriteNullableLong(bw, c.ScheduledCompletion);
         // M4: queued BuildCompleteEvent anchor.
         WriteNullableLong(bw, c.BuildCompleteSeq);
+        // M12: Dock slip carrier (null for non-Dock targets).
+        WriteNullableTileCoord(bw, c.DockSlip);
     }
 
     private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at, int ownerId)
@@ -525,10 +553,22 @@ public static class Snapshot
         c.LastActiveAtTick = ReadNullableLong(br);
         c.ScheduledCompletion = ReadNullableLong(br);
         c.BuildCompleteSeq = ReadNullableLong(br);
+        c.DockSlip = ReadNullableTileCoord(br);
         return c;
     }
 
     // ----- house (M8) ----------------------------------------------------
+
+    // M12 — Dock read: pulls slip + production state.
+    private static Dock ReadDock(BinaryReader br, TileCoord at, int ownerId)
+    {
+        var slip = new TileCoord(br.ReadInt32(), br.ReadInt32());
+        var d = new Dock(at, slip) { OwnerId = ownerId };
+        d.ProductionArmed = br.ReadBoolean();
+        d.LastProductionTick = br.ReadInt64();
+        d.NextProductionTickSeq = ReadNullableLong(br);
+        return d;
+    }
 
     // M13 — castle food consumption anchor + (Phase C–D) famine /
     // starvation event anchors. Written after ReadStorage's payload.

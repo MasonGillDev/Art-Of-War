@@ -40,6 +40,7 @@ public sealed class AssignWorkersIntent : Intent
             if (extractor.Workers.Count >= extractor.Spec.WorkerCap) break; // cap reached
             if (!world.Units.TryGetValue(id, out var unit)) continue;
             if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
+            if (unit.IsEmbarked) continue;            // embarked units are off-tile
             if (unit.Position != StructureTile) continue;
             if (unit.Activity != Activity.Idle) continue;
             // M8: training-age gate — extractor workers are role-tied

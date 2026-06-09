@@ -31,11 +31,16 @@ public static class MovementCost
 
     // Total unit count on a tile. Ground truth: counts every unit
     // regardless of owner or visibility. Used by ExecutionCost.
+    //
+    // M12 — embarked units (IsEmbarked) are off-tile; they don't crowd.
     public static int CountUnitsOnTile(GameWorld world, TileCoord tile)
     {
         var count = 0;
         foreach (var u in world.Units.Values)
+        {
+            if (u.IsEmbarked) continue;
             if (u.Position == tile) count++;
+        }
         return count;
     }
 
@@ -43,6 +48,8 @@ public static class MovementCost
     // (the player knows their own positions); non-own units only if the
     // tile is currently visible to the player. Used by PlanCost so the
     // pathfinder can't see through the fog.
+    //
+    // M12 — embarked units are off-tile; they don't crowd.
     public static int CountVisibleUnitsOnTile(
         GameWorld world, TileCoord tile, int playerId, HashSet<TileCoord> visibleTiles)
     {
@@ -50,6 +57,7 @@ public static class MovementCost
         var count = 0;
         foreach (var u in world.Units.Values)
         {
+            if (u.IsEmbarked) continue;
             if (u.Position != tile) continue;
             if (u.OwnerId == playerId) { count++; continue; }
             if (tileIsVisible) count++;
@@ -57,25 +65,47 @@ public static class MovementCost
         return count;
     }
 
+    // ---- terrain-cost dispatcher --------------------------------------
+
+    // M12 — pick the terrain-cost table based on the moving unit's
+    // movement domain. Foot reads Road.EffectiveCost (biome + road
+    // condition); Water reads BoatMovementCost (water cheap, land
+    // Impassable). Roads do not apply on water.
+    public static int TerrainCostFor(GameWorld world, TileCoord tile, long now, Traversal trav) =>
+        trav switch
+        {
+            Traversal.Water => BoatMovementCost.CostFor(world.Grid.BiomeAt(tile)),
+            _ => Road.EffectiveCost(world, tile, now),
+        };
+
     // ---- A* plan cost (player-perspective, destination-side) -----------
 
     // Cost of ENTERING `tile` from the planning player's perspective.
-    // Terrain (including road condition) + banded crowding from the units
-    // the player can see on the tile.
+    // Terrain (including road condition for Foot; BoatMovementCost for
+    // Water) + banded crowding from the units the player can see on the
+    // tile.
     //
     // A tile already at the hard cap returns Biomes.Impassable so A* will
     // route strictly around it — but only when the player can SEE that
     // it's at cap. A cap-saturated tile in fog still looks empty to the
     // planner; the unit walking through it will be rejected at arrival
     // time and yield as Idle. (Ignorance has consequences.)
+    //
+    // M12: `trav` selects the terrain table. Defaults to Foot so call
+    // sites that don't know about traversal yet keep their behaviour.
     public static int PlanCost(
         GameWorld world, TileCoord tile,
-        int playerId, HashSet<TileCoord> visibleTiles, long now)
+        int playerId, HashSet<TileCoord> visibleTiles, long now,
+        Traversal trav = Traversal.Foot)
     {
         var visibleCount = CountVisibleUnitsOnTile(world, tile, playerId, visibleTiles);
         if (visibleCount >= MovementConstants.MaxUnitsPerTile)
             return Sim.Core.World.Biomes.Impassable;
-        var terrain = Road.EffectiveCost(world, tile, now);
+        var terrain = TerrainCostFor(world, tile, now, trav);
+        // Short-circuit: an Impassable terrain (e.g. land tile for a
+        // Water-traversal unit) stays Impassable — adding crowding would
+        // wrap into nonsense.
+        if (terrain == Sim.Core.World.Biomes.Impassable) return terrain;
         return terrain + MovementConstants.BandedCrowdingCost(visibleCount);
     }
 
@@ -90,9 +120,14 @@ public static class MovementCost
     // its own member crowd, so its per-hop cost naturally scales with
     // size. Destination crowding is what stretches solo caravans: the
     // last unit to enter a piling tile pays more than the first.
-    public static int ExecutionCost(GameWorld world, TileCoord from, TileCoord to, long now)
+    //
+    // M12: `trav` selects the terrain table. Defaults to Foot.
+    public static int ExecutionCost(
+        GameWorld world, TileCoord from, TileCoord to, long now,
+        Traversal trav = Traversal.Foot)
     {
-        var terrain = Road.EffectiveCost(world, to, now);
+        var terrain = TerrainCostFor(world, to, now, trav);
+        if (terrain == Sim.Core.World.Biomes.Impassable) return terrain;
         var fromCrowd = MovementConstants.BandedCrowdingCost(CountUnitsOnTile(world, from));
         var toCrowd = MovementConstants.BandedCrowdingCost(CountUnitsOnTile(world, to));
         return terrain + Math.Max(fromCrowd, toCrowd);

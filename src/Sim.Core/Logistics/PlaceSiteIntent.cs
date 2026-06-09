@@ -16,11 +16,17 @@ public sealed class PlaceSiteIntent : Intent
     public TileCoord Tile { get; }
     public StructureKind Kind { get; }
 
+    // M12 — Dock-only. The water tile the boat will spawn on once the
+    // Dock is built (Phase C production-job). Must be 4-adjacent to
+    // Tile and Water biome at resolution time. Null for non-Dock kinds.
+    public TileCoord? DockSlip { get; }
+
     [System.Text.Json.Serialization.JsonConstructor]
-    public PlaceSiteIntent(TileCoord tile, StructureKind kind)
+    public PlaceSiteIntent(TileCoord tile, StructureKind kind, TileCoord? dockSlip = null)
     {
         Tile = tile;
         Kind = kind;
+        DockSlip = dockSlip;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
@@ -48,12 +54,49 @@ public sealed class PlaceSiteIntent : Intent
                     $"{Kind} requires {spec.RequiredBiome} but tile is {biome}");
         }
 
+        // M12 — Dock placement requires:
+        //   * The dock tile is a land tile (not Water, not None).
+        //   * DockSlip is supplied.
+        //   * DockSlip is 4-adjacent to Tile.
+        //   * DockSlip is in bounds and currently Water (derived biome).
+        if (Kind == StructureKind.Dock)
+        {
+            var dockTileBiome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                sim.World, Tile, sim.Now, sim.World.BiomeDegradationConfig);
+            if (dockTileBiome == Biome.Water || dockTileBiome == Biome.None)
+                return IntentOutcome.Reject(
+                    $"Dock requires a land tile but {Tile.X},{Tile.Y} is {dockTileBiome}");
+            if (DockSlip is not TileCoord slip)
+                return IntentOutcome.Reject("Dock placement requires a slip tile");
+            if (!sim.World.Grid.InBounds(slip))
+                return IntentOutcome.Reject($"slip {slip.X},{slip.Y} out of bounds");
+            if (!Is4Adjacent(Tile, slip))
+                return IntentOutcome.Reject(
+                    $"slip {slip.X},{slip.Y} is not 4-adjacent to dock tile {Tile.X},{Tile.Y}");
+            var slipBiome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                sim.World, slip, sim.Now, sim.World.BiomeDegradationConfig);
+            if (slipBiome != Biome.Water)
+                return IntentOutcome.Reject(
+                    $"slip {slip.X},{slip.Y} must be Water but is {slipBiome}");
+        }
+
         // OwnerId carried from the issuing player via the base Intent.PlayerId.
         // The built structure (when BuildCompleteEvent fires) inherits this.
-        sim.World.AddStructure(new ConstructionSite(Tile, Kind) { OwnerId = PlayerId });
+        sim.World.AddStructure(new ConstructionSite(Tile, Kind)
+        {
+            OwnerId = PlayerId,
+            DockSlip = Kind == StructureKind.Dock ? DockSlip : null,
+        });
         return IntentOutcome.Applied;
     }
 
+    private static bool Is4Adjacent(TileCoord a, TileCoord b)
+    {
+        var dx = Math.Abs(a.X - b.X);
+        var dy = Math.Abs(a.Y - b.Y);
+        return (dx == 1 && dy == 0) || (dx == 0 && dy == 1);
+    }
+
     public override string Describe() =>
-        $"PlaceSite(kind={Kind} @ {Tile.X},{Tile.Y})";
+        $"PlaceSite(kind={Kind} @ {Tile.X},{Tile.Y}{(DockSlip is { } s ? $", slip={s.X},{s.Y}" : "")})";
 }

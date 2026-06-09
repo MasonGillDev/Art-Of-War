@@ -92,6 +92,20 @@ public static class RegenerateQueue
                 new Sim.Core.Population.BirthEvent(h.At));
         }
 
+        // M12: Dock boat-production anchors.
+        var docks = world.Structures.Values.OfType<Dock>()
+            .OrderBy(d => d.At.Y).ThenBy(d => d.At.X)
+            .ToList();
+        foreach (var dock in docks)
+        {
+            if (!dock.ProductionArmed) continue;
+            if (dock.NextProductionTickSeq is not { } seq) continue;
+            var fireAt = dock.LastProductionTick
+                + Sim.Core.World.StructureCatalog.Spec(Sim.Core.World.StructureKind.Dock).ProductionPeriodTicks;
+            sim.ScheduleWithSeq(fireAt, seq,
+                new Sim.Core.Boats.BoatProductionTickEvent(dock.At));
+        }
+
         // M13: castle famine-check and starvation-death anchors.
         // Each Castle contributes at most two queued events, restored at
         // their original (Tick, Seq). Iterated in canonical (y, x) order.

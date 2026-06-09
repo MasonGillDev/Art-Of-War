@@ -36,6 +36,8 @@ public sealed class HaulIntent : Intent
             return IntentOutcome.Reject($"hauler {HaulerId} does not exist");
         if (hauler.GroupId is not null)
             return IntentOutcome.Reject($"hauler {HaulerId} is in group {hauler.GroupId}");
+        if (hauler.IsEmbarked)
+            return IntentOutcome.Reject($"hauler {HaulerId} is embarked on boat {hauler.EmbarkedOn}");
         if (hauler.Activity != Activity.Idle)
             return IntentOutcome.Reject("hauler is not Idle");
         if (hauler.CargoCapacity <= 0)

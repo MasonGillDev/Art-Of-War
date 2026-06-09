@@ -133,15 +133,19 @@ public sealed class GameWorld
     }
 
     // M13 — Player.PopulationCount is maintained as
-    // (count of world.Units where OwnerId == player.Id). AddUnit is the
-    // single increment site; Population.OnUnitRemoved is the single
-    // decrement site. PopulationCount is not serialised: Snapshot.Restore
-    // calls AddUnit for every persisted unit, rebuilding the count from
-    // scratch. Defensive: skip if the owner has no Player record yet
-    // (genesis adds the castle's Player before the units, so this is
-    // hit only by edge-case test scenarios).
+    // (count of world.Units where OwnerId == player.Id, excluding boats).
+    // AddUnit is the single increment site; Population.OnUnitRemoved is
+    // the single decrement site. PopulationCount is not serialised:
+    // Snapshot.Restore calls AddUnit for every persisted unit, rebuilding
+    // the count from scratch. Defensive: skip if the owner has no Player
+    // record yet (genesis adds the castle's Player before the units, so
+    // this is hit only by edge-case test scenarios).
+    //
+    // M12 — boats are vehicles, not mouths: they don't count toward the
+    // food consumption rate and aren't eligible starvation-death victims.
     private void BumpPopulationCount(Unit u)
     {
+        if (u.Role == UnitRole.Boat) return;
         if (Players.TryGetValue(u.OwnerId, out var player))
             player.IncrementPopulation();
     }

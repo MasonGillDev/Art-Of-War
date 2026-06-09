@@ -29,6 +29,11 @@ public static class UnitCombatCatalog
         [UnitRole.Quarryman]  = new UnitCombatSpec { Role = UnitRole.Quarryman,  BaseHealth = 10, BasePower = 1 },
         [UnitRole.Hauler]     = new UnitCombatSpec { Role = UnitRole.Hauler,     BaseHealth = 10, BasePower = 1 },
         [UnitRole.Scout]      = new UnitCombatSpec { Role = UnitRole.Scout,      BaseHealth = 10, BasePower = 1 },
+        // M12 — boats are bulkier and don't fight back from the deck
+        // (the design defers passenger combat). BaseHealth high enough
+        // that a small force can't one-shot a transport; BasePower = 0
+        // so a passenger-empty boat doesn't add to a force.
+        [UnitRole.Boat]       = new UnitCombatSpec { Role = UnitRole.Boat,       BaseHealth = 40, BasePower = 0 },
     };
 
     public static UnitCombatSpec Spec(UnitRole role) =>

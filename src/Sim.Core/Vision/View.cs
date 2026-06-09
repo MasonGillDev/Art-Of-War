@@ -69,10 +69,12 @@ public static class View
         var visible = new HashSet<TileCoord>();
 
         // Owned units contribute their role-based vision radius around
-        // their current position.
+        // their current position. M12 — embarked passengers are inside
+        // a boat; they contribute no vision (the hull blocks their view).
         foreach (var u in world.Units.Values)
         {
             if (u.OwnerId != playerId) continue;
+            if (u.IsEmbarked) continue;
             var r = Sight.RadiusFor(u.Role);
             if (r > 0) AddDisc(world, visible, u.Position, r);
         }
@@ -136,10 +138,14 @@ public static class View
         }
 
         // Units: own unconditionally; others only if their tile is visible.
+        // M12 — embarked passengers are inside a boat; they are not shown
+        // in player views (own or enemy). The boat itself is a Unit and is
+        // shown normally.
         var visibleUnits = new List<UnitView>();
         var popCfg = world.PopulationConfig;
         foreach (var u in world.Units.Values)
         {
+            if (u.IsEmbarked) continue;
             if (u.OwnerId == playerId || visible.Contains(u.Position))
             {
                 var age = Sim.Core.Population.Population.AgeYears(u, now, popCfg);

@@ -211,6 +211,12 @@ public sealed class ConstructionSite : Structure
     // Null iff ScheduledCompletion is null (paused or pending).
     public long? BuildCompleteSeq { get; set; }
 
+    // M12 — Dock-only: the water tile that the finished Dock's `Slip`
+    // gets initialised with. Carried through from PlaceSiteIntent and
+    // read by BuildCompleteEvent when the dock instance is constructed.
+    // Null for all non-Dock targets. Settable for snapshot restore.
+    public TileCoord? DockSlip { get; set; }
+
     public ConstructionSite(TileCoord at, StructureKind targetKind)
         : base(at)
     {
@@ -309,4 +315,34 @@ public sealed class Tower : Structure
 {
     public override StructureKind Kind => StructureKind.Tower;
     public Tower(TileCoord at) : base(at) { }
+}
+
+// M12 — Dock. Built on a land tile 4-adjacent to at least one Water
+// tile. The Water tile chosen at build-time is the dock's "slip": new
+// boats spawn there (Phase C production-job) and embarking units must
+// be on this Dock's tile with the boat on its slip.
+public sealed class Dock : Structure
+{
+    public override StructureKind Kind => StructureKind.Dock;
+    public TileCoord Slip { get; }
+    public Dock(TileCoord at, TileCoord slip) : base(at) { Slip = slip; }
+
+    // M12 Phase C — boat-production anchor.
+    //
+    // After BuildCompleteEvent fires on this dock, a
+    // BoatProductionTickEvent is scheduled at sim.Now + spec
+    // ProductionPeriodTicks; ProductionArmed flips to true and
+    // NextProductionTickSeq stashes the Seq for snapshot recovery.
+    // When the tick fires:
+    //   * Slip free? Spawn a Boat unit on Slip, reschedule next tick,
+    //     keep ProductionArmed = true.
+    //   * Slip occupied? ProductionArmed = false, NextProductionTickSeq
+    //     = null. The MoveArrivalEvent slip-clear hook re-arms.
+    public bool ProductionArmed { get; set; }
+    public long? NextProductionTickSeq { get; set; }
+    // The tick the LAST production fired (or the dock's build-complete
+    // tick before any boat is produced). Snapshot regen uses
+    // LastProductionTick + spec.ProductionPeriodTicks to reconstruct
+    // the next-event time when ProductionArmed is true.
+    public long LastProductionTick { get; set; }
 }

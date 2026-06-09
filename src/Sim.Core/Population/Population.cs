@@ -118,7 +118,10 @@ public static class Population
         if (castle is not null)
             Sim.Core.Food.FoodConsumption.CatchUp(castle, sim, sim.Now);
 
-        if (world.Players.TryGetValue(unit.OwnerId, out var player))
+        // M12 — boats don't count toward population (vehicles, not
+        // mouths); symmetric to GameWorld.AddUnit's BumpPopulationCount.
+        if (unit.Role != UnitRole.Boat
+            && world.Players.TryGetValue(unit.OwnerId, out var player))
             player.DecrementPopulation();
 
         // M13 Phase C — rate dropped; re-evaluate the famine check.

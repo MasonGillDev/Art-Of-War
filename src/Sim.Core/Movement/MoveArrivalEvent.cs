@@ -58,7 +58,11 @@ public sealed class MoveArrivalEvent : ScheduledEvent
             return;
         }
 
+        var leftTile = unit.Position;
         unit.Position = To;
+        // M12 — dock slip-clear hook: if the tile the unit just left is
+        // any dock's slip, that dock re-evaluates its production.
+        Sim.Core.Boats.DockArmer.OnUnitLeftTile(sim, leftTile);
         // M2 Phase C: every real arrival credits the tile entered. THE one
         // mutation point for road condition. See Roads/Roads.cs.
         Road.CreditTraffic(sim.World, To, sim.Now);

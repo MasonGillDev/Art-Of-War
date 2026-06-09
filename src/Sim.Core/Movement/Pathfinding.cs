@@ -39,7 +39,14 @@ public static class Pathfinding
             var currentG = gScore[current];
             foreach (var n in grid.Neighbors(current))
             {
-                var tentative = currentG + costFn(n);
+                var step = costFn(n);
+                // Impassable tile — skip. Without this, `currentG + step`
+                // overflows int and wraps to a negative "better" gScore,
+                // and A* re-explores forever. (M12: BoatMovementCost
+                // returns Impassable on every land biome, so this guard
+                // is now reachable in normal play.)
+                if (step >= Sim.Core.World.Biomes.Impassable) continue;
+                var tentative = currentG + step;
                 if (!gScore.TryGetValue(n, out var existing) || tentative < existing)
                 {
                     gScore[n] = tentative;

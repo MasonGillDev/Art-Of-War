@@ -37,6 +37,7 @@ public sealed class AssignBuildersIntent : Intent
         {
             if (!world.Units.TryGetValue(id, out var unit)) continue;
             if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
+            if (unit.IsEmbarked) continue;            // embarked units are off-tile
             if (unit.Position != SiteTile) continue;
             if (unit.Role != UnitRole.Builder) continue;
             if (unit.Activity != Activity.Idle) continue;

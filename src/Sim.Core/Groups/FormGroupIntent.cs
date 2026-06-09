@@ -47,6 +47,8 @@ public sealed class FormGroupIntent : Intent
                 return IntentOutcome.Reject($"unit {id} is not Idle");
             if (unit.GroupId is not null)
                 return IntentOutcome.Reject($"unit {id} is already in a group {unit.GroupId}");
+            if (unit.IsEmbarked)
+                return IntentOutcome.Reject($"unit {id} is embarked on boat {unit.EmbarkedOn}");
         }
 
         // Reachability — every off-rendezvous member must have a path to it.

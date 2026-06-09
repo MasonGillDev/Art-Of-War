@@ -57,17 +57,20 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         world.Structures.Remove(SiteTile);
         // OwnerId inherits from the ConstructionSite (which got it from
         // PlaceSiteIntent's PlayerId at submission time).
-        var built = BuildStructure(site.TargetKind, SiteTile, site.OwnerId);
+        var built = BuildStructure(site.TargetKind, SiteTile, site.OwnerId, site.DockSlip);
         world.AddStructure(built);
         // M3 Phase B: if the new structure is a vision source (Castle /
         // Tower), reveal its area for the owner.
         var visionRadius = Sight.RadiusFor(built.Kind);
         if (visionRadius > 0)
             Sight.Reveal(world, built.OwnerId, built.At, visionRadius, sim.Now);
+        // M12 — Dock starts producing boats immediately.
+        if (built is Dock dock)
+            Sim.Core.Boats.DockArmer.OnDockBuilt(sim, dock);
     }
 
     // Catalog dispatch. Every player-buildable kind needs a row here.
-    private static Structure BuildStructure(StructureKind kind, TileCoord at, int ownerId) => kind switch
+    private static Structure BuildStructure(StructureKind kind, TileCoord at, int ownerId, TileCoord? dockSlip) => kind switch
     {
         StructureKind.Stockpile  => new Stockpile(at) { OwnerId = ownerId },
         StructureKind.LumberCamp => new Extractor(StructureKind.LumberCamp, at) { OwnerId = ownerId },
@@ -76,6 +79,10 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         StructureKind.Farm       => new Extractor(StructureKind.Farm, at) { OwnerId = ownerId },
         StructureKind.Tower      => new Tower(at) { OwnerId = ownerId },
         StructureKind.House      => new House(at) { OwnerId = ownerId },
+        StructureKind.Dock       => new Dock(at, dockSlip
+            ?? throw new InvalidOperationException(
+                $"Dock at {at.X},{at.Y} has no DockSlip recorded on its ConstructionSite."))
+            { OwnerId = ownerId },
         _ => throw new InvalidOperationException(
             $"BuildCompleteEvent has no constructor for {kind} — extend BuildStructure when a new player-buildable kind lands."),
     };

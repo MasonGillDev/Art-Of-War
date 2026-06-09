@@ -29,6 +29,7 @@ public static class CombatRules
         var total = 0;
         foreach (var u in world.Units.Values)
         {
+            if (u.IsEmbarked) continue;  // M12 — passengers don't fight
             if (u.OwnerId != ownerId) continue;
             if (u.Position != tile) continue;
             total += EffectivePower(u);
@@ -40,11 +41,15 @@ public static class CombatRules
     // ranged-from-adjacent will pass [tile, north, south, east, west]
     // (each with a reach modifier). Returns per-owner unit lists in
     // arbitrary order; callers must sort if they need determinism.
+    //
+    // M12 — embarked units are excluded; they're inside the boat and
+    // not on the contact tile.
     public static IDictionary<int, List<Unit>> GatherForcesOnTile(GameWorld world, TileCoord tile)
     {
         var byOwner = new Dictionary<int, List<Unit>>();
         foreach (var u in world.Units.Values)
         {
+            if (u.IsEmbarked) continue;
             if (u.Position != tile) continue;
             if (!byOwner.TryGetValue(u.OwnerId, out var list))
             {
@@ -66,6 +71,39 @@ public static class CombatRules
     {
         var world = sim.World;
         var tile = unit.Position;
+
+        // M12 — if the dying unit is embarked on a boat, remove it
+        // from that boat's Passengers list. Without this, a passenger
+        // killed by starvation / age / combat-on-boat-tile would leave
+        // a stale entry the boat would carry forever.
+        if (unit.EmbarkedOn is int carrierId
+            && world.Units.TryGetValue(carrierId, out var carrier))
+        {
+            carrier.Passengers.Remove(unit.Id);
+        }
+
+        // M12 — if the dying unit IS a boat with passengers, every
+        // passenger drowns. We recursively death-pipeline each one:
+        // they're removed from world.Units (and from passengers list by
+        // the hook above, but here we explicitly clear the list at the
+        // end anyway). Cargo on the boat goes to the wreck tile (a
+        // water tile — same drop-to-tile pile mechanism applies); that
+        // happens via the existing cargo-drop step below.
+        if (unit.Role == UnitRole.Boat && unit.Passengers.Count > 0)
+        {
+            // Snapshot the list to avoid mutating during iteration.
+            var drowning = new List<int>(unit.Passengers);
+            unit.Passengers.Clear();
+            foreach (var pid in drowning)
+            {
+                if (!world.Units.TryGetValue(pid, out var passenger)) continue;
+                // Clear EmbarkedOn first so the OnUnitDeath call below
+                // doesn't try to re-touch this boat's (already-emptied)
+                // Passengers list.
+                passenger.EmbarkedOn = null;
+                OnUnitDeath(sim, passenger);
+            }
+        }
 
         // 1. Drop cargo (Phase E hook): the laden caravan's payload
         //    survives the unit and becomes loose tile resource.
