@@ -32,8 +32,11 @@ public class RoadPathfindingTests
         // path through Forest (high biome cost) vs longer detour through
         // Grassland with road. Roads should make the detour cheaper.
         //
-        // Direct path through forest cost = 5 Forest tiles * 30 = 150.
-        // Detour through Grassland with maxed road: 7 tiles * MIN_COST = 7.
+        // No-road shortest path has to enter one Forest tile (cost 30)
+        // vs. detouring 2 extra tiles (cost 10 each = 20) — forest is the
+        // tie-breaker pick. With a maxed road along y=0, each road tile
+        // costs 4 (Grassland 10 with 66% proportional reduction), so the
+        // detour becomes obviously cheaper than crossing forest.
         var grid = new TileGrid(8, 3, Biome.Grassland);
         // Forest wall at x=4 across all rows
         for (var y = 0; y < 3; y++) grid.SetBiome(new TileCoord(4, y), Biome.Forest);
@@ -96,9 +99,10 @@ public class RoadPathfindingTests
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(4, 0)));
         sim.Run();
 
-        // 4 tiles entered, each at cost 2 (Grassland 10 - reduction 8 = 2).
-        // No tile crossed below MIN_COST. Final tick = 8.
-        Assert.Equal(8, sim.Now);
+        // 4 tiles entered, each at cost 4 (Grassland 10 with 66%
+        // proportional reduction = 6, so cost 4). No tile crossed below
+        // MIN_COST. Final tick = 16.
+        Assert.Equal(16, sim.Now);
         Assert.True(sim.Now >= 4 * RoadConstants.MIN_COST);
     }
 
@@ -126,8 +130,8 @@ public class RoadPathfindingTests
         var roadTicks = Walk(worldRoad);
         Assert.True(roadTicks < rawTicks,
             $"Road walk should be faster: road={roadTicks}, raw={rawTicks}");
-        // 5 tiles entered at 10 each = 50; on road, 5 * 2 = 10.
+        // 5 tiles entered at 10 each = 50; on road, 5 * 4 = 20.
         Assert.Equal(50, rawTicks);
-        Assert.Equal(10, roadTicks);
+        Assert.Equal(20, roadTicks);
     }
 }

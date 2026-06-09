@@ -117,8 +117,8 @@ public class RoadDecayTests
         var world = MakeRoadWorld(RoadConstants.CONDITION_MAX, lastDecayTick: 0);
         var tile = new TileCoord(1, 1);
 
-        // No decay yet: cost = 10 - (1000 * 8 / 1000) = 2.
-        Assert.Equal(2, Road.EffectiveCost(world, tile, now: 0));
+        // No decay yet: reduction = 10 * 66 * 1000 / (100 * 1000) = 6, cost = 4.
+        Assert.Equal(4, Road.EffectiveCost(world, tile, now: 0));
 
         // After enough decay for condition to reach 0: cost back to 10.
         // Decay rate = 1 per 100 ticks; CONDITION_MAX = 1000; so 100_000 ticks

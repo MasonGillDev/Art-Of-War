@@ -44,32 +44,45 @@ public class RoadCostTests
     [Fact]
     public void Cost_NeverDropsBelow_MIN_COST()
     {
-        // Try a small biome (cost 10) — even at full road, reduction is 8,
-        // so cost = 2 which is above MIN_COST=1. Force a worse case:
-        // a fictional zero-cost biome would underflow, so test the floor
-        // via a biome cost equal to MAX_REDUCTION.
+        // Grassland (cost 10) at cap with MAX_REDUCTION_PERCENT = 66 →
+        // reduction = 10 * 66 / 100 = 6 → cost = 4. Still above MIN_COST=1.
         var world = GrasslandWorld();
         var tile = new TileCoord(1, 1);
 
-        // Grassland at cap.
         world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
         var cost = Road.EffectiveCost(world, tile, now: 0);
         Assert.True(cost >= RoadConstants.MIN_COST,
             $"Cost {cost} below MIN_COST {RoadConstants.MIN_COST}");
 
-        // Verify the formula matches expectation: cost = max(MIN, 10 - 8) = 2.
-        Assert.Equal(2, cost);
+        Assert.Equal(4, cost);
     }
 
     [Fact]
-    public void ForestRoad_AtCap_Costs22()
+    public void ForestRoad_AtCap_ProportionallyReduced()
     {
-        // Forest cost = 30, MAX_REDUCTION = 8, so cap cost = 22.
+        // Forest cost = 30, MAX_REDUCTION_PERCENT = 66 → reduction = 19,
+        // cap cost = 11. (Old flat-8 model gave 22; proportional model
+        // makes the road actually useful on expensive terrain.)
         var grid = new TileGrid(4, 4, Biome.Forest);
         var world = new GameWorld(grid);
         var tile = new TileCoord(1, 1);
         world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        Assert.Equal(22, Road.EffectiveCost(world, tile, now: 0));
+        Assert.Equal(11, Road.EffectiveCost(world, tile, now: 0));
+    }
+
+    [Fact]
+    public void MountainRoad_AtCap_ProportionallyReduced()
+    {
+        // The load-bearing case for proportional roads: a maxed road on
+        // mountain (cost 45) gives reduction = 45 * 66 / 100 = 29, so cost
+        // = 16. Under the old flat-8 model mountain went 45 → 37 (1.22x);
+        // under proportional, 45 → 16 (~2.8x). Roads are now meaningfully
+        // useful on hard terrain.
+        var grid = new TileGrid(4, 4, Biome.Mountain);
+        var world = new GameWorld(grid);
+        var tile = new TileCoord(1, 1);
+        world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        Assert.Equal(16, Road.EffectiveCost(world, tile, now: 0));
     }
 
     [Fact]

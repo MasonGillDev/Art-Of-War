@@ -13,11 +13,24 @@ public static class RoadConstants
     // here so movement is never free and remains a positive integer.
     public const int MIN_COST = 1;
 
-    // Maximum reduction from a maxed-out road. With MAX_REDUCTION = 8:
-    //   Grassland (cost 10) at max → cost 2
-    //   Forest    (cost 30) at max → cost 22
-    //   Mountain  (cost 45) at max → cost 37
-    public const int MAX_REDUCTION = 8;
+    // Maximum reduction from a maxed-out road, as a PERCENTAGE of the
+    // tile's biome cost. Proportional (not flat-absolute) so the road is
+    // comparably useful across all biomes — a flat reduction lopsidedly
+    // helps cheap terrain (10 - 8 = 5x speedup on grassland) and barely
+    // touches expensive terrain (45 - 8 = 1.22x on mountain).
+    //
+    // With MAX_REDUCTION_PERCENT = 66, every biome gets ~3x speedup at
+    // max condition (still floored by MIN_COST, still differentiated by
+    // absolute biome cost):
+    //   Grassland (cost 10) at max → cost 4
+    //   Hills     (cost 25) at max → cost 9
+    //   Forest    (cost 30) at max → cost 11
+    //   Desert    (cost 40) at max → cost 14
+    //   Mountain  (cost 45) at max → cost 16
+    //
+    // Roads only apply to Foot traversal — Water uses BoatMovementCost,
+    // so this percentage never touches water tile costs.
+    public const int MAX_REDUCTION_PERCENT = 66;
 
     // Per-traversal gain when condition is 0. Drops linearly toward GAIN_FLOOR
     // as condition approaches CONDITION_MAX (diminishing returns). With

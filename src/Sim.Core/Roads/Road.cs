@@ -40,7 +40,13 @@ public static class Road
         var biomeCost = world.Grid.TerrainCost(tile);
         var condition = ConditionAt(world, tile, now);
         if (condition <= 0) return biomeCost;
-        var reduction = condition * RoadConstants.MAX_REDUCTION / RoadConstants.CONDITION_MAX;
+        // Reduction is a percentage of the biome cost so roads stay
+        // proportionally useful on expensive terrain (mountain, forest).
+        // Long math + single division at the end avoids intermediate
+        // truncation; max product (250 × 100 × 1000) fits well below int max
+        // but the long is cheap insurance against future biome-cost growth.
+        var reduction = (int)((long)biomeCost * RoadConstants.MAX_REDUCTION_PERCENT * condition
+                              / (100L * RoadConstants.CONDITION_MAX));
         var cost = biomeCost - reduction;
         return cost < RoadConstants.MIN_COST ? RoadConstants.MIN_COST : cost;
     }
