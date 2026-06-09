@@ -102,8 +102,18 @@ public static class FoodConsumption
         // the famine-trigger transition (not while already in famine);
         // this branch IS that transition. Future deaths reschedule
         // themselves from inside StarvationDeathEvent.Apply.
-        ScheduleNextStarvationDeath(castle, sim, fireAt: failureBoundary
-            + FoodConsumptionConstants.StarvationStartDelay);
+        //
+        // Carry-over guard: if an anchor from a PREVIOUS famine is still
+        // in flight (the player deposited food, cleared the famine, then
+        // ran out again before the original death fired), leave that
+        // original schedule intact rather than granting a fresh
+        // StarvationStartDelay grace window. Closes the trickle-deposit
+        // exploit. See docs/food-consumption.md (Update 2026-06-09).
+        if (!castle.NextStarvationDeathTick.HasValue)
+        {
+            ScheduleNextStarvationDeath(castle, sim, fireAt: failureBoundary
+                + FoodConsumptionConstants.StarvationStartDelay);
+        }
     }
 
     // M13 Phase D — schedule the next StarvationDeathEvent for this

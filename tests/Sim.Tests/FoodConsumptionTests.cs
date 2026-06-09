@@ -876,12 +876,62 @@ public class FoodConsumptionPhaseDTests
         new HaulDepositEvent(99, new TileCoord(0, 0), expectedEpoch: hauler.AssignmentEpoch)
             .Apply(sim);
 
+        // Famine cleared, but the scheduled death STAYS in flight —
+        // closes the trickle-deposit exploit. The death fences itself
+        // when it fires (FamineStartTick is null at that point) and
+        // clears its own anchor.
         Assert.Null(castle.FamineStartTick);
-        Assert.Null(castle.NextStarvationDeathTick);
+        Assert.Equal(scheduledDeath, castle.NextStarvationDeathTick);
 
         var popBefore = sim.World.Players[0].PopulationCount;
         sim.Run(until: scheduledDeath);
         Assert.Equal(popBefore, sim.World.Players[0].PopulationCount);
+        // After the orphan death fenced, the anchor is cleaned up.
+        Assert.Null(castle.NextStarvationDeathTick);
+    }
+
+    [Fact]
+    public void TrickleDeposit_DoesNotResetStarvationCadence()
+    {
+        // The exploit: previously, depositing any food during famine
+        // cleared the starvation anchor — so a re-famine got a fresh
+        // StarvationStartDelay grace window, and trickle deposits could
+        // postpone deaths indefinitely. Fix: keep the original anchor;
+        // a re-famine before the original death tick honours the original
+        // schedule.
+        var (sim, castle) = MakeFamineSim(unitCount: 5, startingFood: 50);
+        var period = FoodConsumptionConstants.FoodConsumptionPeriod;
+        sim.Run(until: 11 * period);
+        Assert.NotNull(castle.FamineStartTick);
+        Assert.NotNull(castle.NextStarvationDeathTick);
+        var originalDeathTick = castle.NextStarvationDeathTick!.Value;
+
+        // Trickle in just 5 food — enough for one period at the original
+        // rate, not enough to escape the cadence. (Hauler is added to the
+        // world raw, which bumps PopulationCount via GameWorld.AddUnit;
+        // capture popBeforeDeath AFTER the bump.)
+        var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
+        {
+            Role = UnitRole.Hauler, OwnerId = 0, CargoCapacity = 100,
+            CargoResource = Resource.Food, CargoAmount = 5, BornTick = 0,
+        });
+        hauler.TrySetActivity(Activity.Hauling);
+        AdvanceSimNow(sim, 12 * period);
+        new HaulDepositEvent(99, new TileCoord(0, 0), expectedEpoch: hauler.AssignmentEpoch)
+            .Apply(sim);
+        var popBeforeDeath = sim.World.Players[0].PopulationCount;
+
+        // Famine cleared, but the original death is still scheduled at
+        // its original tick — no fresh grace window.
+        Assert.Null(castle.FamineStartTick);
+        Assert.Equal(originalDeathTick, castle.NextStarvationDeathTick);
+
+        // Let the new food deplete (famine re-arms shortly after) and
+        // advance to the original death tick. A death MUST fire on the
+        // original schedule — the genesis units have negative BornTicks,
+        // so a genesis citizen is the victim, not the hauler.
+        sim.Run(until: originalDeathTick);
+        Assert.Equal(popBeforeDeath - 1, sim.World.Players[0].PopulationCount);
     }
 
     [Fact]

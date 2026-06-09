@@ -423,3 +423,60 @@ This is the milestone's M-level contract per architecture §1.
   per-event scheduling fields.
 - `persistent-rts-design.md` §1 (castle as the heart of the
   civilization; loss condition), §7 (everything physical).
+
+## Update 2026-06-09 — close the trickle-deposit exploit
+
+**Change:** When a deposit clears a famine, the scheduled
+`StarvationDeathEvent` is no longer cancelled. Its anchor stays in
+flight. If a new famine starts before the original death tick,
+`FoodConsumption.CatchUp` declines to schedule a fresh death (the
+existing anchor wins). The original death fires on its original
+schedule.
+
+**Why:** The original implementation called
+`ClearStarvationDeathAnchor` on any deposit that brought
+`Holdings[Food] > 0`. A player could then trickle in 1 food unit during
+famine, fully cancel the death cadence, and earn a fresh
+`StarvationStartDelay` grace window before the next death — repeatable
+indefinitely. Death-by-starvation became a soft warning instead of a
+real consequence. The doc's stated intent — "if your supply line
+breaks, your civ shrinks" — failed in practice.
+
+**Alternatives considered:**
+- *Debt-tracking* (track a `FamineDebt` field; deposits pay it down
+  before counting as new stock): most rigorous but requires a new
+  persistent field and snapshot-format bump.
+- *Threshold-clear* (famine clears only if the deposit covers one full
+  period of consumption): simpler but feels like food "vanishes" when
+  the deposit is small.
+- *Preserve cadence* (this fix): leave the death scheduled; let the
+  fence harmlessly cancel it if the recovery is genuine. No new field,
+  no snapshot bump, no balance surprises — the cadence is the
+  punishment.
+
+**How the fence stays clean:**
+- If the deposit's food covers all of the time until the original death
+  tick, no new famine arises before then. The death fires, sees
+  `FamineStartTick == null`, fences via the existing branch
+  (`StarvationDeathEvent.cs:46-50`), and clears its own anchor. A
+  later famine schedules fresh — that's the "true recovery" path.
+- If a new famine arises before the original death tick, `CatchUp`'s
+  famine-trigger branch sees the existing anchor and declines to
+  reschedule. The original event fires on its scheduled tick, finds
+  famine active, and proceeds. The player gained only the time their
+  deposit's food actually paid for — no free reset.
+
+**Acceptance tests:**
+- `FoodConsumptionPhaseDTests.TrickleDeposit_DoesNotResetStarvationCadence`
+  — pins the fix: tiny deposit during famine, food runs out, original
+  death tick still claims a citizen.
+- `FoodConsumptionPhaseDTests.StarvationDeath_FencesWhenFamineEnds` —
+  updated: anchor STAYS at deposit time, then gets cleaned up when the
+  orphan death fences itself.
+
+**Files touched:**
+- `src/Sim.Core/Logistics/HaulDepositEvent.cs` — removed the
+  `ClearStarvationDeathAnchor` call from the deposit-during-famine branch.
+- `src/Sim.Core/Food/FoodConsumption.cs` — guarded
+  `ScheduleNextStarvationDeath` in `CatchUp`'s famine-trigger branch
+  with `if (!castle.NextStarvationDeathTick.HasValue)`.

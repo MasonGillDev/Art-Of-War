@@ -94,15 +94,22 @@ public sealed class HaulDepositEvent : ScheduledEvent
         // Holdings[Food] above 0, the famine ends. Always re-evaluate the
         // famine check so the predicted next dry-out reflects the new
         // food level.
+        //
+        // The scheduled StarvationDeathEvent is INTENTIONALLY left in
+        // flight (anchor not cleared). If the deposit is large enough
+        // that no new famine arises before the death tick, the event
+        // fences harmlessly when it fires (StarvationDeathEvent.Apply
+        // → FamineStartTick is null → fence + clear). If a new famine
+        // starts before then, CatchUp's famine-trigger branch sees the
+        // existing anchor and declines to reschedule — preserving the
+        // original death cadence so a player can't reset the starvation
+        // clock by trickling tiny deposits.
         if (foodCastle is not null)
         {
             if (foodCastle.FamineStartTick.HasValue
                 && foodCastle.AmountOf(Resource.Food) > 0)
             {
                 foodCastle.FamineStartTick = null;
-                // M13 Phase D — pending starvation death is stale; its
-                // event will fence harmlessly when it fires.
-                Sim.Core.Food.FoodConsumption.ClearStarvationDeathAnchor(foodCastle);
             }
             Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodCastle, sim);
         }
