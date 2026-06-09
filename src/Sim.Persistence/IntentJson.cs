@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Sim.Core.Boats;
 using Sim.Core.Diplomacy;
 using Sim.Core.Groups;
 using Sim.Core.Intents;
@@ -45,6 +46,9 @@ public static class IntentJson
         [typeof(ProposeRelationshipIntent)]   = "ProposeRelationshipIntent",
         [typeof(RespondToProposalIntent)]     = "RespondToProposalIntent",
         [typeof(BeginBreedingIntent)]         = "BeginBreedingIntent",
+        [typeof(TrainUnitIntent)]             = "TrainUnitIntent",
+        [typeof(EmbarkIntent)]                = "EmbarkIntent",
+        [typeof(DisembarkIntent)]             = "DisembarkIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -75,6 +79,9 @@ public static class IntentJson
             "ProposeRelationshipIntent"    => JsonSerializer.Deserialize<ProposeRelationshipIntent>(payload, Options),
             "RespondToProposalIntent"      => JsonSerializer.Deserialize<RespondToProposalIntent>(payload, Options),
             "BeginBreedingIntent"          => JsonSerializer.Deserialize<BeginBreedingIntent>(payload, Options),
+            "TrainUnitIntent"              => JsonSerializer.Deserialize<TrainUnitIntent>(payload, Options),
+            "EmbarkIntent"                 => JsonSerializer.Deserialize<EmbarkIntent>(payload, Options),
+            "DisembarkIntent"              => JsonSerializer.Deserialize<DisembarkIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

@@ -1,6 +1,8 @@
+using Sim.Core.Boats;
 using Sim.Core.Groups;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
+using Sim.Core.Population;
 using Sim.Core.World;
 using Sim.Persistence;
 
@@ -24,6 +26,9 @@ public class IntentStoreTests
         yield return new object[] { new FormGroupIntent(new[] { 1, 2, 3 }, new TileCoord(5, 5)) { PlayerId = 0 } };
         yield return new object[] { new MoveGroupIntent(groupId: 1, new TileCoord(9, 9)) { PlayerId = 0 } };
         yield return new object[] { new DisbandGroupIntent(groupId: 1) { PlayerId = 0 } };
+        yield return new object[] { new TrainUnitIntent(unitId: 7, UnitRole.Builder) { PlayerId = 0 } };
+        yield return new object[] { new EmbarkIntent(boatId: 50, new[] { 1, 2, 3 }) { PlayerId = 0 } };
+        yield return new object[] { new DisembarkIntent(boatId: 50) { PlayerId = 0 } };
     }
 
     [Theory]
@@ -77,6 +82,14 @@ public class IntentStoreTests
                 Assert.Equal(mga.Destination, mgb.Destination); break;
             case DisbandGroupIntent da when b is DisbandGroupIntent db:
                 Assert.Equal(da.GroupId, db.GroupId); break;
+            case TrainUnitIntent ta when b is TrainUnitIntent tb:
+                Assert.Equal(ta.UnitId, tb.UnitId);
+                Assert.Equal(ta.NewRole, tb.NewRole); break;
+            case EmbarkIntent ea when b is EmbarkIntent eb:
+                Assert.Equal(ea.BoatId, eb.BoatId);
+                Assert.Equal(ea.UnitIds, eb.UnitIds); break;
+            case DisembarkIntent dia when b is DisembarkIntent dib:
+                Assert.Equal(dia.BoatId, dib.BoatId); break;
             default:
                 Assert.Fail($"Unrecognized intent type pair: {a.GetType().Name} vs {b.GetType().Name}");
                 break;
