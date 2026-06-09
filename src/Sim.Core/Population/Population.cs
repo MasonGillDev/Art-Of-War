@@ -58,18 +58,74 @@ public static class Population
         unit.DeathSeq = sim.Schedule(deathTick, new DeathByAgeEvent(unit.Id));
     }
 
-    // M8 Phase E — called from CombatRules.OnUnitDeath and
-    // DeathByAgeEvent.Apply after the unit is removed from world.Units.
-    // If the removed unit was a breeding parent, clear the house's
-    // Occupation (which fences the queued BirthEvent via anchor mismatch),
-    // and free the surviving parent. Food is NOT refunded — the gestation
-    // period consumed it, raids should bite.
+    // M13 — sim-aware wrapper around world.AddUnit. Runs the food
+    // consumption catch-up on the owner's castle (using the OLD population
+    // rate, before the new unit is added) BEFORE the AddUnit increments
+    // PopulationCount. This is the discipline that keeps the lazy field
+    // observation-independent: every rate-changing event closes its
+    // constant-rate window before the next one opens.
     //
-    // Combat code and Aging code never name Breeding; this helper is the
-    // one place the cross-feature coupling lives.
+    // Called from EXACTLY two sites:
+    //   1. BirthEvent.Apply, for every newborn child.
+    //   2. (Future) any runtime add — e.g. mob spawns, M12 boat
+    //      passenger debarkation if it turns out to need it.
+    // NEVER called from Snapshot.Restore — the restore path uses bare
+    // world.AddUnit and the castle's LastFoodConsumedTick is restored
+    // from the snapshot.
+    // NEVER called from Genesis.Build — sim.Now is 0 at genesis time
+    // and a catch-up from anchor 0 over 0 elapsed ticks is a no-op.
+    public static Unit OnUnitAdded(Simulation sim, Unit unit)
+    {
+        var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(sim.World, unit.OwnerId);
+        if (castle is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(castle, sim, sim.Now);
+        // world.AddUnit increments PopulationCount; the catch-up above
+        // already closed the old-rate window.
+        var added = sim.World.AddUnit(unit);
+        if (castle is not null)
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, sim);
+        return added;
+    }
+
+    // M8 Phase E + M13 — called from CombatRules.OnUnitDeath and
+    // DeathByAgeEvent.Apply after the unit is removed from world.Units.
+    // Two responsibilities:
+    //   1. (M8) If the removed unit was a breeding parent, clear the
+    //      house's Occupation (fencing the queued BirthEvent via anchor
+    //      mismatch) and free the surviving parent. Food is NOT refunded —
+    //      gestation consumed it, raids should bite.
+    //   2. (M13) Catch up food consumption at the OLD rate, then
+    //      decrement the owner's PopulationCount. This is the single
+    //      decrement site; the audit test
+    //      FoodConsumptionTests.PopulationCount_HasOneMutationPoint pins it.
+    //
+    // NOTE the order: catch-up FIRST (closes the old-rate window),
+    // then decrement. CombatRules.OnUnitDeath removes the unit from
+    // world.Units BEFORE calling this helper — that's fine, the
+    // population count still includes the dying unit at this point.
+    //
+    // Combat code, Aging code, and (M13) Starvation code never name either
+    // Breeding or PopulationCount directly; this helper is where the
+    // cross-feature coupling lives.
     public static void OnUnitRemoved(Simulation sim, Unit unit)
     {
         var world = sim.World;
+
+        // M13 — catch up at the OLD rate (population still counts the
+        // dying unit), then decrement. Robust to a missing player /
+        // missing castle (defensive; lost-castle case post-capture).
+        var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(world, unit.OwnerId);
+        if (castle is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(castle, sim, sim.Now);
+
+        if (world.Players.TryGetValue(unit.OwnerId, out var player))
+            player.DecrementPopulation();
+
+        // M13 Phase C — rate dropped; re-evaluate the famine check.
+        if (castle is not null)
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, sim);
+
+        // M8 — breeding stop-on-removal.
         // Sparse iteration over Houses; houses are few.
         foreach (var s in world.Structures.Values)
         {

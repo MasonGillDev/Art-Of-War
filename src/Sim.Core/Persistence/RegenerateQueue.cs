@@ -91,6 +91,28 @@ public static class RegenerateQueue
             sim.ScheduleWithSeq(occ.BirthTick, occ.BirthSeq,
                 new Sim.Core.Population.BirthEvent(h.At));
         }
+
+        // M13: castle famine-check and starvation-death anchors.
+        // Each Castle contributes at most two queued events, restored at
+        // their original (Tick, Seq). Iterated in canonical (y, x) order.
+        var castles = world.Structures.Values.OfType<Castle>()
+            .OrderBy(c => c.At.Y).ThenBy(c => c.At.X)
+            .ToList();
+        foreach (var castle in castles)
+        {
+            if (castle.NextFamineCheckTick is { } famAt
+                && castle.NextFamineCheckSeq is { } famSeq)
+            {
+                sim.ScheduleWithSeq(famAt, famSeq,
+                    new Sim.Core.Food.FamineCheckEvent(castle.At));
+            }
+            if (castle.NextStarvationDeathTick is { } starvAt
+                && castle.NextStarvationDeathSeq is { } starvSeq)
+            {
+                sim.ScheduleWithSeq(starvAt, starvSeq,
+                    new Sim.Core.Food.StarvationDeathEvent(castle.At));
+            }
+        }
     }
 
     private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)

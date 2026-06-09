@@ -120,6 +120,7 @@ public sealed class GameWorld
         var u = new Unit(id, position);
         Units.Add(id, u);
         InitCombatStatsIfFresh(u);
+        BumpPopulationCount(u);
         return u;
     }
 
@@ -127,7 +128,22 @@ public sealed class GameWorld
     {
         Units.Add(unit.Id, unit);
         InitCombatStatsIfFresh(unit);
+        BumpPopulationCount(unit);
         return unit;
+    }
+
+    // M13 — Player.PopulationCount is maintained as
+    // (count of world.Units where OwnerId == player.Id). AddUnit is the
+    // single increment site; Population.OnUnitRemoved is the single
+    // decrement site. PopulationCount is not serialised: Snapshot.Restore
+    // calls AddUnit for every persisted unit, rebuilding the count from
+    // scratch. Defensive: skip if the owner has no Player record yet
+    // (genesis adds the castle's Player before the units, so this is
+    // hit only by edge-case test scenarios).
+    private void BumpPopulationCount(Unit u)
+    {
+        if (Players.TryGetValue(u.OwnerId, out var player))
+            player.IncrementPopulation();
     }
 
     // M7 — auto-init Health from UnitCombatCatalog if the unit was

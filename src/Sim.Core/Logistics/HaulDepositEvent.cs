@@ -71,6 +71,15 @@ public sealed class HaulDepositEvent : ScheduledEvent
 
         var resource = hauler.CargoResource;
         var amount = hauler.CargoAmount;
+
+        // M13 — when depositing Food into a Castle, catch up consumption
+        // FIRST so the new total reflects the correct pre-deposit Holdings.
+        // This closes the constant-rate window before the deposit changes
+        // the food level.
+        var foodCastle = (dest is Castle c0 && resource == Resource.Food) ? c0 : null;
+        if (foodCastle is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(foodCastle, sim, sim.Now);
+
         var deposited = dest switch
         {
             StorageStructure ss => ss.Deposit(resource, amount),
@@ -80,6 +89,23 @@ public sealed class HaulDepositEvent : ScheduledEvent
 
         hauler.CargoAmount -= deposited;
         if (hauler.CargoAmount == 0) hauler.CargoResource = Resource.None;
+
+        // M13 Phase C — if a famine was active and the deposit brought
+        // Holdings[Food] above 0, the famine ends. Always re-evaluate the
+        // famine check so the predicted next dry-out reflects the new
+        // food level.
+        if (foodCastle is not null)
+        {
+            if (foodCastle.FamineStartTick.HasValue
+                && foodCastle.AmountOf(Resource.Food) > 0)
+            {
+                foodCastle.FamineStartTick = null;
+                // M13 Phase D — pending starvation death is stale; its
+                // event will fence harmlessly when it fires.
+                Sim.Core.Food.FoodConsumption.ClearStarvationDeathAnchor(foodCastle);
+            }
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodCastle, sim);
+        }
 
         // Phase-C hook. If the deposit just made the build's conditions met,
         // start construction.

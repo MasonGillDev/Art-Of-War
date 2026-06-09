@@ -61,6 +61,36 @@ public abstract class StorageStructure : Structure
 public sealed class Castle : StorageStructure
 {
     public override StructureKind Kind => StructureKind.Castle;
+
+    // M13 — food consumption anchor. Holdings[Food] is reduced by
+    // FoodConsumption.CatchUp ONLY; LastFoodConsumedTick advances by
+    // completed periods (M9 carry-remainder discipline). Catch-up runs
+    // at every rate-changing event (population add/remove, food deposit
+    // here) so the rate between any two catch-ups is constant.
+    public long LastFoodConsumedTick { get; set; }
+
+    // M13 Phase C — famine anchor. Set by FoodConsumption.CatchUp at the
+    // exact meal-boundary tick where food first failed to feed everyone.
+    // Cleared by HaulDepositEvent.Apply (food path) when a deposit brings
+    // Holdings[Food] back above 0.
+    public long? FamineStartTick { get; set; }
+
+    // M13 Phase C — predicted-next-dry-out anchor. The FamineCheckEvent
+    // fences on (At == NextFamineCheckTick, Seq == NextFamineCheckSeq).
+    // Both fields are set together by FoodConsumption.OnRateOrFoodChanged
+    // and cleared together at fire time (after a successful match).
+    public long? NextFamineCheckTick { get; set; }
+    public long? NextFamineCheckSeq { get; set; }
+
+    // M13 Phase D — next-scheduled starvation death anchor. Set when
+    // FoodConsumption.CatchUp transitions to famine (first death scheduled
+    // at FamineStartTick + StarvationStartDelay) and on each subsequent
+    // StarvationDeathEvent firing (next at now + StarvationDeathInterval).
+    // Cleared when famine ends (HaulDepositEvent food path) or when
+    // population hits zero. Fenced like the famine check.
+    public long? NextStarvationDeathTick { get; set; }
+    public long? NextStarvationDeathSeq { get; set; }
+
     public Castle(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Castle).StorageCapacity) { }
 }
 

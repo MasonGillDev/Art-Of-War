@@ -37,10 +37,12 @@ public sealed class BirthEvent : ScheduledEvent
             return;
         }
 
-        // Spawn the role-less child.
+        // Spawn the role-less child. Population.OnUnitAdded (M13) catches
+        // up the owner's castle BEFORE the AddUnit increments
+        // Player.PopulationCount — the rate-changing-event discipline.
         var childId = world.NextUnitId;
         world.NextUnitId++;
-        var child = world.AddUnit(new Unit(childId, HouseTile)
+        var child = Population.OnUnitAdded(sim, new Unit(childId, HouseTile)
         {
             Role = UnitRole.None,
             OwnerId = house.OwnerId,

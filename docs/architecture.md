@@ -350,6 +350,7 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | **M8** | **Population (derived age from BornTick; seeded lifespan; House + breeding; stop-on-removal one rule; mid-gestation crash recovery)** | **✅** |
 | **M9** | **Biome degradation (spatial lazy field: per-tile fertility, MAX over in-range producers, implicit Desert latch, biome-mismatch dormancy ends infinite single-tile extraction)** | **✅** |
 | **M11 (Phase 1)** | **Procedural map generation (Perlin + Whittaker → frozen integer biomes; water passable-but-expensive)** | **✅** |
+| **M13** | **Food consumption (castle sink: per-period drain by population; M9-style lazy catch-up; predicted-dry-out FamineCheckEvent; staggered StarvationDeathEvent — oldest first; recovery-clean)** | **✅** |
 
 ### After M8 — the big systems
 

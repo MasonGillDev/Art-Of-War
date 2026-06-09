@@ -42,6 +42,16 @@ public sealed class Simulation
         {
             Sim.Core.Population.Population.ScheduleLifespan(this, unit);
         }
+        // M13 Phase C — seed the FamineCheckEvent for every player's
+        // castle. PopulationCount is already correct (genesis AddUnit
+        // populated it), so the predicted dry-out tick is correct from
+        // genesis. Iterate Players in id-order for determinism.
+        foreach (var (id, _) in World.Players)
+        {
+            var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(World, id);
+            if (castle is not null)
+                Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, this);
+        }
     }
 
     // Schedule an event with the next monotonic Seq. Returns the Seq actually

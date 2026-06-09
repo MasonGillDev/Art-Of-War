@@ -38,11 +38,11 @@ public sealed class DeathByAgeEvent : ScheduledEvent
         }
 
         // Reuse the M7 clean-death pipeline: drops cargo, group cleanup,
-        // clears in-flight obligations, removes from world.Units.
+        // clears in-flight obligations, removes from world.Units. The
+        // pipeline itself calls Population.OnUnitRemoved (which decrements
+        // PopulationCount and runs breeding stop-on-removal), so we do NOT
+        // call it again here — that would double-decrement.
         Sim.Core.Combat.CombatRules.OnUnitDeath(sim, unit);
-
-        // Phase E will wire breeding stop-on-removal here. Today: no-op.
-        Population.OnUnitRemoved(sim, unit);
     }
 
     public override string Describe() => $"DeathByAge(unit={UnitId})";

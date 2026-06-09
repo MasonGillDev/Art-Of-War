@@ -46,7 +46,11 @@ public static class Snapshot
     //       GameWorld.PopulationConfig + NextUnitId).
     //   6 — M9 biome degradation (GameWorld.BiomeDegradationConfig +
     //       sparse Fertility dict — pure derived state, no new scheduled events).
-    public const int FormatVersion = 6;
+    //   7 — M13 food consumption (Player.PopulationCount). Phases B–E
+    //       extend this further (Castle anchors, famine state, event
+    //       anchors); the version stays 7 across the milestone since
+    //       no shipped snapshot ever sees the intermediate phases.
+    public const int FormatVersion = 7;
 
     public static string Hash(Simulation sim)
     {
@@ -166,6 +170,9 @@ public static class Snapshot
         bw.Write(world.Players.Count);
         foreach (var (id, _) in world.Players)  // SortedDictionary → id order
             bw.Write(id);
+        // M13: Player.PopulationCount is NOT serialised — it's
+        // re-derived as Snapshot.ReadUnits calls world.AddUnit for each
+        // restored unit, which increments the owner's count.
     }
 
     private static void ReadPlayers(BinaryReader br, GameWorld world)
@@ -382,6 +389,9 @@ public static class Snapshot
                 // House must come before StorageStructure: it IS a
                 // StorageStructure but carries extra breeding state.
                 case House h:             WriteStorage(bw, h); WriteHouseOccupation(bw, h); break;
+                // M13 — Castle has the food-consumption anchor. Castle
+                // must come before StorageStructure for the same reason.
+                case Castle castle:       WriteStorage(bw, castle); WriteCastleAnchors(bw, castle); break;
                 case StorageStructure ss: WriteStorage(bw, ss); break;
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
@@ -402,7 +412,7 @@ public static class Snapshot
             var ownerId = br.ReadInt32();
             Structure s = kind switch
             {
-                StructureKind.Castle           => ReadStorage(br, new Castle(at) { OwnerId = ownerId }),
+                StructureKind.Castle           => ReadCastleWithAnchors(br, at, ownerId),
                 StructureKind.Stockpile        => ReadStorage(br, new Stockpile(at) { OwnerId = ownerId }),
                 StructureKind.LumberCamp
                   or StructureKind.Quarry
@@ -519,6 +529,31 @@ public static class Snapshot
     }
 
     // ----- house (M8) ----------------------------------------------------
+
+    // M13 — castle food consumption anchor + (Phase C–D) famine /
+    // starvation event anchors. Written after ReadStorage's payload.
+    private static void WriteCastleAnchors(BinaryWriter bw, Castle c)
+    {
+        bw.Write(c.LastFoodConsumedTick);
+        WriteNullableLong(bw, c.FamineStartTick);
+        WriteNullableLong(bw, c.NextFamineCheckTick);
+        WriteNullableLong(bw, c.NextFamineCheckSeq);
+        WriteNullableLong(bw, c.NextStarvationDeathTick);
+        WriteNullableLong(bw, c.NextStarvationDeathSeq);
+    }
+
+    private static Castle ReadCastleWithAnchors(BinaryReader br, TileCoord at, int ownerId)
+    {
+        var c = new Castle(at) { OwnerId = ownerId };
+        ReadStorage(br, c);
+        c.LastFoodConsumedTick = br.ReadInt64();
+        c.FamineStartTick = ReadNullableLong(br);
+        c.NextFamineCheckTick = ReadNullableLong(br);
+        c.NextFamineCheckSeq = ReadNullableLong(br);
+        c.NextStarvationDeathTick = ReadNullableLong(br);
+        c.NextStarvationDeathSeq = ReadNullableLong(br);
+        return c;
+    }
 
     private static void WriteHouseOccupation(BinaryWriter bw, House h)
     {
