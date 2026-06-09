@@ -6,9 +6,9 @@ public abstract class Intent
 {
     // Player who issued this intent. Defaults to 0 for single-player
     // scenarios. Carried through to OwnerId on any structures built by
-    // this intent (PlaceSiteIntent), and (eventually) used by validation
-    // when intents become player-scoped (e.g. AssignWorkers must target a
-    // structure owned by the issuing player).
+    // this intent (PlaceSiteIntent), and consumed by every Resolve as
+    // the authorization check against the target's OwnerId — see
+    // docs/intent-authorization.md.
     public int PlayerId { get; init; } = 0;
 
     // Returns Applied on success; Reject(reason) when preconditions fail at

@@ -61,7 +61,7 @@ public class CombatTriggerTests
         // both (Now + ~85) but short enough to catch combat in progress
         // before all units die.
         sim.SubmitIntent(sim.Now, new MoveIntent(1, new TileCoord(10, 10)));
-        sim.SubmitIntent(sim.Now, new MoveIntent(2, new TileCoord(10, 10)));
+        sim.SubmitIntent(sim.Now, new MoveIntent(2, new TileCoord(10, 10)) { PlayerId = 1 });
         sim.Run(until: sim.Now + 85);
 
         // Either CombatStates has an entry on the tile (mid-fight), OR
@@ -81,7 +81,7 @@ public class CombatTriggerTests
         // No DeclareWarIntent — factions remain neutral.
         var sim = new Simulation(Genesis.Build(MakeSpec()), seed: 0xC0F);
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(10, 10)));
-        sim.SubmitIntent(0, new MoveIntent(2, new TileCoord(10, 10)));
+        sim.SubmitIntent(0, new MoveIntent(2, new TileCoord(10, 10)) { PlayerId = 1 });
         sim.Run(until: 200);
 
         // Both units survived, both at full health, no combat state.
@@ -98,7 +98,7 @@ public class CombatTriggerTests
         sim.World.Diplomacy.SetState(FactionPair.Of(0, 1), RelationshipState.Ally);
 
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(10, 10)));
-        sim.SubmitIntent(0, new MoveIntent(2, new TileCoord(10, 10)));
+        sim.SubmitIntent(0, new MoveIntent(2, new TileCoord(10, 10)) { PlayerId = 1 });
         sim.Run(until: 200);
 
         Assert.Empty(sim.World.CombatStates);
@@ -130,7 +130,7 @@ public class CombatTriggerTests
         sim.Run(until: Delay + 1);
 
         sim.SubmitIntent(sim.Now, new MoveIntent(1, new TileCoord(10, 10)));
-        sim.SubmitIntent(sim.Now, new MoveIntent(2, new TileCoord(10, 10)));
+        sim.SubmitIntent(sim.Now, new MoveIntent(2, new TileCoord(10, 10)) { PlayerId = 1 });
         sim.SubmitIntent(sim.Now, new MoveIntent(3, new TileCoord(10, 10)));
 
         // Run just past when units arrive but before combat resolves.

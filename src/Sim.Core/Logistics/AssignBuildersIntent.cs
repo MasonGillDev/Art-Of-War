@@ -31,11 +31,15 @@ public sealed class AssignBuildersIntent : Intent
         var world = sim.World;
         if (!world.Structures.TryGetValue(SiteTile, out var s) || s is not ConstructionSite site)
             return IntentOutcome.Reject($"no construction site at {SiteTile.X},{SiteTile.Y}");
+        if (site.OwnerId != PlayerId)
+            return IntentOutcome.Reject(
+                $"construction site at {SiteTile.X},{SiteTile.Y} not owned by player {PlayerId}");
 
         var assigned = 0;
         foreach (var id in BuilderIds)
         {
             if (!world.Units.TryGetValue(id, out var unit)) continue;
+            if (unit.OwnerId != PlayerId) continue;  // skip non-owned silently per per-id pattern
             if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
             if (unit.IsEmbarked) continue;            // embarked units are off-tile
             if (unit.Position != SiteTile) continue;

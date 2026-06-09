@@ -16,6 +16,8 @@ public sealed class MoveIntent : Intent
     {
         if (!sim.World.Units.TryGetValue(UnitId, out var unit))
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
+        if (unit.OwnerId != PlayerId)
+            return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
         if (unit.GroupId is not null)
             return IntentOutcome.Reject($"unit {UnitId} is in group {unit.GroupId}");
         // M12 — embarked units are off-tile passengers; solo intents

@@ -33,12 +33,16 @@ public sealed class AssignWorkersIntent : Intent
         var world = sim.World;
         if (!world.Structures.TryGetValue(StructureTile, out var s) || s is not Extractor extractor)
             return IntentOutcome.Reject($"no extractor at {StructureTile.X},{StructureTile.Y}");
+        if (extractor.OwnerId != PlayerId)
+            return IntentOutcome.Reject(
+                $"extractor at {StructureTile.X},{StructureTile.Y} not owned by player {PlayerId}");
 
         var assigned = 0;
         foreach (var id in WorkerIds)
         {
             if (extractor.Workers.Count >= extractor.Spec.WorkerCap) break; // cap reached
             if (!world.Units.TryGetValue(id, out var unit)) continue;
+            if (unit.OwnerId != PlayerId) continue;  // skip non-owned silently per per-id pattern
             if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
             if (unit.IsEmbarked) continue;            // embarked units are off-tile
             if (unit.Position != StructureTile) continue;

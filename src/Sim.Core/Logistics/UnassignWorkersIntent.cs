@@ -27,6 +27,9 @@ public sealed class UnassignWorkersIntent : Intent
         var world = sim.World;
         if (!world.Structures.TryGetValue(StructureTile, out var s) || s is not Extractor extractor)
             return IntentOutcome.Reject($"no extractor at {StructureTile.X},{StructureTile.Y}");
+        if (extractor.OwnerId != PlayerId)
+            return IntentOutcome.Reject(
+                $"extractor at {StructureTile.X},{StructureTile.Y} not owned by player {PlayerId}");
 
         var removed = 0;
         foreach (var id in WorkerIds)
