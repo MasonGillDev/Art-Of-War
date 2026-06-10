@@ -12,6 +12,8 @@ public enum UnitRole : byte
     Hauler = 6,
     Scout = 7,
     Boat = 8, // M12 — water vehicle (carries passengers + cargo)
+    Soldier = 9, // military — melee tank, trained at Barracks
+    Archer = 10, // military — glass cannon, trained at Barracks (ranged-from-adjacent deferred)
 }
 
 public sealed class Unit

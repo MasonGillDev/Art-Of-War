@@ -53,6 +53,14 @@ public static class Snapshot
     //   8 — M12 boats (Unit.Traversal). Phases B–F extend further
     //       (Dock structure + Slip, Unit.PassengerCap / Passengers /
     //       EmbarkedOn); the version stays 8 across the milestone.
+    //
+    // The military milestone (Barracks / Soldier / Archer / equipment)
+    // did NOT bump the version: all of its enum additions (UnitRole,
+    // Resource, StructureKind) are append-only byte values, the
+    // structure payload dispatches on the kind byte (Barracks reuses
+    // the StorageStructure shape), and Unit.Buffs was already
+    // serialized since v4. A v9 snapshot written before the milestone
+    // parses identically under post-milestone code.
     public const int FormatVersion = 9;
 
     public static string Hash(Simulation sim)
@@ -448,6 +456,7 @@ public static class Snapshot
                 StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
                 StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
                 StructureKind.School           => new School(at) { OwnerId = ownerId },
+                StructureKind.Barracks         => ReadStorage(br, new Barracks(at) { OwnerId = ownerId }),
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };

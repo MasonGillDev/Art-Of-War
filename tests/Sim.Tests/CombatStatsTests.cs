@@ -66,7 +66,7 @@ public class CombatStatsTests
     {
         var world = MakeWorld();
         var u = world.Units[1];
-        Assert.Equal(UnitCombatCatalog.Spec(u.Role).BasePower, CombatRules.EffectivePower(u));
+        Assert.Equal(UnitCombatCatalog.Spec(u.Role).BasePower, CombatRules.EffectivePower(u, now: 0));
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class CombatStatsTests
         var basePower = UnitCombatCatalog.Spec(u.Role).BasePower;
         u.Buffs.Add(new Buff(Kind: "test", PowerModifier: 3, HealthModifier: 0, ExpiresAt: null));
         u.Buffs.Add(new Buff(Kind: "test", PowerModifier: 2, HealthModifier: 0, ExpiresAt: null));
-        Assert.Equal(basePower + 5, CombatRules.EffectivePower(u));
+        Assert.Equal(basePower + 5, CombatRules.EffectivePower(u, now: 0));
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public class CombatStatsTests
         var world = MakeWorld();
         var u = world.Units[1];
         u.Buffs.Add(new Buff(Kind: "debuff", PowerModifier: -100, HealthModifier: 0, ExpiresAt: null));
-        Assert.Equal(0, CombatRules.EffectivePower(u));
+        Assert.Equal(0, CombatRules.EffectivePower(u, now: 0));
     }
 
     [Fact]
@@ -95,8 +95,43 @@ public class CombatStatsTests
         var world = MakeWorld();
         // Three units on tile (5,5): unit 1 (owner 0), unit 2 (owner 0), unit 3 (owner 1).
         var tile = new TileCoord(5, 5);
-        Assert.Equal(2, CombatRules.ForcePower(world, ownerId: 0, tile)); // 1+1
-        Assert.Equal(1, CombatRules.ForcePower(world, ownerId: 1, tile));
+        Assert.Equal(2, CombatRules.ForcePower(world, ownerId: 0, tile, now: 0)); // 1+1
+        Assert.Equal(1, CombatRules.ForcePower(world, ownerId: 1, tile, now: 0));
+    }
+
+    [Fact]
+    public void EffectivePower_FiltersExpiredBuffs()
+    {
+        // Boundary convention: a buff expiring AT `now` is already
+        // inactive (ExpiresAt <= now filters). Null = permanent.
+        var world = MakeWorld();
+        var u = world.Units[1];
+        var basePower = UnitCombatCatalog.Spec(u.Role).BasePower;
+        const long now = 100;
+        u.Buffs.Add(new Buff("expired", PowerModifier: 10, HealthModifier: 0, ExpiresAt: now - 1));
+        u.Buffs.Add(new Buff("expiring-now", PowerModifier: 10, HealthModifier: 0, ExpiresAt: now));
+        u.Buffs.Add(new Buff("active", PowerModifier: 3, HealthModifier: 0, ExpiresAt: now + 1));
+        u.Buffs.Add(new Buff("permanent", PowerModifier: 2, HealthModifier: 0, ExpiresAt: null));
+
+        Assert.Equal(basePower + 3 + 2, CombatRules.EffectivePower(u, now));
+    }
+
+    [Fact]
+    public void EffectivePower_IsPureRead_NoMutation()
+    {
+        // The expiry filter must never prune — EffectivePower sits
+        // behind the pure-read wall. 100 reads leave the hash unchanged
+        // (including the expired buff still being present in the list).
+        var world = MakeWorld();
+        var u = world.Units[1];
+        u.Buffs.Add(new Buff("expired", PowerModifier: 10, HealthModifier: 0, ExpiresAt: 1));
+        var sim = new Simulation(world, seed: 0xC0F);
+
+        var before = Snapshot.Hash(sim);
+        for (var i = 0; i < 100; i++)
+            CombatRules.EffectivePower(u, now: 50);
+        Assert.Equal(before, Snapshot.Hash(sim));
+        Assert.Single(u.Buffs);
     }
 
     [Fact]

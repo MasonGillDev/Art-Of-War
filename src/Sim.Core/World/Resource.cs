@@ -8,4 +8,9 @@ public enum Resource : byte
     Stone = 2,
     Ore = 3,
     Food = 4,
+    // Equipment items — fungible, stateless; ride the existing storage /
+    // haul / ground-pile machinery (docs/equipment-model.md).
+    Sword = 5,
+    Bow = 6,
+    Shield = 7,
 }

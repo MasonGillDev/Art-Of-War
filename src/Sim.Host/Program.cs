@@ -1,4 +1,4 @@
-using Sim.Core.Engine;
+﻿using Sim.Core.Engine;
 using Sim.Core.Groups;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
@@ -15,7 +15,7 @@ using Sim.Persistence;
 //   1. Place a LumberCamp construction site at (3,3).
 //   2. Pre-deposit build materials (Phase E will haul this for real).
 //   3. Assign builder, build completes.
-//   4. Assign the Lumberjack as worker — production arms.
+//   4. Assign the Lumberjack as worker â€” production arms.
 //   5. Run until the camp's buffer caps and production goes dormant.
 //
 // Twin runs must produce identical hashes; the final state must round-trip
@@ -46,7 +46,7 @@ static GenesisSpec MakeSpec()
                 {
                     new UnitSpawn(Id: 1, new TileCoord(0, 0), UnitRole.Builder),
                     new UnitSpawn(Id: 2, new TileCoord(3, 3), UnitRole.Builder),    // builds the camp
-                    new UnitSpawn(Id: 3, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                    new UnitSpawn(Id: 3, new TileCoord(0, 0), UnitRole.Hauler),
                     new UnitSpawn(Id: 4, new TileCoord(3, 3), UnitRole.Lumberjack), // staffs the camp post-build
                 },
             },
@@ -73,7 +73,7 @@ static Simulation RunScenario(Action<string>? log = null)
     foreach (var (r, n) in spec.BuildCost) site.Deposit(r, n);
 
     sim.SubmitIntent(at: sim.Now, new AssignBuildersIntent(siteTile, new[] { 2 }));
-    // Run until the build is done — sim.Now will land at BuildDurationTicks.
+    // Run until the build is done â€” sim.Now will land at BuildDurationTicks.
     sim.Run(until: spec.BuildDurationTicks);
 
     // Phase D layer: assign the Lumberjack to the now-built camp.
@@ -89,7 +89,7 @@ static Simulation RunScenario(Action<string>? log = null)
     sim.Run(); // run to completion of the haul
 
     // M2 layer: a few more haul round trips. Each one walks the same path
-    // (Castle ↔ LumberCamp), crediting the same tiles. Condition rises.
+    // (Castle â†” LumberCamp), crediting the same tiles. Condition rises.
     for (var i = 0; i < 5; i++)
     {
         sim.SubmitIntent(at: sim.Now,
@@ -114,7 +114,7 @@ static Simulation RunScenario(Action<string>? log = null)
     {
         log("");
         log($"--- Road conditions after {sim.Now - startSilence} ticks of silence (decay) ---");
-        // Observed via pure-read ConditionAt — does NOT mutate stored state.
+        // Observed via pure-read ConditionAt â€” does NOT mutate stored state.
         // Stale RoadStates with stored Condition>0 are still in the dict
         // (lazy decay only removes on touch); the read just returns 0 for them.
         PrintRouteConditions(sim, log);
@@ -171,7 +171,7 @@ static void Print(string label, Simulation sim)
 
 // Default mode: hand-authored 10x10 smoke (the cross-commit regression check).
 // Pass `--generate` for the procedural-world demo (does not replace the
-// regression smoke — generated maps are tuneable, so their hash isn't a
+// regression smoke â€” generated maps are tuneable, so their hash isn't a
 // stable regression target).
 var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
@@ -228,7 +228,7 @@ sealed class NoOpEvent : ScheduledEvent
     public override void Apply(Simulation sim) { }
 }
 
-// M5 — Group lifecycle demo. Two scattered builders Form at a rendezvous,
+// M5 â€” Group lifecycle demo. Two scattered builders Form at a rendezvous,
 // MoveGroup to a distant tile, Disband. Prints state transitions, asserts
 // twin-run hash equality and snapshot round-trip on the final state.
 static class GroupDemo
@@ -252,7 +252,7 @@ static class GroupDemo
         Console.WriteLine("--- Group Demo ---");
         Console.WriteLine($"Unit 1 starts at {sim.World.Units[1].Position.X},{sim.World.Units[1].Position.Y}");
         Console.WriteLine($"Unit 2 starts at {sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
-        Console.WriteLine($"FormGroup → rendezvous {rendezvous.X},{rendezvous.Y}");
+        Console.WriteLine($"FormGroup â†’ rendezvous {rendezvous.X},{rendezvous.Y}");
 
         sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
         sim.Run(until: 0);
@@ -262,7 +262,7 @@ static class GroupDemo
         Console.WriteLine($"  After rendezvous walks: state={sim.World.Groups[1].State}, position={sim.World.Groups[1].Position.X},{sim.World.Groups[1].Position.Y}");
 
         var destination = new TileCoord(6, 10);
-        Console.WriteLine($"MoveGroup → {destination.X},{destination.Y}");
+        Console.WriteLine($"MoveGroup â†’ {destination.X},{destination.Y}");
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(1, destination));
         sim.Run();
         Console.WriteLine($"  After move: state={sim.World.Groups[1].State}, position={sim.World.Groups[1].Position.X},{sim.World.Groups[1].Position.Y}");
@@ -324,12 +324,12 @@ static class GeneratedDemo
         b.Run();
 
         Console.WriteLine();
-        Console.WriteLine($"Both sims ran a walk from {map.Start.X},{map.Start.Y} → {goal.X},{goal.Y}.");
+        Console.WriteLine($"Both sims ran a walk from {map.Start.X},{map.Start.Y} â†’ {goal.X},{goal.Y}.");
         Console.WriteLine($"Run A hash: {Snapshot.Hash(a)}");
         Console.WriteLine($"Run B hash: {Snapshot.Hash(b)}");
         if (Snapshot.Hash(a) != Snapshot.Hash(b))
         {
-            Console.Error.WriteLine("DETERMINISM FAILURE on generated world — generator may be touching replay path.");
+            Console.Error.WriteLine("DETERMINISM FAILURE on generated world â€” generator may be touching replay path.");
             Environment.Exit(1);
         }
 
@@ -409,7 +409,7 @@ static class GeneratedDemo
     }
 }
 
-// M4 Phase E — persistent host mode. Usage:
+// M4 Phase E â€” persistent host mode. Usage:
 //
 //   dotnet run --project src/Sim.Host -- --data-dir /tmp/aow-demo
 //
@@ -480,7 +480,7 @@ static class PersistentDemo
             if (sim.Now == preNow) break; // queue empty
         }
 
-        // Final snapshot on the way out — clean shutdown always leaves a
+        // Final snapshot on the way out â€” clean shutdown always leaves a
         // recoverable state.
         snapStore.SaveSnapshot(sim.Now, Snapshot.FormatVersion, Snapshot.Serialize(sim));
         Console.WriteLine(
@@ -511,7 +511,7 @@ static class PersistentDemo
                     UnitSpawns = new[]
                     {
                         new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
-                        new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                        new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler),
                     },
                 },
             },
@@ -520,7 +520,7 @@ static class PersistentDemo
         // Pre-place a stockpile for the hauler to walk to.
         var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(15, 0)) { OwnerId = 0 });
         stockpile.Deposit(Resource.Wood, 50);
-        // Initial snapshot (BEFORE intents — so intent log replay handles
+        // Initial snapshot (BEFORE intents â€” so intent log replay handles
         // the seed-time submissions just as it would post-crash).
         snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(sim));
 
@@ -535,9 +535,9 @@ static class PersistentDemo
     }
 }
 
-// M9 — biome-degradation smoke. Builds a LumberCamp on Forest with one
+// M9 â€” biome-degradation smoke. Builds a LumberCamp on Forest with one
 // Lumberjack and lets production run to the dormancy point. Prints the
-// own-tile biome and fertility at intervals — should show Forest → Grassland
+// own-tile biome and fertility at intervals â€” should show Forest â†’ Grassland
 // (the M9 headline "extract-forever fix") and the eventual biome-mismatch
 // dormancy.
 static class DegradationDemo
@@ -548,7 +548,7 @@ static class DegradationDemo
         // Lumberjack, and a Hauler. The Builder constructs the LumberCamp;
         // the Lumberjack staffs it; the Hauler drains the buffer so the
         // camp keeps producing past its tiny buffer cap and we see the
-        // own-tile degrade through Forest → Grassland → biome-mismatch
+        // own-tile degrade through Forest â†’ Grassland â†’ biome-mismatch
         // dormancy.
         var campAt = new TileCoord(4, 4);
         var spec = new GenesisSpec
@@ -570,7 +570,7 @@ static class DegradationDemo
                     {
                         new UnitSpawn(Id: 1, campAt, UnitRole.Builder),
                         new UnitSpawn(Id: 2, campAt, UnitRole.Lumberjack),
-                        new UnitSpawn(Id: 3, campAt, UnitRole.Hauler, CargoCapacity: 5),
+                        new UnitSpawn(Id: 3, campAt, UnitRole.Hauler),
                     },
                 },
             },
@@ -588,7 +588,7 @@ static class DegradationDemo
         sim.SubmitIntent(sim.Now, new AssignBuildersIntent(campAt, new[] { 1 }));
         sim.Run(until: StructureCatalog.Spec(StructureKind.LumberCamp).BuildDurationTicks);
 
-        // Staff with Lumberjack — production arms here, M9 catches up the
+        // Staff with Lumberjack â€” production arms here, M9 catches up the
         // (still-Forest) radius.
         sim.SubmitIntent(sim.Now, new AssignWorkersIntent(campAt, new[] { 2 }));
         sim.Run(until: sim.Now);
@@ -635,13 +635,13 @@ static class DegradationDemo
                 return;
             }
             // Otherwise re-arm and continue (M1 buffer-full dormancy is the
-            // re-armable kind — that's not the M9 headline).
+            // re-armable kind â€” that's not the M9 headline).
             sim.SubmitIntent(sim.Now, new AssignWorkersIntent(campAt, new[] { 2 }));
             sim.Run(until: sim.Now);
             step++;
         }
         Console.WriteLine();
-        Console.WriteLine("Reached step limit without dormancy — rates may need re-tuning.");
+        Console.WriteLine("Reached step limit without dormancy â€” rates may need re-tuning.");
     }
 
     private static void PrintRow(int step, Simulation sim, TileCoord at)

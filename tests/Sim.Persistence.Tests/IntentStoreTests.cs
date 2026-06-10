@@ -173,6 +173,10 @@ public class IntentStoreTests
 
     private static void CleanupSqliteFiles(string path)
     {
+        // Microsoft.Data.Sqlite pools connections per connection string;
+        // Dispose returns the handle to the pool rather than closing it,
+        // so the .db file can still be locked here. Flush the pools first.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         // SQLite WAL leaves -wal and -shm sidecars; clean them too.
         foreach (var p in new[] { path, path + "-wal", path + "-shm" })
             if (File.Exists(p)) File.Delete(p);

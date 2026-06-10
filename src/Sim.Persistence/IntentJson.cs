@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Sim.Core.Boats;
 using Sim.Core.Diplomacy;
+using Sim.Core.Equipment;
 using Sim.Core.Groups;
 using Sim.Core.Intents;
 using Sim.Core.Logistics;
@@ -50,6 +51,8 @@ public static class IntentJson
         [typeof(EmbarkIntent)]                = "EmbarkIntent",
         [typeof(DisembarkIntent)]             = "DisembarkIntent",
         [typeof(UnloadCargoIntent)]           = "UnloadCargoIntent",
+        [typeof(CraftEquipmentIntent)]        = "CraftEquipmentIntent",
+        [typeof(EquipUnitIntent)]             = "EquipUnitIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -84,6 +87,8 @@ public static class IntentJson
             "EmbarkIntent"                 => JsonSerializer.Deserialize<EmbarkIntent>(payload, Options),
             "DisembarkIntent"              => JsonSerializer.Deserialize<DisembarkIntent>(payload, Options),
             "UnloadCargoIntent"            => JsonSerializer.Deserialize<UnloadCargoIntent>(payload, Options),
+            "CraftEquipmentIntent"         => JsonSerializer.Deserialize<CraftEquipmentIntent>(payload, Options),
+            "EquipUnitIntent"              => JsonSerializer.Deserialize<EquipUnitIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

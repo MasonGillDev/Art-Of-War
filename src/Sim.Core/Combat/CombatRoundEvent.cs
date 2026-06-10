@@ -58,7 +58,7 @@ public sealed class CombatRoundEvent : ScheduledEvent
         //    these snapshot values — simultaneous resolution).
         var startPower = new Dictionary<int, int>();
         foreach (var (ownerId, units) in forces)
-            startPower[ownerId] = units.Sum(CombatRules.EffectivePower);
+            startPower[ownerId] = units.Sum(u => CombatRules.EffectivePower(u, sim.Now));
 
         // 3b) No-progress guard. If no belligerent can deal positive damage
         //     (e.g. two hostile but power-0 forces — empty boats pinned by the

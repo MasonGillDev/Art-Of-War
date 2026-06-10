@@ -100,6 +100,16 @@ public sealed class Stockpile : StorageStructure
     public Stockpile(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Stockpile).StorageCapacity) { }
 }
 
+// Military training + equipment crafting (docs/military-training.md,
+// docs/equipment-model.md). Storage holds craft inputs and finished
+// weapons; TrainUnitIntent resolves Soldier/Archer here via
+// RoleTrainerCatalog; CraftEquipmentIntent converts holdings in place.
+public sealed class Barracks : StorageStructure
+{
+    public override StructureKind Kind => StructureKind.Barracks;
+    public Barracks(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Barracks).StorageCapacity) { }
+}
+
 // PHASE-A PLACEHOLDER. One class for all four extractor kinds today.
 //
 // This will almost certainly split or grow at Phase D when production behavior

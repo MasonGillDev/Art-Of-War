@@ -8,14 +8,24 @@ namespace Sim.Core.Combat;
 public static class CombatRules
 {
     // Per-unit combat power. Reads role's BasePower from catalog +
-    // sums any active buff modifiers. Today buffs are always empty,
-    // so this returns the catalog value verbatim — but the rollup is
-    // already buff-aware, so training/armor land later as buff
-    // instances with zero round-event change.
-    public static int EffectivePower(Unit u)
+    // sums active buff modifiers (equipment via EquipUnitIntent; later
+    // training/armor land as more buff instances with zero round-event
+    // change).
+    //
+    // `now` is sim event time (sim.Now inside an event/intent) — never
+    // wall clock — so the lazy expiry filter is deterministic and
+    // observation-independent. A buff expiring AT `now` is already
+    // inactive (ExpiresAt <= now). This is a PURE READ: expired buffs
+    // are filtered, never pruned here (pruning happens at deterministic
+    // mutation sites when timed buffs land; see docs/equipment-model.md).
+    public static int EffectivePower(Unit u, long now)
     {
         var p = UnitCombatCatalog.Spec(u.Role).BasePower;
-        foreach (var b in u.Buffs) p += b.PowerModifier;
+        foreach (var b in u.Buffs)
+        {
+            if (b.ExpiresAt is { } expiry && expiry <= now) continue;
+            p += b.PowerModifier;
+        }
         return p < 0 ? 0 : p;
     }
 
@@ -24,7 +34,7 @@ public static class CombatRules
     // force of one; three of one owner on a tile are a force of three.
     // Group membership is irrelevant here (groups are a movement /
     // command convenience).
-    public static int ForcePower(GameWorld world, int ownerId, TileCoord tile)
+    public static int ForcePower(GameWorld world, int ownerId, TileCoord tile, long now)
     {
         var total = 0;
         foreach (var u in world.Units.Values)
@@ -32,7 +42,7 @@ public static class CombatRules
             if (u.IsEmbarked) continue;  // M12 — passengers don't fight
             if (u.OwnerId != ownerId) continue;
             if (u.Position != tile) continue;
-            total += EffectivePower(u);
+            total += EffectivePower(u, now);
         }
         return total;
     }
@@ -118,6 +128,12 @@ public static class CombatRules
             pile[unit.CargoResource] = existing + unit.CargoAmount;
             unit.CargoAmount = 0;
         }
+
+        // 1b. Drop equipment: each equipment-kind buff converts back to
+        //     its item on the death tile (docs/equipment-model.md) —
+        //     same loot economy as the cargo drop above. Kill the
+        //     equipped soldier, haul the sword home.
+        Sim.Core.Equipment.Equipment.DropEquipmentToGround(world, unit, tile);
 
         // 2. Group cleanup. Remove from members; attrition-disband if empty.
         if (unit.GroupId is { } gid && world.Groups.TryGetValue(gid, out var group))

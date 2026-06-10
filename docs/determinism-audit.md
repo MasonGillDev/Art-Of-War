@@ -532,3 +532,47 @@ This audit verifies the architectural claims in design doc §2.2
 (event-driven core), §2.3 (one global queue), the persistence model's
 in-flight-correctness-gap framing, and the back-pressure mechanism
 shipped in Phase D. The audit doc itself is part of M1 Phase F.
+
+## Update 2026-06-10 — military milestone (M14)
+
+New mutation surfaces introduced by Barracks / Soldier / Archer /
+equipment, audited against the trigger checklist above:
+
+**`Unit.Buffs` writers (was: none — M7 scaffold):**
+
+| Site | Purpose | Verdict |
+|---|---|---|
+| `Equipment/EquipUnitIntent.cs` (`Resolve`) | Adds the equip buff (modifiers baked from `EquipmentCatalog` at equip time) | Allowed — intent resolution |
+| `Equipment/Equipment.cs` (`DropEquipmentToGround`) | Removes equipment-kind buffs; called from `CombatRules.OnUnitDeath` and `TrainUnitIntent.Resolve` only | Allowed — event/intent-driven, one shared rule |
+| `Persistence/Snapshot.cs` (`ReadBuffs`) | Restore | Allowed — serialization |
+
+`CombatRules.EffectivePower(unit, now)` lazily FILTERS expired buffs
+but never prunes — pinned by
+`CombatStatsTests.EffectivePower_IsPureRead_NoMutation` (100× +
+hash-equal).
+
+**`Barracks.Holdings` writers:** the existing haul deposit/pickup
+events (Barracks is a plain `StorageStructure`) plus
+`Equipment/CraftEquipmentIntent.cs` (`Resolve`) — withdraw inputs +
+deposit item, fail-clean (all input checks precede any mutation,
+pinned by `CraftEquipmentTests.Craft_InsufficientInput_Rejected_NothingMutated`).
+
+**Checklist compliance:**
+
+- Both new intents (`CraftEquipmentIntent`, `EquipUnitIntent`) are in
+  `IntentJson.TypeNames` + `Deserialize` with frozen names,
+  `[JsonConstructor]`-annotated, round-trip-tested
+  (`IntentJsonTests`).
+- `EquipUnitIntent` rejects grouped units (`unit.GroupId is not null`).
+- No new in-flight anchors: crafting and equipping are instant; no
+  `RegenerateQueue` change. Mid-fight recovery with equipped forces is
+  pinned by
+  `MilitaryDeterminismTests.MidFight_EquippedForces_SnapshotRoundTrip_Identical`.
+- No `Snapshot.FormatVersion` bump: append-only enum values only
+  (`Soldier=9`, `Archer=10`, `Sword=5`, `Bow=6`, `Shield=7`,
+  `Barracks=12`); Barracks reuses the `StorageStructure` payload via
+  kind-byte dispatch; `Unit.Buffs` was serialized since v4. Rationale
+  comment sits on the constant.
+- New global-iteration sites: none (`EquipUnitIntent` and
+  `CraftEquipmentIntent` look up single entities by key;
+  `DropEquipmentToGround` iterates one unit's buff list).

@@ -70,6 +70,9 @@ public class DurableSubmitTests
         }
         finally
         {
+            // Pooled connections hold the file handle past Dispose —
+            // flush the pools before deleting (same fix as IntentStoreTests).
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             foreach (var p in new[] { tempPath, tempPath + "-wal", tempPath + "-shm" })
                 if (File.Exists(p)) File.Delete(p);
         }

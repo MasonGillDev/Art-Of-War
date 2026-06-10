@@ -34,6 +34,11 @@ public static class UnitCombatCatalog
         // that a small force can't one-shot a transport; BasePower = 0
         // so a passenger-empty boat doesn't add to a force.
         [UnitRole.Boat]       = new UnitCombatSpec { Role = UnitRole.Boat,       BaseHealth = 40, BasePower = 0 },
+        // Military roles (docs/military-training.md) — Soldier is the
+        // tank (dies last under lowest-Health-first), Archer the glass
+        // cannon. Both numbers are balance knobs.
+        [UnitRole.Soldier]    = new UnitCombatSpec { Role = UnitRole.Soldier,    BaseHealth = 30, BasePower = 3 },
+        [UnitRole.Archer]     = new UnitCombatSpec { Role = UnitRole.Archer,     BaseHealth = 15, BasePower = 5 },
     };
 
     public static UnitCombatSpec Spec(UnitRole role) =>

@@ -149,6 +149,25 @@ public static class StructureCatalog
             BuildDurationTicks = 80 * Time.Minute,
             RequiredBuilderCount = 1,
         },
+        // Military — Barracks. Trains Soldier/Archer (RoleTrainerCatalog
+        // routes military roles here, civilian roles to the School) and
+        // crafts equipment (CraftEquipmentIntent consumes raw resources
+        // from its own holdings). Storage holds craft inputs + finished
+        // weapons; haul materials in, haul weapons out.
+        // docs/military-training.md + docs/equipment-model.md.
+        [StructureKind.Barracks] = new StructureSpec
+        {
+            Kind = StructureKind.Barracks,
+            IsPlayerBuildable = true,
+            StorageCapacity = 200,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 100,
+                [Resource.Stone] = 20,
+            },
+            BuildDurationTicks = 100 * Time.Minute,
+            RequiredBuilderCount = 1,
+        },
         // M12 — Dock. Expensive: a long write-down up front that pays
         // off forever in fast water travel (the design contract from
         // docs/boats.md). Phase C wires boat production from this

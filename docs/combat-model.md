@@ -197,3 +197,26 @@ diplomacy (M6) and groups (M5) consequential and unlocks raiding (the
 capture economy → eventual trade, M7+). The next big system is
 **spawning** — the paired birth-rate decision to combat's death-rate.
 That's a separate milestone with its own deliberation.
+
+## Update 2026-06-10
+
+The first two expansion seams above have landed (the military
+milestone — see `docs/military-training.md` and
+`docs/equipment-model.md`):
+
+- **Trainable combat roles**: Soldier (30 HP / 3 power) and Archer
+  (15 HP / 5 power) are `UnitCombatCatalog` rows, trained at the new
+  Barracks via `RoleTrainerCatalog` routing inside the existing
+  `TrainUnitIntent`. As promised: zero round-event change.
+- **Equipment + buffs**: Sword / Bow / Shield are `Resource` values,
+  crafted at the Barracks (`CraftEquipmentIntent`) and consumed by
+  `EquipUnitIntent` into `Unit.Buffs` (max 2 per unit, distinct
+  kinds — `BuffRules`). `HealthModifier` applies at equip time and
+  reverses at strip time exactly as specified above. Equipment drops
+  back to the ground pile on death (the capture economy) and on
+  retrain. `CombatRules.EffectivePower(unit, now)` gained the `now`
+  parameter to lazily filter `ExpiresAt` — the seam for future timed
+  buffs; there is still no expiry sweep because equipment is permanent.
+
+**Ranged-from-adjacent remains open** — `GatherForcesNearTile` is still
+the documented next seam; Archer is a stat row only until it lands.

@@ -1,4 +1,4 @@
-using Sim.Core.Combat;
+﻿using Sim.Core.Combat;
 using Sim.Core.Diplomacy;
 using Sim.Core.Engine;
 using Sim.Core.Groups;
@@ -11,7 +11,7 @@ using Sim.Persistence;
 
 namespace Sim.Persistence.Tests;
 
-// M4 Phase D — the closure gate for the milestone.
+// M4 Phase D â€” the closure gate for the milestone.
 //
 // CrashRecoveryMatchesUninterrupted: scenario S exercises every kind of
 // in-flight process (mid-walk, mid-haul, mid-production, mid-build,
@@ -26,7 +26,7 @@ public class RecoveryTests
 {
     private const ulong Seed = 0xC4A511;
 
-    // The scenario factory — both the uninterrupted run and the
+    // The scenario factory â€” both the uninterrupted run and the
     // crash/recover run use the same intents in the same order.
     private static GenesisSpec MakeSpec() => new()
     {
@@ -44,7 +44,7 @@ public class RecoveryTests
                 UnitSpawns = new[]
                 {
                     new UnitSpawn(1, new TileCoord(0, 0), UnitRole.Builder),
-                    new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler, CargoCapacity: 5),
+                    new UnitSpawn(2, new TileCoord(0, 0), UnitRole.Hauler),
                     new UnitSpawn(3, new TileCoord(0, 0), UnitRole.Builder),
                     new UnitSpawn(4, new TileCoord(0, 0), UnitRole.Builder),
                 },
@@ -121,7 +121,7 @@ public class RecoveryTests
                 sim.Run(until: target);
                 snaps.SaveSnapshot(sim.Now, Snapshot.FormatVersion, Snapshot.Serialize(sim));
             }
-            // sim falls out of scope here — that's the "crash."
+            // sim falls out of scope here â€” that's the "crash."
         }
 
         // Recover and run to EndTick.
@@ -161,7 +161,7 @@ public class RecoveryTests
         var latestSnapTick = snaps.LoadLatest()!.Tick;
         using (var raw = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:"))
         {
-            // Different connection — can't access the in-memory store. Use
+            // Different connection â€” can't access the in-memory store. Use
             // a direct DELETE on the actual intents store instead.
         }
         DeletePreSnapshotIntents(intents, latestSnapTick);
@@ -170,7 +170,7 @@ public class RecoveryTests
         Assert.Equal(hashA, Snapshot.Hash(recovered));
     }
 
-    // ---------- No snapshot → clear error ----------
+    // ---------- No snapshot â†’ clear error ----------
 
     [Fact]
     public void NoSnapshot_Throws()
