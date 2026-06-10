@@ -49,6 +49,7 @@ public static class IntentJson
         [typeof(TrainUnitIntent)]             = "TrainUnitIntent",
         [typeof(EmbarkIntent)]                = "EmbarkIntent",
         [typeof(DisembarkIntent)]             = "DisembarkIntent",
+        [typeof(UnloadCargoIntent)]           = "UnloadCargoIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -82,6 +83,7 @@ public static class IntentJson
             "TrainUnitIntent"              => JsonSerializer.Deserialize<TrainUnitIntent>(payload, Options),
             "EmbarkIntent"                 => JsonSerializer.Deserialize<EmbarkIntent>(payload, Options),
             "DisembarkIntent"              => JsonSerializer.Deserialize<DisembarkIntent>(payload, Options),
+            "UnloadCargoIntent"            => JsonSerializer.Deserialize<UnloadCargoIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

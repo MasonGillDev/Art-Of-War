@@ -181,13 +181,14 @@ public class MoveOnBusyTests
         Assert.Equal(UnitCargoCatalog.HaulerCapacity, hauler.CargoAmount);
         Assert.Equal(Resource.Wood, hauler.CargoResource);
 
-        // For Haul #2 the hauler must drop their cargo first. A new
-        // HaulIntent doesn't reject (hauler IS Idle), but pickup checks
-        // free capacity — full cargo means it would pick up 0 and reject.
-        // Cleanest: self-haul (castle → castle) to drop the wood back in.
-        sim.SubmitIntent(sim.Now, new HaulIntent(1, castle, castle, Resource.Wood));
+        // For Haul #2 the hauler must unload first — a laden hauler is now
+        // rejected by HaulIntent (a fresh pickup would overwrite and destroy
+        // the load). UnloadCargoIntent deposits the Wood back into the castle
+        // the hauler is standing on.
+        sim.SubmitIntent(sim.Now, new UnloadCargoIntent(1));
         sim.Run();
         Assert.Equal(0, hauler.CargoAmount);
+        Assert.Equal(Resource.None, hauler.CargoResource);
 
         sim.SubmitIntent(sim.Now, new HaulIntent(1, castle, stockB, Resource.Stone));
         sim.Run();
@@ -199,16 +200,16 @@ public class MoveOnBusyTests
 
         // The original Haul #1's move chain fenced via MoveArrival epoch
         // mismatch (the chain never reached the deposit, so no deposit got
-        // scheduled for it). Self-haul + new haul deposits both applied
-        // normally, confirming no cross-task damage.
+        // scheduled for it).
         Assert.Contains(sim.ResolvedLog.OfType<MoveArrivalEvent>(),
             e => e.UnitId == 1 && e.Outcome.IsRejected
                 && e.Outcome.Reason == "stale (epoch mismatch)");
-        // Two deposits applied successfully: self-haul (drop wood back at
-        // castle) and new haul (deposit stone at stockB).
+        // Exactly one HaulDepositEvent applied — the new stone haul. The wood
+        // was returned via UnloadCargoIntent (a direct deposit, not a haul),
+        // confirming no cross-task damage.
         var appliedDeposits = sim.ResolvedLog.OfType<HaulDepositEvent>()
             .Where(e => e.Outcome.IsApplied).ToList();
-        Assert.Equal(2, appliedDeposits.Count);
+        Assert.Single(appliedDeposits);
     }
 
     // -------- Determinism + snapshot --------

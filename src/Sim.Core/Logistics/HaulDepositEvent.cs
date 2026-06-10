@@ -72,54 +72,13 @@ public sealed class HaulDepositEvent : ScheduledEvent
         var resource = hauler.CargoResource;
         var amount = hauler.CargoAmount;
 
-        // M13 — when depositing Food into a Castle, catch up consumption
-        // FIRST so the new total reflects the correct pre-deposit Holdings.
-        // This closes the constant-rate window before the deposit changes
-        // the food level.
-        var foodCastle = (dest is Castle c0 && resource == Resource.Food) ? c0 : null;
-        if (foodCastle is not null)
-            Sim.Core.Food.FoodConsumption.CatchUp(foodCastle, sim, sim.Now);
-
-        var deposited = dest switch
-        {
-            StorageStructure ss => ss.Deposit(resource, amount),
-            ConstructionSite c => c.Deposit(resource, amount),
-            _ => 0,
-        };
+        // Deposit via the shared primitive — it owns the Castle food catch-up /
+        // famine re-eval (M13) and the construction-site start hook. Overflow that
+        // doesn't fit stays on the hauler (unchanged from before the refactor).
+        var deposited = CargoTransfer.DepositInto(sim, dest, resource, amount);
 
         hauler.CargoAmount -= deposited;
         if (hauler.CargoAmount == 0) hauler.CargoResource = Resource.None;
-
-        // M13 Phase C — if a famine was active and the deposit brought
-        // Holdings[Food] above 0, the famine ends. Always re-evaluate the
-        // famine check so the predicted next dry-out reflects the new
-        // food level.
-        //
-        // The scheduled StarvationDeathEvent is INTENTIONALLY left in
-        // flight (anchor not cleared). If the deposit is large enough
-        // that no new famine arises before the death tick, the event
-        // fences harmlessly when it fires (StarvationDeathEvent.Apply
-        // → FamineStartTick is null → fence + clear). If a new famine
-        // starts before then, CatchUp's famine-trigger branch sees the
-        // existing anchor and declines to reschedule — preserving the
-        // original death cadence so a player can't reset the starvation
-        // clock by trickling tiny deposits.
-        if (foodCastle is not null)
-        {
-            if (foodCastle.FamineStartTick.HasValue
-                && foodCastle.AmountOf(Resource.Food) > 0)
-            {
-                foodCastle.FamineStartTick = null;
-            }
-            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodCastle, sim);
-        }
-
-        // Phase-C hook. If the deposit just made the build's conditions met,
-        // start construction.
-        if (dest is ConstructionSite site && !site.IsActive && site.ConditionsMet(world))
-        {
-            site.StartOrResume(sim);
-        }
 
         // M4 Phase A: haul complete; clear the on-unit anchor.
         hauler.HaulPlan = null;

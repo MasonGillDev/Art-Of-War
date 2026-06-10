@@ -45,6 +45,11 @@ public sealed class HaulIntent : Intent
             return IntentOutcome.Reject($"hauler {HaulerId} is embarked on boat {hauler.EmbarkedOn}");
         if (hauler.Activity != Activity.Idle)
             return IntentOutcome.Reject("hauler is not Idle");
+        // A hauler must start empty — picking up would overwrite (and destroy)
+        // an existing load. Unload it first (UnloadCargoIntent).
+        if (hauler.CargoAmount > 0)
+            return IntentOutcome.Reject(
+                $"hauler {HaulerId} is carrying {hauler.CargoAmount} {hauler.CargoResource} — unload first");
         if (Resource == Resource.None)
             return IntentOutcome.Reject("resource is None");
         if (!world.Grid.InBounds(SourceTile))
