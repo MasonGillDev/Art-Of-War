@@ -141,8 +141,9 @@ public class RoadDecayTests
         var tile = new TileCoord(1, 1);
         Assert.Single(world.Roads);
 
-        // Enough decay to wipe: 10 condition / 1 per period = 10 periods = 1000 ticks.
-        Road.CatchUpDecay(world, tile, now: 1000);
+        // Enough decay to wipe condition 10: ceil(10 / per) periods, each DECAY_PERIOD ticks.
+        var periodsToWipe = (10 + RoadConstants.DECAY_PER_PERIOD - 1) / RoadConstants.DECAY_PER_PERIOD;
+        Road.CatchUpDecay(world, tile, now: periodsToWipe * RoadConstants.DECAY_PERIOD);
 
         Assert.Empty(world.Roads);
     }
@@ -187,12 +188,14 @@ public class RoadDecayTests
     {
         var world = MakeRoadWorld(condition: 100, lastDecayTick: 0);
         var tile = new TileCoord(1, 1);
-        // 237 ticks elapsed → 2 completed periods (200 ticks), 37 remainder.
-        Road.CatchUpDecay(world, tile, now: 237);
+        var period = RoadConstants.DECAY_PERIOD;
+        var per = RoadConstants.DECAY_PER_PERIOD;
+        // 2 completed periods + a half-period remainder that must NOT advance the clock.
+        Road.CatchUpDecay(world, tile, now: 2 * period + period / 2);
 
         var r = world.Roads[tile];
-        Assert.Equal(98, r.Condition);                              // -2
-        Assert.Equal(200, r.LastDecayTick);                         // advanced by 2 * 100
+        Assert.Equal(100 - 2 * per, r.Condition);                   // 2 periods of decay
+        Assert.Equal(2 * period, r.LastDecayTick);                  // remainder carried
     }
 
     [Fact]

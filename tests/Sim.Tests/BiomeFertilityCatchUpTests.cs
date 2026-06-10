@@ -354,13 +354,17 @@ public class BiomeFertilityCatchUpTests
         // (inclusive threshold). The intermediate value (75) is what a smooth
         // climb produces, NOT a snap to 100.
         BiomeDegradationConfig cfg = Cfg;  // explicit to silence shadowing nag
-        BiomeDegradation.CatchUpWithRate(world, tile, 750, ratePerPeriod: cfg.RecoveryAmount, ratePeriod: cfg.RecoveryPeriod, cfg);
+        // 25 recovery periods: dev -50 → -25 (fert 75, the ForestThreshold).
+        // Window derives from cfg.RecoveryPeriod so retuning the period is safe.
+        var t1 = 25 * cfg.RecoveryPeriod;
+        BiomeDegradation.CatchUpWithRate(world, tile, t1, ratePerPeriod: cfg.RecoveryAmount, ratePeriod: cfg.RecoveryPeriod, cfg);
         Assert.Equal(-25, world.Fertility[tile].Deviation);
-        Assert.Equal(75, BiomeDegradation.FertilityAt(world, tile, 750, cfg));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 750, cfg));   // band is inclusive at 75
+        Assert.Equal(75, BiomeDegradation.FertilityAt(world, tile, t1, cfg));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, t1, cfg));   // band inclusive at 75
 
-        // Continue recovery past 750. Another 750 ticks → dev=0 → sparse remove.
-        BiomeDegradation.CatchUpWithRate(world, tile, 1500, ratePerPeriod: cfg.RecoveryAmount, ratePeriod: cfg.RecoveryPeriod, cfg);
+        // 25 more recovery periods → dev=0 → sparse remove.
+        var t2 = 50 * cfg.RecoveryPeriod;
+        BiomeDegradation.CatchUpWithRate(world, tile, t2, ratePerPeriod: cfg.RecoveryAmount, ratePeriod: cfg.RecoveryPeriod, cfg);
         Assert.False(world.Fertility.ContainsKey(tile));
     }
 
@@ -382,16 +386,17 @@ public class BiomeFertilityCatchUpTests
         Assert.Equal(-50, world.Fertility[tile].Deviation);
         Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, 260, Cfg));
 
-        // 30 ticks of recovery: would have been enough WITHOUT the snap.
-        // With the snap, 1 period × +1 = +1 deviation → dev=-49 → fert=51 →
-        // still Grassland.
-        BiomeDegradation.CatchUpWithRate(world, tile, 260 + 30, ratePerPeriod: Cfg.RecoveryAmount, ratePeriod: Cfg.RecoveryPeriod, Cfg);
-        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, 260 + 30, Cfg));
+        // 1 recovery period: NOT enough to leave Grassland — with the snap,
+        // +1 → dev=-49 → fert=51 → still Grassland.
+        var r1 = 260 + Cfg.RecoveryPeriod;
+        BiomeDegradation.CatchUpWithRate(world, tile, r1, ratePerPeriod: Cfg.RecoveryAmount, ratePeriod: Cfg.RecoveryPeriod, Cfg);
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, r1, Cfg));
 
-        // 750 ticks of recovery total (25 periods × +1 = +25). dev=-25, fert=75.
-        BiomeDegradation.CatchUpWithRate(world, tile, 260 + 750, ratePerPeriod: Cfg.RecoveryAmount, ratePeriod: Cfg.RecoveryPeriod, Cfg);
+        // 25 recovery periods total (+25). dev=-25, fert=75 → back to Forest.
+        var r2 = 260 + 25 * Cfg.RecoveryPeriod;
+        BiomeDegradation.CatchUpWithRate(world, tile, r2, ratePerPeriod: Cfg.RecoveryAmount, ratePeriod: Cfg.RecoveryPeriod, Cfg);
         Assert.Equal(-25, world.Fertility[tile].Deviation);
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, 260 + 750, Cfg));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, tile, r2, Cfg));
     }
 
     // ====================================================================

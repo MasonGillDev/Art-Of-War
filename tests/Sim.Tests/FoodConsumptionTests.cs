@@ -519,15 +519,17 @@ public class FoodConsumptionPhaseCTests
     [Fact]
     public void CatchUp_SetsFamineStartTick_AtExactFailureBoundary()
     {
-        // Run the catch-up past the dry-out tick directly.
+        // Run the catch-up past the dry-out tick directly. Ticks derive from
+        // config so the test survives retuning the period / per-citizen rate.
         var (sim, castle) = MakeSimWithFood(unitCount: 5, startingFood: 23);
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
-        // 5 × 4 = 20 < 23, 5 × 5 = 25 > 23. fullMeals = 23/5 = 4.
-        // Failure at (4+1) × 60 = 300.
-        FoodConsumption.CatchUp(castle, sim, now: 600);
+        var rate = 5 * FoodConsumptionConstants.FoodPerCitizenPerPeriod;
+        var fullMeals = 23 / rate;                       // integer floor (4 at rate 5)
+        var failureBoundary = (fullMeals + 1) * period;  // first meal that can't feed everyone
+        FoodConsumption.CatchUp(castle, sim, now: failureBoundary + period); // well past dry-out
         Assert.Equal(0, castle.AmountOf(Resource.Food));
-        Assert.Equal(5 * period, castle.FamineStartTick);
-        Assert.Equal(5 * period, castle.LastFoodConsumedTick);
+        Assert.Equal(failureBoundary, castle.FamineStartTick);
+        Assert.Equal(failureBoundary, castle.LastFoodConsumedTick);
     }
 
     [Fact]

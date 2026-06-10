@@ -67,11 +67,11 @@ public class PopulationAgeTests
         var world = MakeWorld();
         var u = world.Units[1];
         var cfg = world.PopulationConfig;
-        // At age 14, can't train. At 15 (inclusive), can.
-        var age14Now = u.BornTick + 14 * cfg.TicksPerYear;
-        Assert.False(Population.CanTrain(u, age14Now, cfg));
-        var age15Now = u.BornTick + 15 * cfg.TicksPerYear;
-        Assert.True(Population.CanTrain(u, age15Now, cfg));
+        long T(int years) => u.BornTick + years * cfg.TicksPerYear;
+        // Gate is inclusive at cfg.MinTrainAge — derive from config (like
+        // CanBreed below) so this stays correct as the train age is retuned.
+        Assert.False(Population.CanTrain(u, T(cfg.MinTrainAge - 1), cfg));
+        Assert.True(Population.CanTrain(u, T(cfg.MinTrainAge), cfg));
     }
 
     [Fact]

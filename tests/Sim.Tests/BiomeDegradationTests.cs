@@ -66,14 +66,15 @@ public class BiomeDegradationTests
         var (world, _) = MakeArmedExtractor(new TileCoord(4, 4), StructureKind.LumberCamp);
         var own = new TileCoord(4, 4);
 
-        // ForestBaseline 100, ForestThreshold 75. With DegradeAmount=1 and
-        // DegradePeriod=20, deviation reaches -25 at t=500 → current 75 still
-        // Forest. At t=520 → deviation -26 → current 74 < 75 → Grassland.
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, own, 0,    Cfg));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, own, 500,  Cfg));
-        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, own, 520, Cfg));
-        // Eventually crosses the Desert threshold (76 periods at -1 / period).
-        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 1520, Cfg));
+        // ForestBaseline 100, ForestThreshold 75. At DegradeAmount 1, deviation
+        // reaches -25 after 25 periods → fert 75, still Forest; after 26 periods the
+        // F→G crossing snaps to Grassland; ~76 periods latches Desert. Windows derive
+        // from Cfg.DegradePeriod so the test follows the active pacing tuning.
+        var P = Cfg.DegradePeriod;
+        Assert.Equal(Biome.Forest,    BiomeDegradation.BiomeAt(world, own, 0,      Cfg));
+        Assert.Equal(Biome.Forest,    BiomeDegradation.BiomeAt(world, own, 25 * P, Cfg));
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, own, 26 * P, Cfg));
+        Assert.Equal(Biome.Desert,    BiomeDegradation.BiomeAt(world, own, 76 * P, Cfg));
     }
 
     [Fact]
@@ -134,8 +135,9 @@ public class BiomeDegradationTests
         // If the rate were SUM=2 (the bug we're guarding against), 50 periods
         // × -2 = ramp through TWO crossings into deep Desert (dev=-100,
         // fert=0). The contrast (26 vs 0) pins MAX-not-sum.
-        Assert.Equal(26, BiomeDegradation.FertilityAt(world, overlap, 1000, Cfg));
-        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, overlap, 1000, Cfg));
+        var t = 50 * Cfg.DegradePeriod;   // 50 periods at MAX rate 1
+        Assert.Equal(26, BiomeDegradation.FertilityAt(world, overlap, t, Cfg));
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, overlap, t, Cfg));
     }
 
     [Fact]
@@ -155,17 +157,15 @@ public class BiomeDegradationTests
         world.AddStructure(farm);
         var overlap = new TileCoord(4, 3);
 
-        // At t=200 under MAX(1,1)=1: 10 periods × -1 = dev=-10, fert=90,
-        // still Forest. If SUM (=2), it'd be -20, fert=80 — also Forest
-        // numerically distinguishable from MAX.
-        Assert.Equal(90, BiomeDegradation.FertilityAt(world, overlap, 200, Cfg));
+        // After 10 periods under MAX(1,1)=1: dev=-10, fert=90, still Forest. If
+        // SUM (=2), it'd be -20, fert=80 — numerically distinguishable from MAX.
+        Assert.Equal(90, BiomeDegradation.FertilityAt(world, overlap, 10 * Cfg.DegradePeriod, Cfg));
 
-        // The qualitative MAX-not-sum check: at t=600 under MAX(1)=1, only
-        // the F→G crossing fires (one snap, lands in Grassland band). Under
-        // SUM(2), BOTH crossings fire and the tile lands in permanent
-        // Desert. Biome contrast (Grassland vs Desert) pins the contract
-        // semantically.
-        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, overlap, 600, Cfg));
+        // The qualitative MAX-not-sum check: after 30 periods under MAX(1)=1,
+        // only the F→G crossing fires (one snap, lands in Grassland band). Under
+        // SUM(2), BOTH crossings fire and the tile lands in permanent Desert.
+        // Biome contrast (Grassland vs Desert) pins the contract semantically.
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, overlap, 30 * Cfg.DegradePeriod, Cfg));
     }
 
     // ====================================================================
@@ -193,36 +193,35 @@ public class BiomeDegradationTests
             Assert.Equal(0, f.LastUpdateTick);
         }
 
-        // A pure read at t=400 on the camp's own tile (always inside the
-        // radius regardless of tuning) sees the live degrade. Under default
-        // LumberCamp DegradeAmount=1 / DegradePeriod=20, that's 20 periods ×
-        // -1 = dev=-20, fert=80. The anchor-vs-no-anchor difference shows
-        // up when arm happens at t > 0; covered by Phase D end-to-end tests.
-        Assert.Equal(80, BiomeDegradation.FertilityAt(sim.World, new TileCoord(7, 7), 400, Cfg));
+        // A pure read after 20 periods on the camp's own tile (always inside the
+        // radius regardless of tuning) sees the live degrade: 20 × -1 = dev -20,
+        // fert 80. Window derives from Cfg.DegradePeriod. The anchor-vs-no-anchor
+        // difference shows up when arm happens at t > 0; covered by Phase D tests.
+        Assert.Equal(80, BiomeDegradation.FertilityAt(sim.World, new TileCoord(7, 7), 20 * Cfg.DegradePeriod, Cfg));
     }
 
     [Fact]
     public void ProductionTickStop_CatchesUpRadius_WithPreStopRate()
     {
-        // Single Lumberjack on a LumberCamp. BufferCap=30, role bonus 2× →
-        // 2 per production tick × ProductionPeriodTicks=10 = buffer fills at
-        // sim.Now=150 (15 production ticks). At that tick the buffer-full
-        // branch fires OnProductionTransition and goes dormant.
+        // Single Lumberjack on a LumberCamp. It produces until the buffer fills,
+        // then the buffer-full branch fires OnProductionTransition and goes dormant.
+        // (The exact dormancy tick depends on production tuning; we read it off
+        // sim.Now rather than pinning it, so production retuning doesn't break us.)
         var (sim, ext) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
 
         sim.Run();   // drains the queue — last event is the buffer-fill stop
         var camp = (Extractor)sim.World.Structures[ext.At];
         Assert.False(camp.TickArmed);
         Assert.True(camp.BufferFull());
-        Assert.Equal(150, sim.Now);
 
-        // At the moment of dormancy, OnProductionTransition fired with
-        // pre-stop rate (=-1/20, including this camp). 150 ticks / period 20
-        // = 7 periods × -1 = -7 deviation (integer division drops the 10-tick
-        // remainder under the transition discipline). lastUpdate = 150.
+        // At dormancy, OnProductionTransition fired with the pre-stop rate
+        // (-1 / DegradePeriod, including this camp). Deviation = completed degrade
+        // periods at sim.Now (integer division drops the remainder under the
+        // transition discipline); lastUpdate anchors to sim.Now. Both derive from
+        // config / sim.Now so the test survives retuning DegradePeriod.
         var ownTile = sim.World.Fertility[new TileCoord(4, 4)];
-        Assert.Equal(-7, ownTile.Deviation);
-        Assert.Equal(150, ownTile.LastUpdateTick);
+        Assert.Equal(-(int)(sim.Now / Cfg.DegradePeriod), ownTile.Deviation);
+        Assert.Equal(sim.Now, ownTile.LastUpdateTick);
     }
 
     [Fact]
@@ -273,23 +272,22 @@ public class BiomeDegradationTests
         var (world, ext) = MakeArmedExtractor(new TileCoord(3, 3), StructureKind.LumberCamp);
         var own = new TileCoord(3, 3);
 
-        // t=200 stop transition: catch up under -1/20. Deviation goes 0 → -10.
-        BiomeDegradation.OnProductionTransition(world, ext, 200, Cfg);
+        // Stop transition after 10 degrade periods: deviation 0 → -10.
+        var stop = 10 * Cfg.DegradePeriod;
+        BiomeDegradation.OnProductionTransition(world, ext, stop, Cfg);
         ext.TickArmed = false;
         Assert.Equal(-10, world.Fertility[own].Deviation);
-        Assert.Equal(200, world.Fertility[own].LastUpdateTick);
+        Assert.Equal(stop, world.Fertility[own].LastUpdateTick);
 
-        // t=400 start transition: catch up under recovery rate (TickArmed=false
-        // → MaxInRangeProducingDegradeAmount=0 → recovery applies because
-        // stored deviation < 0 and not latched). Recovery: +1 per 30 ticks
-        // over 200 ticks = 6 periods × +1 = +6. Deviation -10 + 6 = -4.
-        // lastUpdate is ANCHORED to now=400 (the transition discipline drops
-        // the 20-tick remainder under the old rate so the new rate starts
-        // cleanly from t=400).
-        BiomeDegradation.OnProductionTransition(world, ext, 400, Cfg);
+        // Start transition 6 recovery periods later: catch up under the recovery
+        // rate (TickArmed=false → no producer in range → recovery applies since
+        // deviation < 0 and not latched). +1 per period × 6 = +6 → dev -10 + 6 = -4.
+        // lastUpdate anchors to the transition tick. Windows derive from config.
+        var start = stop + 6 * Cfg.RecoveryPeriod;
+        BiomeDegradation.OnProductionTransition(world, ext, start, Cfg);
         ext.TickArmed = true;
         Assert.Equal(-4, world.Fertility[own].Deviation);
-        Assert.Equal(400, world.Fertility[own].LastUpdateTick);
+        Assert.Equal(start, world.Fertility[own].LastUpdateTick);
     }
 
     // ====================================================================
@@ -340,22 +338,24 @@ public class BiomeDegradationTests
         // reads must lazily apply recovery and eventually return
         // ForestBaseline.
         var (sim, _) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
-        sim.Run();  // run to dormancy at sim.Now=150; tile (4,4) stored at -7
-
+        sim.Run();  // run to dormancy
         var own = new TileCoord(4, 4);
-        Assert.Equal(93, BiomeDegradation.FertilityAt(sim.World, own, 150, Cfg));
+        var stopTick = sim.World.Fertility[own].LastUpdateTick;
+        var degPeriods = (int)(stopTick / Cfg.DegradePeriod);   // completed degrade periods at stop
 
-        // Lazy recovery via pure read: deviation -7 climbs back to 0 at
-        // +1 per 30 ticks. After 7 × 30 = 210 ticks, deviation = 0 →
-        // current fertility = ForestBaseline.
-        Assert.Equal(100, BiomeDegradation.FertilityAt(sim.World, own, 150 + 210, Cfg));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(sim.World, own, 150 + 210, Cfg));
+        // Stored fertility right after stop = baseline - degPeriods (rate 1, no snap yet).
+        Assert.Equal(Cfg.ForestBaseline - degPeriods, BiomeDegradation.FertilityAt(sim.World, own, stopTick, Cfg));
 
-        // The STORED state is unchanged — no catch-up has fired since the
-        // production-stop transition. Pure reads never write (Phase A
-        // contract); this is the proof through the integration path.
-        Assert.Equal(-7, sim.World.Fertility[own].Deviation);
-        Assert.Equal(150, sim.World.Fertility[own].LastUpdateTick);
+        // Lazy recovery via pure read: climbs back to baseline over degPeriods
+        // recovery periods → ForestBaseline → Forest. Windows derive from config.
+        var recovered = stopTick + degPeriods * Cfg.RecoveryPeriod;
+        Assert.Equal(Cfg.ForestBaseline, BiomeDegradation.FertilityAt(sim.World, own, recovered, Cfg));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(sim.World, own, recovered, Cfg));
+
+        // STORED state unchanged — pure reads never write (Phase A contract);
+        // proof through the integration path.
+        Assert.Equal(-degPeriods, sim.World.Fertility[own].Deviation);
+        Assert.Equal(stopTick, sim.World.Fertility[own].LastUpdateTick);
     }
 
     [Fact]
@@ -371,22 +371,23 @@ public class BiomeDegradationTests
         // We drive the transition directly via OnProductionTransition so the
         // test doesn't depend on advancing the event queue.
         var (sim, _) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
-        sim.Run();   // dormant at sim.Now=150 with own tile @ deviation -15
+        sim.Run();   // dormant
+        var own = new TileCoord(4, 4);
+        var startDev = sim.World.Fertility[own].Deviation;
+        var stopTick = sim.World.Fertility[own].LastUpdateTick;
 
-        // Place a second LumberCamp at (5,5) whose 3×3 radius covers (4,4).
-        // Mark it dormant (TickArmed=false) — we are about to FIRE its
-        // arm-transition manually at t=240, which is the moment it would
-        // start producing.
+        // Place a second LumberCamp at (5,5) whose radius covers (4,4). It's dormant
+        // (TickArmed=false), so firing its arm-transition catches up under the
+        // recovery rate. Fire it 3 recovery periods after the stop; the catch-up
+        // materializes the accumulated recovery into stored state.
         var newExt = new Extractor(StructureKind.LumberCamp, new TileCoord(5, 5));
         sim.World.AddStructure(newExt);
-        // newExt.TickArmed is false by default → MaxInRangeProducingDegrade
-        // sees no producer in range → catch-up applies recovery rate.
-        BiomeDegradation.OnProductionTransition(sim.World, newExt, 240, Cfg);
+        var transitionTick = stopTick + 3 * Cfg.RecoveryPeriod;
+        BiomeDegradation.OnProductionTransition(sim.World, newExt, transitionTick, Cfg);
 
-        var own = new TileCoord(4, 4);
         var stored = sim.World.Fertility[own];
-        Assert.Equal(-4, stored.Deviation);              // -7 + 3 × +1 (recovery)
-        Assert.Equal(240, stored.LastUpdateTick);        // 150 + 3 × 30
+        Assert.Equal(startDev + 3 * Cfg.RecoveryAmount, stored.Deviation);  // 3 periods of recovery
+        Assert.Equal(transitionTick, stored.LastUpdateTick);
     }
 
     [Fact]
@@ -403,10 +404,11 @@ public class BiomeDegradationTests
         var (world, ext) = MakeArmedExtractor(new TileCoord(4, 4), StructureKind.LumberCamp);
         var own = new TileCoord(4, 4);
 
-        BiomeDegradation.OnProductionTransition(world, ext, 1800, Cfg);
+        var t = 90 * Cfg.DegradePeriod;   // 90 periods: through both crossings → clamps to -100
+        BiomeDegradation.OnProductionTransition(world, ext, t, Cfg);
         ext.TickArmed = false;
         Assert.Equal(-100, world.Fertility[own].Deviation);
-        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 1800, Cfg));
+        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, t, Cfg));
 
         // Far-future pure reads: latch holds, fertility unchanged, biome stays
         // Desert. Stored entry untouched (no transition fired between).
