@@ -483,5 +483,4 @@ $RECYCLE.BIN/
 
 # Local-only workspace items not tracked in this repo
 client/
-src/Sim.Server/
 run.sh
