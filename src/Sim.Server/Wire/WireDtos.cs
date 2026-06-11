@@ -79,6 +79,12 @@ public sealed class UnitDto
     public int CargoAmount { get; set; }   // carried cargo amount (own units)
     public int Power { get; set; } = -1;   // effective combat power (own units; -1 = hidden)
     public string[] Buffs { get; set; } = []; // active buff kinds (own units only — loadout is private)
+    // Movement destination (own units in transit; -1/-1 = none/hidden).
+    // Solo moves read Unit.PathFinalDest; grouped units fall back to their
+    // Group's PathFinalDest. Other players' plans are private — same rule
+    // as Activity.
+    public int DestX { get; set; } = -1;
+    public int DestY { get; set; } = -1;
 }
 
 public sealed class RoadDto

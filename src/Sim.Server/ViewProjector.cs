@@ -151,6 +151,7 @@ public sealed class ViewProjector
     private static UnitDto ToUnitDto(Unit u, int viewerPlayerId, GameWorld world, long now)
     {
         var mine = u.OwnerId == viewerPlayerId;
+        var dest = mine ? FinalDestOf(u, world) : null;
         return new UnitDto
         {
             Id = u.Id, X = u.Position.X, Y = u.Position.Y, Role = (int)u.Role, OwnerId = u.OwnerId,
@@ -164,7 +165,20 @@ public sealed class ViewProjector
             // EffectivePower is a pure read.
             Power = mine ? Sim.Core.Combat.CombatRules.EffectivePower(u, now) : -1,
             Buffs = mine ? u.Buffs.Select(b => b.Kind).ToArray() : Array.Empty<string>(),
+            DestX = dest?.X ?? -1,
+            DestY = dest?.Y ?? -1,
         };
+    }
+
+    // Where is this unit ultimately headed? Solo movement carries its own
+    // PathFinalDest anchor; a grouped unit rides its Group's. Pure read.
+    private static TileCoord? FinalDestOf(Unit u, GameWorld world)
+    {
+        if (u.PathFinalDest is { } d) return d;
+        if (u.GroupId is { } gid
+            && world.Groups.TryGetValue(gid, out var g)
+            && g.PathFinalDest is { } gd) return gd;
+        return null;
     }
 
     // Fogged path: UnitView already carries a live AgeYears (ProjectFogged passes `now`).
@@ -177,6 +191,7 @@ public sealed class ViewProjector
         var cargoRes = 0; var cargoAmt = 0;
         var power = -1;
         var buffs = Array.Empty<string>();
+        var destX = -1; var destY = -1;
         if (uv.OwnerId == viewerPlayerId && world.Units.TryGetValue(uv.Id, out var real))
         {
             activity = (int)real.Activity;
@@ -186,6 +201,7 @@ public sealed class ViewProjector
             cargoAmt = real.CargoAmount;
             power = Sim.Core.Combat.CombatRules.EffectivePower(real, now);
             buffs = real.Buffs.Select(b => b.Kind).ToArray();
+            if (FinalDestOf(real, world) is { } dest) { destX = dest.X; destY = dest.Y; }
         }
         return new UnitDto
         {
@@ -198,6 +214,8 @@ public sealed class ViewProjector
             CargoAmount = cargoAmt,
             Power = power,
             Buffs = buffs,
+            DestX = destX,
+            DestY = destY,
         };
     }
 

@@ -6,14 +6,14 @@ public sealed record ServerOptions
 {
     public int Port { get; init; } = 8080;
     public double TicksPerSecond { get; init; } = 20.0;  // wall-clock seconds -> sim ticks
-    public int MapSeed { get; init; } = 111;
+    public int MapSeed { get; init; } = 1151;
     public int MapWidth { get; init; } = 256;
     public int MapHeight { get; init; } = 256;
     public ulong Seed { get; init; } = 0xC0FFEE;          // sim RNG seed
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 111, mapWidth = 256, mapHeight = 256;
+        int port = 8080, mapSeed = 1151, mapWidth = 256, mapHeight = 256;
         var tps = 20.0;
         for (var i = 0; i + 1 < args.Length; i++)
         {
