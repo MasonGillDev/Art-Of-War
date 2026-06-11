@@ -118,6 +118,20 @@ public class ClaimsHelperTests
         var site = Center();
         var good = Claims.AutoSelect(world, site, Camp, now: 0)!;
 
+        // Probe tiles INSIDE range that AutoSelect did NOT pick — mutating
+        // them can't contaminate the `good` baseline. Derived rather than
+        // hard-coded so a ClaimCount retune (which moves what gets picked)
+        // doesn't break the matrix.
+        var free = new List<TileCoord>();
+        for (var dy = -Camp.ClaimRange; dy <= Camp.ClaimRange; dy++)
+        for (var dx = -Camp.ClaimRange; dx <= Camp.ClaimRange; dx++)
+        {
+            var t = new TileCoord(site.X + dx, site.Y + dy);
+            if (t != site && !good.Contains(t)) free.Add(t);
+        }
+        Assert.True(free.Count >= 3,
+            "fixture precondition: ClaimCount must leave ≥3 unpicked in-range tiles");
+
         // Wrong count.
         Assert.Contains("exactly", Claims.Validate(world, site, Camp, good.Take(Camp.ClaimCount - 1).ToList(), 0));
         // Duplicates (hostile wire payload).
@@ -131,19 +145,19 @@ public class ClaimsHelperTests
         var self = good.Take(Camp.ClaimCount - 1).Append(site).ToList();
         Assert.Contains("building tile", Claims.Validate(world, site, Camp, self, 0));
         // Wrong biome.
-        var waterTile = new TileCoord(site.X - Camp.ClaimRange, site.Y);
+        var waterTile = free[0];
         world.Grid.SetBiome(waterTile, Biome.Water);
         var wet = good.Take(Camp.ClaimCount - 1).Append(waterTile).ToList();
         Assert.Contains("requires", Claims.Validate(world, site, Camp, wet, 0));
         // Structure on tile.
-        var towerTile = new TileCoord(site.X, site.Y - Camp.ClaimRange);
+        var towerTile = free[1];
         world.AddStructure(new Tower(towerTile));
         var built = good.Take(Camp.ClaimCount - 1).Append(towerTile).ToList();
         Assert.Contains("has a structure", Claims.Validate(world, site, Camp, built, 0));
         // Already claimed by someone (any kind, any owner).
         var rival = world.AddStructure(
             new ConstructionSite(new TileCoord(site.X + 4, site.Y + 4), StructureKind.Farm) { OwnerId = 1 });
-        var rivalTile = new TileCoord(site.X + Camp.ClaimRange, site.Y + Camp.ClaimRange);
+        var rivalTile = free[2];
         rival.ClaimTiles.Add(rivalTile);
         var contested = good.Take(Camp.ClaimCount - 1).Append(rivalTile).ToList();
         Assert.Contains("already claimed", Claims.Validate(world, site, Camp, contested, 0));

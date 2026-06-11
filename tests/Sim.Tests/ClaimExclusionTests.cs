@@ -116,21 +116,39 @@ public class ClaimExclusionTests
     {
         // A forest pocket that can support exactly ONE camp. Two players
         // place same-tick; submission order decides; swapping the order
-        // swaps the winner.
+        // swaps the winner. The pocket is sized from the CATALOG (exactly
+        // ClaimCount shared claimable tiles + the two site tiles) so a
+        // ClaimCount/ClaimRange retune can't silently let both camps fit
+        // or starve them both.
+        var spec = StructureCatalog.Spec(StructureKind.LumberCamp);
         for (var swap = 0; swap < 2; swap++)
         {
             var world = new GameWorld(new TileGrid(12, 12, Biome.Grassland));
             world.Players[0] = new Player(0);
             world.Players[1] = new Player(1);
-            // 3×3 forest pocket: 9 tiles — one site + 6 claims fits one camp,
-            // leaves 2 spare tiles (not enough for a second).
-            for (var y = 5; y <= 7; y++)
-                for (var x = 5; x <= 7; x++)
-                    world.Grid.SetBiome(new TileCoord(x, y), Biome.Forest);
+
+            // Adjacent sites → maximal shared claim range. Paint forest on
+            // both site tiles plus the first ClaimCount tiles of the range
+            // INTERSECTION: whoever places first can fill exactly, and at
+            // most one stray candidate remains for the loser.
+            var siteA = new TileCoord(5, 6);
+            var siteB = new TileCoord(6, 6);
+            world.Grid.SetBiome(siteA, Biome.Forest);
+            world.Grid.SetBiome(siteB, Biome.Forest);
+            var painted = 0;
+            for (var y = siteA.Y - spec.ClaimRange; y <= siteA.Y + spec.ClaimRange && painted < spec.ClaimCount; y++)
+                for (var x = siteB.X - spec.ClaimRange; x <= siteA.X + spec.ClaimRange && painted < spec.ClaimCount; x++)
+                {
+                    var t = new TileCoord(x, y);
+                    if (t == siteA || t == siteB) continue;
+                    world.Grid.SetBiome(t, Biome.Forest);
+                    painted++;
+                }
+            Assert.Equal(spec.ClaimCount, painted); // intersection big enough for the knobs
             var sim = new Simulation(world, seed: 1);
 
-            var a = new PlaceSiteIntent(new TileCoord(5, 6), StructureKind.LumberCamp) { PlayerId = 0 };
-            var b = new PlaceSiteIntent(new TileCoord(7, 6), StructureKind.LumberCamp) { PlayerId = 1 };
+            var a = new PlaceSiteIntent(siteA, StructureKind.LumberCamp) { PlayerId = 0 };
+            var b = new PlaceSiteIntent(siteB, StructureKind.LumberCamp) { PlayerId = 1 };
             sim.SubmitIntent(0, swap == 0 ? a : b);
             sim.SubmitIntent(0, swap == 0 ? b : a);
             sim.Run();

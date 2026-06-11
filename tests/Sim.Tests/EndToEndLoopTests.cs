@@ -27,7 +27,11 @@ public class EndToEndLoopTests
     private const int WorldSize = 12;
     private static readonly TileCoord CastleAt   = new(0, 0);
     private static readonly TileCoord CampAt     = new(3, 3);
-    private static readonly TileCoord FarmSiteAt = new(6, 0); // Grassland, not on Forest band
+    // Grassland, outside the camp's Forest box, and a full ClaimRange off
+    // the map edge so the farm's claim box never clips (the ClaimCount
+    // knob is retuned often; a clipped box can drop below it).
+    private static readonly TileCoord FarmSiteAt =
+        new(6, StructureCatalog.Spec(StructureKind.Farm).ClaimRange);
 
     private static (Simulation sim, ConstructionSite farmSite) Bootstrap()
     {

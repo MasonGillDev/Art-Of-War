@@ -41,16 +41,14 @@ public class MoveOnBusyTests
     public void MoveOnWorking_RemovesFromExtractor_AndProductionGoesDormant()
     {
         var grid = new TileGrid(8, 8, Biome.Grassland);
-        var camp = new TileCoord(2, 0);
-        // M15: paint the camp's claim box so the lazy auto-claim can fill
-        // (derived from the spec; clipped at the map edge).
+        // M15: site the camp a full ClaimRange off the map edge and paint
+        // its whole claim box, so the lazy auto-claim always has the full
+        // (2R+1)²−1 candidates regardless of the ClaimCount knob.
         var campSpec = StructureCatalog.Spec(StructureKind.LumberCamp);
+        var camp = new TileCoord(campSpec.ClaimRange, campSpec.ClaimRange);
         for (var dy = -campSpec.ClaimRange; dy <= campSpec.ClaimRange; dy++)
             for (var dx = -campSpec.ClaimRange; dx <= campSpec.ClaimRange; dx++)
-            {
-                var t = new TileCoord(camp.X + dx, camp.Y + dy);
-                if (t.X >= 0 && t.Y >= 0 && t.X < 8 && t.Y < 8) grid.SetBiome(t, Biome.Forest);
-            }
+                grid.SetBiome(new TileCoord(camp.X + dx, camp.Y + dy), Biome.Forest);
         var world = new GameWorld(grid);
         var ex = world.AddStructure(new Extractor(StructureKind.LumberCamp, camp));
         var worker = world.AddUnit(new Unit(1, camp) { Role = UnitRole.Lumberjack });

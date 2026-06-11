@@ -45,7 +45,7 @@ public static class StructureCatalog
             // M15 — the loss lands on the camp's 6 CLAIMED forest tiles
             // (docs/extraction-claims.md), not a radius.
             DegradeAmount = 2,
-            ClaimCount = 6,
+            ClaimCount = 15,
             ClaimRange = 2,
         },
         [StructureKind.Quarry] = new StructureSpec
@@ -113,7 +113,7 @@ public static class StructureCatalog
             // (docs/extraction-claims.md); rotating farmland is the long
             // game.
             DegradeAmount = 1,
-            ClaimCount = 6,
+            ClaimCount = 15,
             ClaimRange = 2,
         },
         [StructureKind.ConstructionSite] = new StructureSpec

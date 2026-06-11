@@ -566,20 +566,15 @@ public class BiomeDegradationTests
         var world = MakeWorld(grid);
         var tile = new TileCoord(4, 4);
         var farmSpec = StructureCatalog.Spec(StructureKind.Farm);
+        Assert.True((2 * farmSpec.ClaimRange + 1) * (2 * farmSpec.ClaimRange + 1) - 1
+            >= farmSpec.ClaimCount, "fixture precondition: claim box must fit ClaimCount");
         var toGrassland = Cfg.GrasslandBaseline - Cfg.ForestBaseline;   // mid-Grassland deviation
-        world.Fertility[tile] = new Fertility(toGrassland, lastUpdateTick: 0);
-        for (var i = 0; i < farmSpec.ClaimCount; i++)
-        {
-            // Neighbors at Chebyshev 1: (3,4), (5,4), (4,3), (4,5), ...
-            var t = (i % 4) switch
-            {
-                0 => new TileCoord(tile.X - 1 - i / 4, tile.Y),
-                1 => new TileCoord(tile.X + 1 + i / 4, tile.Y),
-                2 => new TileCoord(tile.X, tile.Y - 1 - i / 4),
-                _ => new TileCoord(tile.X, tile.Y + 1 + i / 4),
-            };
-            world.Fertility[t] = new Fertility(toGrassland, lastUpdateTick: 0);
-        }
+        // Degrade the WHOLE claim box so the farm always finds ClaimCount
+        // Grassland tiles in range no matter how the knob is tuned.
+        for (var dy = -farmSpec.ClaimRange; dy <= farmSpec.ClaimRange; dy++)
+            for (var dx = -farmSpec.ClaimRange; dx <= farmSpec.ClaimRange; dx++)
+                world.Fertility[new TileCoord(tile.X + dx, tile.Y + dy)] =
+                    new Fertility(toGrassland, lastUpdateTick: 0);
         var sim = new Simulation(world, seed: 1);
         Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(sim.World, tile, sim.Now, Cfg));
 
