@@ -55,16 +55,22 @@ public class BiomeDegradationTests
 
     // Construct a Forest-tiled world with an Extractor placed at `at` and
     // marked actively producing (TickArmed=true) WITHOUT going through the
-    // sim-event setup. Used by the pure-read MAX/radius tests where we want to
-    // bypass the sim driver and just read fertility at various ticks.
+    // sim-event setup. Used by the pure-read tests where we want to bypass
+    // the sim driver and just read fertility at various ticks.
+    // M15: a raw TickArmed=true extractor with NO claims degrades nothing —
+    // fill the claim the same way the lazy arm would (deterministic
+    // AutoSelect) so the fixture stays honest.
     private static (GameWorld world, Extractor ext) MakeArmedExtractor(
         TileCoord at, StructureKind kind, Biome biome = Biome.Forest, int gridSize = 8)
     {
         var grid = new TileGrid(gridSize, gridSize, biome);
         var world = MakeWorld(grid);
         var ext = new Extractor(kind, at);
-        ext.TickArmed = true;   // mark "actively producing" without sim wiring
         world.AddStructure(ext);
+        var claims = Claims.AutoSelect(world, at, ext.Spec, now: 0);
+        Assert.NotNull(claims);   // fixture worlds are full-biome — must fill
+        ext.ClaimTiles.AddRange(claims!);
+        ext.TickArmed = true;   // mark "actively producing" without sim wiring
         return (world, ext);
     }
 
@@ -96,56 +102,59 @@ public class BiomeDegradationTests
     // ====================================================================
 
     [Fact]
-    public void LumberCamp_DegradesOwnTile_OverTime()
+    public void LumberCamp_DegradesClaimTiles_OwnTileUntouched()
     {
+        // M15: the degradation footprint IS the claim. A claimed tile walks
+        // the full F→G→D ladder at the camp's catalog amount; the building's
+        // own tile never degrades (it's the building, not a field).
         var (world, ext) = MakeArmedExtractor(new TileCoord(4, 4), StructureKind.LumberCamp);
-        var own = new TileCoord(4, 4);
+        var claimed = ext.ClaimTiles[0];
+        var own = ext.At;
 
-        // Crossing periods derive from config + the camp's catalog amount so
-        // the test follows any pacing retune. The F→G crossing snaps to
-        // GrasslandBaseline; from there the G→D crossing needs the
-        // grassland headroom at the same rate.
         var P = Cfg.DegradePeriod;
         var amt = ext.Spec.DegradeAmount;
         var crossF = PeriodsFor(PointsToLeaveForest(Cfg), amt);
         var crossD = crossF + PeriodsFor(PointsToDesert(Cfg), amt);
-        Assert.Equal(Biome.Forest,    BiomeDegradation.BiomeAt(world, own, 0,                  Cfg));
-        Assert.Equal(Biome.Forest,    BiomeDegradation.BiomeAt(world, own, (crossF - 1) * P,   Cfg));
-        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, own, crossF * P,         Cfg));
-        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, own, (crossD - 1) * P,   Cfg));
-        Assert.Equal(Biome.Desert,    BiomeDegradation.BiomeAt(world, own, crossD * P,         Cfg));
+        Assert.Equal(Biome.Forest,    BiomeDegradation.BiomeAt(world, claimed, 0,                Cfg));
+        Assert.Equal(Biome.Forest,    BiomeDegradation.BiomeAt(world, claimed, (crossF - 1) * P, Cfg));
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, claimed, crossF * P,       Cfg));
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, claimed, (crossD - 1) * P, Cfg));
+        Assert.Equal(Biome.Desert,    BiomeDegradation.BiomeAt(world, claimed, crossD * P,       Cfg));
+        // The own tile sits inside the old radius box and right next to the
+        // claims — and stays pristine at any horizon.
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, own, crossD * P * 10, Cfg));
     }
 
     [Fact]
-    public void LumberCamp_DegradesRadius_OverTime()
+    public void LumberCamp_DegradesAllClaimTiles_InLockstep()
     {
-        // The (2r+1)×(2r+1) Chebyshev box around the camp degrades in lockstep
-        // — single rate source, identical elapsed time. Drives over Cfg.DegradeRadius
-        // so the test stays correct under any radius tuning; the window is the
-        // F→G crossing tick derived from config + catalog amount.
+        // Every claimed tile shares the single claimant rate, so the whole
+        // claim crosses F→G at the same derived tick; an unclaimed in-range
+        // neighbor is untouched (the edge-exploit fix, observable).
         var center = new TileCoord(7, 7);
         var (world, ext) = MakeArmedExtractor(center, StructureKind.LumberCamp, gridSize: 16);
-        var r = Cfg.DegradeRadius;
         var atCrossing = PeriodsFor(PointsToLeaveForest(Cfg), ext.Spec.DegradeAmount) * Cfg.DegradePeriod;
 
-        for (var dy = -r; dy <= r; dy++)
-        for (var dx = -r; dx <= r; dx++)
-        {
-            var t = new TileCoord(center.X + dx, center.Y + dy);
+        foreach (var t in ext.ClaimTiles)
             Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, t, atCrossing, Cfg));
-        }
+        // An in-range tile the camp did NOT claim stays Forest.
+        var unclaimed = Enumerable.Range(-Cfg.DegradeRadius, 2 * Cfg.DegradeRadius + 1)
+            .SelectMany(dy => Enumerable.Range(-Cfg.DegradeRadius, 2 * Cfg.DegradeRadius + 1)
+                .Select(dx => new TileCoord(center.X + dx, center.Y + dy)))
+            .First(t => t != center && !ext.ClaimTiles.Contains(t));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, unclaimed, atCrossing, Cfg));
     }
 
     [Fact]
-    public void LumberCamp_DoesNotDegradeOutsideRadius()
+    public void LumberCamp_DoesNotDegradeOutsideClaims()
     {
-        // A tile just past the configured radius (Chebyshev = DegradeRadius+1)
-        // is outside the camp's footprint → stays Forest. Uses Cfg.DegradeRadius
-        // so the test follows the active tuning rather than hard-coding a radius.
+        // A tile far outside any claim stays Forest forever — finite,
+        // targeted extraction.
         var center = new TileCoord(7, 7);
-        var (world, _) = MakeArmedExtractor(center, StructureKind.LumberCamp, gridSize: 16);
-        var outside = new TileCoord(center.X + Cfg.DegradeRadius + 1, center.Y);
+        var (world, ext) = MakeArmedExtractor(center, StructureKind.LumberCamp, gridSize: 16);
+        var outside = new TileCoord(center.X + ext.Spec.ClaimRange + 1, center.Y);
 
+        Assert.DoesNotContain(outside, ext.ClaimTiles);
         Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, outside, 100_000, Cfg));
     }
 
@@ -153,59 +162,10 @@ public class BiomeDegradationTests
     // The MAX-NOT-SUM contract (the M9 promise)
     // ====================================================================
 
-    [Fact]
-    public void TwoOverlappingLumberCamps_DegradeAtMax_NotSum()
-    {
-        // Two LumberCamps at (3,3) and (5,3) (Chebyshev distance 2). Their
-        // radii overlap on (4,3). With MAX-not-sum, that tile degrades at
-        // LumberCamp's catalog amount per period — NOT double it.
-        var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = MakeWorld(grid);
-        var a = new Extractor(StructureKind.LumberCamp, new TileCoord(3, 3)) { TickArmed = true };
-        var b = new Extractor(StructureKind.LumberCamp, new TileCoord(5, 3)) { TickArmed = true };
-        world.AddStructure(a);
-        world.AddStructure(b);
-        var overlap = new TileCoord(4, 3);
-
-        // Read 10 periods in — before the MAX-rate crossing but past where a
-        // SUM rate would have crossed. Under MAX = amt the tile is still
-        // Forest at baseline − 10×amt; under SUM = 2×amt the F→G snap has
-        // fired and the tile reads Grassland. Both the numeric and the band
-        // contrast pin MAX-not-sum.
-        var amt = a.Spec.DegradeAmount;
-        Assert.True(10 * amt < PointsToLeaveForest(Cfg), "window must sit before the MAX crossing");
-        Assert.True(10 * 2 * amt >= PointsToLeaveForest(Cfg), "window must sit past the SUM crossing");
-        var t = 10 * Cfg.DegradePeriod;
-        Assert.Equal(Cfg.ForestBaseline - 10 * amt, BiomeDegradation.FertilityAt(world, overlap, t, Cfg));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, overlap, t, Cfg));
-    }
-
-    [Fact]
-    public void LumberCampPlusFarm_OverlappingTile_DegradesAtMaxOfTheTwoRates()
-    {
-        // LumberCamp and Farm carry different catalog amounts (logging
-        // strips land faster than farming exhausts it). The overlap tile
-        // pays MAX of the two, never their sum.
-        var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = MakeWorld(grid);
-        var camp = new Extractor(StructureKind.LumberCamp, new TileCoord(3, 3)) { TickArmed = true };
-        var farm = new Extractor(StructureKind.Farm,       new TileCoord(5, 3)) { TickArmed = true };
-        world.AddStructure(camp);
-        world.AddStructure(farm);
-        var overlap = new TileCoord(4, 3);
-
-        var max = Math.Max(camp.Spec.DegradeAmount, farm.Spec.DegradeAmount);
-        var sum = camp.Spec.DegradeAmount + farm.Spec.DegradeAmount;
-
-        // Window: before the MAX-rate crossing but past where the SUM rate
-        // would have crossed — so the numeric value AND the band contrast
-        // (Forest vs Grassland) both pin MAX-not-sum.
-        var periods = PeriodsFor(PointsToLeaveForest(Cfg), sum);
-        Assert.True(periods * max < PointsToLeaveForest(Cfg), "window must sit before the MAX crossing");
-        var t = periods * Cfg.DegradePeriod;
-        Assert.Equal(Cfg.ForestBaseline - periods * max, BiomeDegradation.FertilityAt(world, overlap, t, Cfg));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(world, overlap, t, Cfg));
-    }
+    // (M15) The two MAX-not-sum overlap tests are gone: overlapping
+    // footprints are structurally impossible now — one claimant per tile,
+    // enforced at placement (ClaimExclusionTests). The defensive MAX fold
+    // inside Claims.ClaimantDegradeAmount is pinned by its own helper tests.
 
     // ====================================================================
     // Phase B integration: ArmIfDormant + ProductionTick honour the
@@ -213,38 +173,38 @@ public class BiomeDegradationTests
     // ====================================================================
 
     [Fact]
-    public void ArmIfDormant_CatchesUpRadius_WithPreStartRate_AnchorsAtArmTime()
+    public void ArmIfDormant_CatchesUpClaims_WithPreStartRate_AnchorsAtArmTime()
     {
-        // First arm: pre-start rate is 0 (no extractor was producing). The
-        // catch-up still ANCHORS lastUpdate=now for each tile in radius —
-        // this is what makes a deferred-arm scenario correct (without the
-        // anchor, a later read would over-apply post-arm rate over elapsed
-        // = now - 0 instead of now - armTime).
-        var (sim, _) = MakeSimWithArmedLumberCamp(new TileCoord(7, 7), gridSize: 16);
+        // First arm: lazy auto-claim fills the claim, then the pre-start
+        // catch-up (rate 0 — nothing was producing) ANCHORS lastUpdate=now
+        // on each CLAIMED tile — this is what makes a deferred-arm scenario
+        // correct (without the anchor, a later read would over-apply the
+        // post-arm rate over elapsed = now - 0 instead of now - armTime).
+        var (sim, ext) = MakeSimWithArmedLumberCamp(new TileCoord(7, 7), gridSize: 16);
+        var camp = (Extractor)sim.World.Structures[ext.At];
 
-        // (2r+1)² anchor entries written at lastUpdate=0 (armed at sim.Now=0).
-        // Counted off Cfg.DegradeRadius so the test follows the tuning.
-        var expected = (2 * Cfg.DegradeRadius + 1) * (2 * Cfg.DegradeRadius + 1);
-        Assert.Equal(expected, sim.World.Fertility.Count);
-        foreach (var (_, f) in sim.World.Fertility)
+        // Exactly the claim's tiles get anchor entries — not a radius box.
+        Assert.Equal(camp.Spec.ClaimCount, camp.ClaimTiles.Count);
+        Assert.Equal(camp.ClaimTiles.Count, sim.World.Fertility.Count);
+        foreach (var t in camp.ClaimTiles)
         {
+            var f = sim.World.Fertility[t];
             Assert.Equal(0, f.Deviation);
             Assert.Equal(0, f.LastUpdateTick);
         }
 
-        // A pure read after 10 periods on the camp's own tile (always inside the
-        // radius regardless of tuning) sees the live degrade at the camp's
-        // catalog amount. Window sits before the F→G crossing so the math is
-        // linear. The anchor-vs-no-anchor difference shows up when arm happens
-        // at t > 0; covered by Phase D tests.
-        var amt = StructureCatalog.Spec(StructureKind.LumberCamp).DegradeAmount;
+        // A pure read after 10 periods on a CLAIMED tile sees the live
+        // degrade at the camp's catalog amount; the camp's own tile has no
+        // entry at all. Window sits before the F→G crossing (linear math).
+        var amt = camp.Spec.DegradeAmount;
         Assert.True(10 * amt < PointsToLeaveForest(Cfg), "window must sit before the crossing");
         Assert.Equal(Cfg.ForestBaseline - 10 * amt,
-            BiomeDegradation.FertilityAt(sim.World, new TileCoord(7, 7), 10 * Cfg.DegradePeriod, Cfg));
+            BiomeDegradation.FertilityAt(sim.World, camp.ClaimTiles[0], 10 * Cfg.DegradePeriod, Cfg));
+        Assert.False(sim.World.Fertility.ContainsKey(camp.At), "own tile never degrades");
     }
 
     [Fact]
-    public void ProductionTickStop_CatchesUpRadius_WithPreStopRate()
+    public void ProductionTickStop_CatchesUpClaims_WithPreStopRate()
     {
         // Single Lumberjack on a LumberCamp. It produces until the buffer fills,
         // then the buffer-full branch fires OnProductionTransition and goes dormant.
@@ -258,39 +218,32 @@ public class BiomeDegradationTests
         Assert.True(camp.BufferFull());
 
         // At dormancy, OnProductionTransition fired with the pre-stop rate
-        // (-DegradeAmount / DegradePeriod, including this camp). Deviation =
-        // completed degrade periods × amount at sim.Now (integer division
-        // drops the remainder under the transition discipline); lastUpdate
-        // anchors to sim.Now. All derive from config / catalog / sim.Now so
-        // the test survives retuning.
-        var ownTile = sim.World.Fertility[new TileCoord(4, 4)];
-        Assert.Equal(-(int)(sim.Now / Cfg.DegradePeriod) * camp.Spec.DegradeAmount, ownTile.Deviation);
-        Assert.Equal(sim.Now, ownTile.LastUpdateTick);
+        // (-DegradeAmount / DegradePeriod, including this camp) over the
+        // CLAIMED tiles. Deviation = completed degrade periods × amount at
+        // sim.Now (integer division drops the remainder under the
+        // transition discipline); lastUpdate anchors to sim.Now. All derive
+        // from config / catalog / sim.Now so the test survives retuning.
+        var claimed = sim.World.Fertility[camp.ClaimTiles[0]];
+        Assert.Equal(-(int)(sim.Now / Cfg.DegradePeriod) * camp.Spec.DegradeAmount, claimed.Deviation);
+        Assert.Equal(sim.Now, claimed.LastUpdateTick);
     }
 
     [Fact]
-    public void OffLadderTilesInRadius_NoFertilityEntryWritten()
+    public void Transition_WritesEntries_OnlyForClaimTiles()
     {
-        // A LumberCamp at (0,0) has radius covering (-1..1, -1..1) — the
-        // negative ones are clipped by bounds, and the diagonal sits at
-        // (1,1). If we make the GRID Forest with one Hills patch at (1,1),
-        // that tile is off-ladder and CatchUp must no-op on it. We exploit
-        // this to verify the off-ladder gate fires inside the radius loop.
-        var grid = new TileGrid(4, 4, Biome.Forest);
-        grid.SetBiome(new TileCoord(1, 1), Biome.Hills);
-        var world = MakeWorld(grid);
-        var ext = new Extractor(StructureKind.LumberCamp, new TileCoord(0, 0)) { TickArmed = true };
-        world.AddStructure(ext);
+        // M15: the catch-up scope IS the claim — a transition writes
+        // fertility entries for exactly the claimed tiles, nothing else
+        // (no radius box, no own tile). Off-ladder tiles can never be in a
+        // claim (validation requires the kind's RequiredBiome), so the old
+        // off-ladder-in-radius guard scenario is structurally impossible.
+        var (world, ext) = MakeArmedExtractor(new TileCoord(4, 4), StructureKind.LumberCamp);
 
-        // Pure-read at t=500 → tile (1,1) returns its worldgen biome (Hills),
-        // not Grassland. And no entry should be written by CatchUp even if
-        // we force one.
-        Assert.Equal(Biome.Hills, BiomeDegradation.BiomeAt(world, new TileCoord(1, 1), 500, Cfg));
-
-        // Internal: force a CatchUp on the Hills tile. The off-ladder guard
-        // must short-circuit before any write.
         BiomeDegradation.OnProductionTransition(world, ext, 500, Cfg);
-        Assert.False(world.Fertility.ContainsKey(new TileCoord(1, 1)));
+
+        Assert.Equal(ext.ClaimTiles.Count, world.Fertility.Count);
+        foreach (var t in ext.ClaimTiles)
+            Assert.True(world.Fertility.ContainsKey(t));
+        Assert.False(world.Fertility.ContainsKey(ext.At));
     }
 
     // ====================================================================
@@ -312,7 +265,7 @@ public class BiomeDegradationTests
         //   us), then start again 6 recovery periods later (catch up under
         //   the PRE-START rate — recovery, since our TickArmed is false).
         var (world, ext) = MakeArmedExtractor(new TileCoord(3, 3), StructureKind.LumberCamp);
-        var own = new TileCoord(3, 3);
+        var claimed = ext.ClaimTiles[0];
         var amt = ext.Spec.DegradeAmount;
         Assert.True(10 * amt < PointsToLeaveForest(Cfg), "stay below the crossing — linear math");
 
@@ -320,8 +273,8 @@ public class BiomeDegradationTests
         var stop = 10 * Cfg.DegradePeriod;
         BiomeDegradation.OnProductionTransition(world, ext, stop, Cfg);
         ext.TickArmed = false;
-        Assert.Equal(-10 * amt, world.Fertility[own].Deviation);
-        Assert.Equal(stop, world.Fertility[own].LastUpdateTick);
+        Assert.Equal(-10 * amt, world.Fertility[claimed].Deviation);
+        Assert.Equal(stop, world.Fertility[claimed].LastUpdateTick);
 
         // Start transition 6 recovery periods later: recovery applies since
         // deviation < 0 and not latched. +RecoveryAmount per period × 6.
@@ -329,8 +282,8 @@ public class BiomeDegradationTests
         var start = stop + 6 * Cfg.RecoveryPeriod;
         BiomeDegradation.OnProductionTransition(world, ext, start, Cfg);
         ext.TickArmed = true;
-        Assert.Equal(-10 * amt + 6 * Cfg.RecoveryAmount, world.Fertility[own].Deviation);
-        Assert.Equal(start, world.Fertility[own].LastUpdateTick);
+        Assert.Equal(-10 * amt + 6 * Cfg.RecoveryAmount, world.Fertility[claimed].Deviation);
+        Assert.Equal(start, world.Fertility[claimed].LastUpdateTick);
     }
 
     // ====================================================================
@@ -382,24 +335,25 @@ public class BiomeDegradationTests
         // ForestBaseline.
         var (sim, ext) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
         sim.Run();  // run to dormancy
-        var own = new TileCoord(4, 4);
-        var stopTick = sim.World.Fertility[own].LastUpdateTick;
-        var pts = (int)(stopTick / Cfg.DegradePeriod) * ext.Spec.DegradeAmount;  // points lost at stop
+        var camp = (Extractor)sim.World.Structures[ext.At];
+        var claimed = camp.ClaimTiles[0];
+        var stopTick = sim.World.Fertility[claimed].LastUpdateTick;
+        var pts = (int)(stopTick / Cfg.DegradePeriod) * camp.Spec.DegradeAmount;  // points lost at stop
         Assert.True(pts > 0 && pts < PointsToLeaveForest(Cfg), "must stop wounded but still Forest");
 
         // Stored fertility right after stop = baseline - pts (no snap yet).
-        Assert.Equal(Cfg.ForestBaseline - pts, BiomeDegradation.FertilityAt(sim.World, own, stopTick, Cfg));
+        Assert.Equal(Cfg.ForestBaseline - pts, BiomeDegradation.FertilityAt(sim.World, claimed, stopTick, Cfg));
 
         // Lazy recovery via pure read: climbs back to baseline over pts
         // recovery periods → ForestBaseline → Forest. Windows derive from config.
         var recovered = stopTick + pts * Cfg.RecoveryPeriod;
-        Assert.Equal(Cfg.ForestBaseline, BiomeDegradation.FertilityAt(sim.World, own, recovered, Cfg));
-        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(sim.World, own, recovered, Cfg));
+        Assert.Equal(Cfg.ForestBaseline, BiomeDegradation.FertilityAt(sim.World, claimed, recovered, Cfg));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(sim.World, claimed, recovered, Cfg));
 
         // STORED state unchanged — pure reads never write (Phase A contract);
         // proof through the integration path.
-        Assert.Equal(-pts, sim.World.Fertility[own].Deviation);
-        Assert.Equal(stopTick, sim.World.Fertility[own].LastUpdateTick);
+        Assert.Equal(-pts, sim.World.Fertility[claimed].Deviation);
+        Assert.Equal(stopTick, sim.World.Fertility[claimed].LastUpdateTick);
     }
 
     [Fact]
@@ -414,22 +368,24 @@ public class BiomeDegradationTests
         //
         // We drive the transition directly via OnProductionTransition so the
         // test doesn't depend on advancing the event queue.
-        var (sim, _) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
-        sim.Run();   // dormant
-        var own = new TileCoord(4, 4);
-        var startDev = sim.World.Fertility[own].Deviation;
-        var stopTick = sim.World.Fertility[own].LastUpdateTick;
+        // M15: only a transition of the CLAIMANT touches its claim tiles
+        // (a different extractor can't even claim them), so the
+        // materializing transition is the same camp's own re-arm.
+        var (sim, ext) = MakeSimWithArmedLumberCamp(new TileCoord(4, 4));
+        sim.Run();   // dormant (buffer full)
+        var camp = (Extractor)sim.World.Structures[ext.At];
+        var claimed = camp.ClaimTiles[0];
+        var startDev = sim.World.Fertility[claimed].Deviation;
+        var stopTick = sim.World.Fertility[claimed].LastUpdateTick;
+        Assert.True(startDev < 0, "camp must have wounded its claim before dormancy");
 
-        // Place a second LumberCamp at (5,5) whose radius covers (4,4). It's dormant
-        // (TickArmed=false), so firing its arm-transition catches up under the
-        // recovery rate. Fire it 3 recovery periods after the stop; the catch-up
+        // Fire the camp's own (dormant: TickArmed=false → recovery-rate)
+        // transition 3 recovery periods after the stop; the catch-up
         // materializes the accumulated recovery into stored state.
-        var newExt = new Extractor(StructureKind.LumberCamp, new TileCoord(5, 5));
-        sim.World.AddStructure(newExt);
         var transitionTick = stopTick + 3 * Cfg.RecoveryPeriod;
-        BiomeDegradation.OnProductionTransition(sim.World, newExt, transitionTick, Cfg);
+        BiomeDegradation.OnProductionTransition(sim.World, camp, transitionTick, Cfg);
 
-        var stored = sim.World.Fertility[own];
+        var stored = sim.World.Fertility[claimed];
         Assert.Equal(startDev + 3 * Cfg.RecoveryAmount, stored.Deviation);  // 3 periods of recovery
         Assert.Equal(transitionTick, stored.LastUpdateTick);
     }
@@ -446,26 +402,26 @@ public class BiomeDegradationTests
         // Once the latch holds (storedFert < DesertThreshold), recovery is
         // forced to 0 even via the lazy pure-read path.
         var (world, ext) = MakeArmedExtractor(new TileCoord(4, 4), StructureKind.LumberCamp);
-        var own = new TileCoord(4, 4);
+        var claimed = ext.ClaimTiles[0];
 
-        var t = 90 * Cfg.DegradePeriod;   // 90 periods: through both crossings → clamps to -100
+        var t = 90 * Cfg.DegradePeriod;   // 90 periods: through both crossings → clamps to -baseline
         BiomeDegradation.OnProductionTransition(world, ext, t, Cfg);
         ext.TickArmed = false;
-        Assert.Equal(-100, world.Fertility[own].Deviation);
-        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, t, Cfg));
+        Assert.Equal(-Cfg.ForestBaseline, world.Fertility[claimed].Deviation);
+        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, claimed, t, Cfg));
 
         // Far-future pure reads: latch holds, fertility unchanged, biome stays
         // Desert. Stored entry untouched (no transition fired between).
-        Assert.Equal(0, BiomeDegradation.FertilityAt(world, own, 1_000_000, Cfg));
-        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 1_000_000, Cfg));
-        Assert.Equal(-100, world.Fertility[own].Deviation);
+        Assert.Equal(0, BiomeDegradation.FertilityAt(world, claimed, 1_000_000, Cfg));
+        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, claimed, 1_000_000, Cfg));
+        Assert.Equal(-Cfg.ForestBaseline, world.Fertility[claimed].Deviation);
 
         // Trigger another transition while the latch holds. Catch-up under
         // the rate-since-latch (= 0, since the extractor is dormant) leaves
         // stored state unchanged.
         BiomeDegradation.OnProductionTransition(world, ext, 1_000_000, Cfg);
-        Assert.Equal(-100, world.Fertility[own].Deviation);
-        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, own, 1_000_000, Cfg));
+        Assert.Equal(-Cfg.ForestBaseline, world.Fertility[claimed].Deviation);
+        Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(world, claimed, 1_000_000, Cfg));
     }
 
     // ====================================================================
@@ -475,18 +431,17 @@ public class BiomeDegradationTests
     // ====================================================================
 
     [Fact]
-    public void LumberCamp_OnForest_DegradesOwnTile_ThenStops_TheHeadline()
+    public void LumberCamp_ExhaustsItsClaim_ThenStops_TheHeadline()
     {
-        // The keystone behaviour. A LumberCamp on Forest produces until its
-        // own tile degrades out of Forest (band-by-band into Grassland) — at
-        // which point the M9 biome-mismatch guard in ProductionTickEvent
-        // rejects the next tick and the camp goes dormant. Manual relocate
-        // from there.
+        // The keystone behaviour, restated over claims. A LumberCamp
+        // produces until its CLAIMED tiles all degrade out of Forest — at
+        // which point the claim-exhausted guard rejects the next tick and
+        // the camp goes dormant (and ArmIfDormant declines to re-arm it).
+        // The building's own tile stays Forest throughout.
         //
         // Setup: a Forest world with the camp and ONE Lumberjack. The camp
-        // alternates buffer-full dormancy and re-arm (we drain by hand); the
-        // tile crosses out of Forest at the config-derived crossing tick and
-        // the next production tick fires the biome-mismatch path.
+        // alternates buffer-full dormancy and re-arm (we drain by hand);
+        // the claim crosses out of Forest at the config-derived tick.
         var grid = new TileGrid(8, 8, Biome.Forest);
         var world = MakeWorld(grid);
         var ext = new Extractor(StructureKind.LumberCamp, new TileCoord(4, 4));
@@ -494,22 +449,23 @@ public class BiomeDegradationTests
         var sim = new Simulation(world, seed: 1);
         var u = world.AddUnit(new Unit(1, ext.At) { Role = UnitRole.Lumberjack });
         ext.Workers.Add(u.Id);
-        ext.ArmIfDormant(sim);
+        ext.ArmIfDormant(sim);   // lazy auto-claim fills here
+        Assert.Equal(ext.Spec.ClaimCount, ext.ClaimTiles.Count);
 
         // Deadline: the F→G crossing tick (config + catalog derived) plus a
-        // few production periods of slack for the mismatch check to fire.
+        // few production periods of slack for the exhausted check to fire.
         var crossTick = PeriodsFor(PointsToLeaveForest(Cfg), ext.Spec.DegradeAmount) * Cfg.DegradePeriod;
         var deadline = crossTick + 10 * ext.Spec.ProductionPeriodTicks;
 
-        // The simplest way to keep the camp pumping past biome-flip without
+        // The simplest way to keep the camp pumping past the flip without
         // the haul machinery: manually clear the buffer between runs.
         var camp = (Extractor)sim.World.Structures[ext.At];
         var totalProduced = 0;
         while (sim.Now < deadline)
         {
             sim.Run();
-            // If the camp went dormant via biome-mismatch, the buffer might
-            // not be full — and we won't re-arm (player has to relocate).
+            // If the camp went dormant via claim-exhaustion, the buffer
+            // might not be full — and ArmIfDormant declines to re-arm.
             // Break: that's the headline.
             if (!camp.TickArmed && !camp.BufferFull()) break;
             // Otherwise drain the buffer (simulating a haul) and re-arm.
@@ -518,15 +474,16 @@ public class BiomeDegradationTests
             camp.ArmIfDormant(sim);
         }
 
-        // The headline: dormant, with the buffer NOT full → biome-mismatch path.
+        // The headline: dormant with the buffer NOT full → claim exhausted.
         Assert.False(camp.TickArmed);
         Assert.False(camp.BufferFull());
-        // Own tile must be Grassland (degraded out of Forest).
-        Assert.Equal(Biome.Grassland,
-            BiomeDegradation.BiomeAt(sim.World, ext.At, sim.Now, Cfg));
+        // Every claimed tile crossed out of Forest; the own tile did not.
+        foreach (var t in camp.ClaimTiles)
+            Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(sim.World, t, sim.Now, Cfg));
+        Assert.Equal(Biome.Forest, BiomeDegradation.BiomeAt(sim.World, camp.At, sim.Now, Cfg));
         // Production was BOUNDED — not infinite. (The exact number depends on
         // the rate tuning; the contract is "finite total." This is the
-        // original complaint, fixed.)
+        // original complaint, fixed — and the fix survives the claims model.)
         Assert.True(totalProduced > 0, "expected SOME production before exhaustion");
         Assert.True(totalProduced < deadline, "production should be bounded by exhaustion");
     }
@@ -561,15 +518,18 @@ public class BiomeDegradationTests
             farm.ArmIfDormant(sim);
         }
 
-        // Dormant via biome-mismatch (NOT buffer-full).
+        // Dormant via claim-exhaustion (NOT buffer-full).
         Assert.False(farm.TickArmed);
         Assert.False(farm.BufferFull());
-        // Own tile is now Desert AND permanent (latched).
-        Assert.Equal(Biome.Desert,
-            BiomeDegradation.BiomeAt(sim.World, ext.At, sim.Now, Cfg));
-        // Far-future check: still Desert. Latch is permanent.
-        Assert.Equal(Biome.Desert,
-            BiomeDegradation.BiomeAt(sim.World, ext.At, sim.Now + 10_000_000, Cfg));
+        // Every CLAIMED tile is now Desert AND permanent (latched); the
+        // farm's own tile never degraded and is still Grassland.
+        foreach (var t in farm.ClaimTiles)
+        {
+            Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(sim.World, t, sim.Now, Cfg));
+            // Far-future check: still Desert. Latch is permanent.
+            Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(sim.World, t, sim.Now + 10_000_000, Cfg));
+        }
+        Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(sim.World, farm.At, sim.Now, Cfg));
     }
 
     [Fact]
@@ -599,10 +559,27 @@ public class BiomeDegradationTests
     {
         // Sanity: a Forest tile that degraded to Grassland now ACCEPTS a Farm.
         // Same tile, different intent — the derived biome matches Farm's req.
+        // M15: the Farm must also CLAIM ClaimCount Grassland-band tiles in
+        // range, so degrade a patch (the site tile + enough neighbors),
+        // derived from the spec.
         var grid = new TileGrid(8, 8, Biome.Forest);
         var world = MakeWorld(grid);
         var tile = new TileCoord(4, 4);
-        world.Fertility[tile] = new Fertility(deviation: -40, lastUpdateTick: 0);
+        var farmSpec = StructureCatalog.Spec(StructureKind.Farm);
+        var toGrassland = Cfg.GrasslandBaseline - Cfg.ForestBaseline;   // mid-Grassland deviation
+        world.Fertility[tile] = new Fertility(toGrassland, lastUpdateTick: 0);
+        for (var i = 0; i < farmSpec.ClaimCount; i++)
+        {
+            // Neighbors at Chebyshev 1: (3,4), (5,4), (4,3), (4,5), ...
+            var t = (i % 4) switch
+            {
+                0 => new TileCoord(tile.X - 1 - i / 4, tile.Y),
+                1 => new TileCoord(tile.X + 1 + i / 4, tile.Y),
+                2 => new TileCoord(tile.X, tile.Y - 1 - i / 4),
+                _ => new TileCoord(tile.X, tile.Y + 1 + i / 4),
+            };
+            world.Fertility[t] = new Fertility(toGrassland, lastUpdateTick: 0);
+        }
         var sim = new Simulation(world, seed: 1);
         Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(sim.World, tile, sim.Now, Cfg));
 

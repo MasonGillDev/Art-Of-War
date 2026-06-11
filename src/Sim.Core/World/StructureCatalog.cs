@@ -37,12 +37,16 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
             BuildDurationTicks = 10 * Time.Hour,
             RequiredBuilderCount = 1,
-            // M9 — degrades Forest at 2 fertility per DegradePeriod (logging
+            // M9 — degrades at 2 fertility per DegradePeriod (logging
             // strips land faster than farming exhausts it). Forest (10000)
             // crosses below ForestThreshold 7500 after ~1250 hourly periods
             // ≈ 52 days of continuous production, then snaps to Grassland —
             // a durable but REVERSIBLE loss (~208 days of rest to regrow).
+            // M15 — the loss lands on the camp's 6 CLAIMED forest tiles
+            // (docs/extraction-claims.md), not a radius.
             DegradeAmount = 2,
+            ClaimCount = 6,
+            ClaimRange = 2,
         },
         [StructureKind.Quarry] = new StructureSpec
         {
@@ -104,10 +108,13 @@ public static class StructureCatalog
             // (5000→2499 = ~2500 points) → ~104 days (~3.5 game-months) of
             // continuous production make a fresh Grassland tile permanently
             // dead. The PERMANENCE is the punishment (LumberCamp's
-            // Forest→Grassland is reversible; this is not) — and it claims
-            // the whole DegradeRadius around the farm, so rotating farmland
-            // is the long game.
+            // Forest→Grassland is reversible; this is not). M15 — the
+            // damage lands on the farm's 4 CLAIMED grassland tiles
+            // (docs/extraction-claims.md); rotating farmland is the long
+            // game.
             DegradeAmount = 1,
+            ClaimCount = 6,
+            ClaimRange = 2,
         },
         [StructureKind.ConstructionSite] = new StructureSpec
         {

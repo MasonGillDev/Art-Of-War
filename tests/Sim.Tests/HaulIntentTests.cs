@@ -156,7 +156,15 @@ public class HaulIntentTests
     {
         var grid = new TileGrid(8, 8, Biome.Grassland);
         var camp = new TileCoord(3, 0);
-        grid.SetBiome(camp, Biome.Forest);
+        // M15: paint the camp's claim box so the lazy auto-claim can fill
+        // (derived from the spec; clipped at the map edge).
+        var campSpec = StructureCatalog.Spec(StructureKind.LumberCamp);
+        for (var dy = -campSpec.ClaimRange; dy <= campSpec.ClaimRange; dy++)
+            for (var dx = -campSpec.ClaimRange; dx <= campSpec.ClaimRange; dx++)
+            {
+                var t = new TileCoord(camp.X + dx, camp.Y + dy);
+                if (t.X >= 0 && t.Y >= 0 && t.X < 8 && t.Y < 8) grid.SetBiome(t, Biome.Forest);
+            }
         var world = new GameWorld(grid);
         var ex = world.AddStructure(new Extractor(StructureKind.LumberCamp, camp));
         ex.Buffer = ex.Spec.BufferCap;

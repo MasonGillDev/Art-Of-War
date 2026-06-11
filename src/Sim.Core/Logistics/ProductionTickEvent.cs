@@ -32,18 +32,33 @@ public sealed class ProductionTickEvent : ScheduledEvent
             return;
         }
 
-        // M9: biome-mismatch dormancy check. If this extractor's tile has
-        // degraded out of its required biome, it cannot produce. Goes dormant
-        // — the player must relocate. This is the closure of "extract forever
-        // from one tile."
+        // Dormancy guards — the closure of "extract forever."
         //
-        // Only check kinds that HAVE a RequiredBiome (Castle / Stockpile /
-        // House don't, but they aren't Extractors anyway — they're filtered
-        // by the cast above). Among Extractors only LumberCamp + Farm have
-        // DegradeAmount > 0; for the others (Quarry / Mine) the derived
-        // biome matches the worldgen biome (Hills/Mountain are off-ladder),
-        // so the check is harmless.
-        if (extractor.Spec.RequiredBiome != Biome.None)
+        // M15, claiming kinds (LumberCamp / Farm): the camp works its
+        // CLAIMED tiles; it goes dormant when none of them remains in the
+        // required biome band ("the cut is exhausted"). The building's own
+        // tile is irrelevant — it never degrades. The in-band count is
+        // reused below as the production-taper numerator.
+        var inBandClaims = extractor.Spec.ClaimCount > 0
+            ? Claims.InBandClaimCount(world, extractor, sim.Now)
+            : -1;
+        if (extractor.Spec.ClaimCount > 0)
+        {
+            if (inBandClaims == 0)
+            {
+                // Pre-stop catch-up (TickArmed still true → includes us).
+                Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+                    world, extractor, sim.Now, world.BiomeDegradationConfig);
+                extractor.TickArmed = false;
+                extractor.NextProductionTickSeq = null;
+                Outcome = IntentOutcome.Reject(
+                    $"claim exhausted — no claimed tile remains {extractor.Spec.RequiredBiome}");
+                return;
+            }
+        }
+        // M9, non-claiming kinds: legacy own-tile biome check. Quarry/Mine
+        // are off-ladder so the derived biome always matches — harmless.
+        else if (extractor.Spec.RequiredBiome != Biome.None)
         {
             var currentBiome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
                 world, extractor.At, sim.Now, world.BiomeDegradationConfig);
@@ -92,6 +107,20 @@ public sealed class ProductionTickEvent : ScheduledEvent
             rate += worker.Role == spec.PreferredRole
                 ? (long)spec.BaseRatePerWorker * spec.RoleBonusNumerator / spec.RoleBonusDenominator
                 : spec.BaseRatePerWorker;
+        }
+
+        // M15 production taper: output scales with the live claim —
+        // ceil(rate × inBand / ClaimCount). CEIL on purpose: floor could
+        // stall at 0 with land still alive and self-reschedule forever
+        // (the zero-power combat loop shape); with ceil, output ≥ 1 while
+        // any claimed tile lives, and the dormancy guard above is the only
+        // stop. inBand is clamped to ClaimCount so a serialized claim list
+        // larger than a later-retuned ClaimCount can't amplify production.
+        // docs/extraction-claims.md.
+        if (spec.ClaimCount > 0 && rate > 0)
+        {
+            var inBand = Math.Min(inBandClaims, spec.ClaimCount);
+            rate = (rate * inBand + spec.ClaimCount - 1) / spec.ClaimCount;
         }
 
         var extract = (int)Math.Min(rate, extractor.FreeBuffer());

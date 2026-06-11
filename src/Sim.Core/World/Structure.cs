@@ -110,16 +110,12 @@ public sealed class Barracks : StorageStructure
     public Barracks(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Barracks).StorageCapacity) { }
 }
 
-// PHASE-A PLACEHOLDER. One class for all four extractor kinds today.
-//
-// This will almost certainly split or grow at Phase D when production behavior
-// lands. Farm and probably the other natural-resource extractors operate over
-// a *working radius* of biome tiles, not just their own tile — that's a
-// structural difference, not a numerical one, and a single parametrized class
-// can't model it cleanly.
-//
-// The snapshot format below WILL change when this is revised. That's a known
-// cost of the deferral; we accepted it to keep Phase A moving.
+// One class for all four extractor kinds. The Phase-A deferral note that
+// lived here ("extractors operate over a working radius of biome tiles...
+// the snapshot format WILL change") was paid off by M15: claiming kinds
+// (LumberCamp, Farm — Spec.ClaimCount > 0) work an explicit set of
+// CLAIMED tiles (docs/extraction-claims.md); FormatVersion bumped to 10.
+// Quarry/Mine remain own-tile-only until their ladder extension.
 public sealed class Extractor : Structure
 {
     public override StructureKind Kind => _kind;
@@ -141,6 +137,17 @@ public sealed class Extractor : Structure
     // same-tick ordering survives recovery (M1 Phase F fairness contract).
     // Null iff TickArmed is false.
     public long? NextProductionTickSeq { get; set; }
+
+    // M15 — extraction claims (docs/extraction-claims.md). The tiles this
+    // extractor works: the degradation footprint, the exclusion territory,
+    // and the production-taper input. ALWAYS kept in canonical (y, x)
+    // order — writers re-sort; the snapshot writes verbatim. Empty for
+    // non-claiming kinds (Spec.ClaimCount == 0) and for hand-built
+    // fixtures until ArmIfDormant's lazy auto-claim fills it. Get-only
+    // list (the Unit.Buffs pattern): mutation = contents only, from the
+    // four audited writers (PlaceSiteIntent via the site,
+    // BuildCompleteEvent transfer-copy, ArmIfDormant lazy fill, restore).
+    public List<TileCoord> ClaimTiles { get; } = new();
 
     public Extractor(StructureKind kind, TileCoord at) : base(at)
     {
@@ -165,9 +172,29 @@ public sealed class Extractor : Structure
         if (TickArmed) return;
         if (Workers.Count == 0) return;
         if (BufferFull()) return;
-        // M9: catch up tiles in radius using the PRE-START rate. TickArmed is
-        // still false at this point, so the catch-up's rate scan correctly
-        // EXCLUDES this extractor; after the catch-up the new (higher) rate
+        if (Spec.ClaimCount > 0)
+        {
+            // M15 lazy auto-claim: hand-built extractors (test fixtures,
+            // dev tooling) have no intent-time claim — fill it here with
+            // the same deterministic selector PlaceSiteIntent uses. Safe:
+            // ArmIfDormant only runs inside event/intent resolution against
+            // a COMPLETE world, never during snapshot restore (restored
+            // extractors carry their claims and skip this). See
+            // docs/extraction-claims.md.
+            if (ClaimTiles.Count == 0
+                && Claims.AutoSelect(sim.World, At, Spec, sim.Now) is { } auto)
+                ClaimTiles.AddRange(auto);
+            // Decline to arm when the claim is unfillable or fully out of
+            // band: arming would insta-dormant on the first tick, and each
+            // spurious transition pair drops sub-period recovery carry on
+            // the claim tiles. The haul-pickup / assign-workers caller gets
+            // a clean no-op instead.
+            if (Claims.InBandClaimCount(sim.World, this, sim.Now) == 0) return;
+        }
+        // M9: catch up the worked tiles using the PRE-START rate. TickArmed
+        // is still false at this point, so the catch-up's rate derivation
+        // correctly EXCLUDES this extractor (claims without TickArmed
+        // contribute no rate); after the catch-up the new (higher) rate
         // kicks in for future reads/transitions. See
         // BiomeDegradation.OnProductionTransition.
         Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
@@ -226,6 +253,13 @@ public sealed class ConstructionSite : Structure
     // read by BuildCompleteEvent when the dock instance is constructed.
     // Null for all non-Dock targets. Settable for snapshot restore.
     public TileCoord? DockSlip { get; set; }
+
+    // M15 — claiming targets only (LumberCamp/Farm): the claim reserved at
+    // PLACEMENT, so two in-flight sites can't promise the same land.
+    // BuildCompleteEvent COPIES it onto the finished Extractor. Canonical
+    // (y, x) order, same discipline as Extractor.ClaimTiles. Empty for
+    // non-claiming targets.
+    public List<TileCoord> ClaimTiles { get; } = new();
 
     public ConstructionSite(TileCoord at, StructureKind targetKind)
         : base(at)

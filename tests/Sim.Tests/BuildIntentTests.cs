@@ -42,8 +42,13 @@ public class BuildIntentTests
     [Fact]
     public void PlaceSite_HappyPath_CreatesSite()
     {
+        // M15: a claiming kind needs ClaimCount in-biome tiles within
+        // ClaimRange — paint the full claim box, derived from the spec.
         var sim = MakeSim();
-        sim.World.Grid.SetBiome(new TileCoord(2, 2), Biome.Forest);
+        var spec = StructureCatalog.Spec(StructureKind.LumberCamp);
+        for (var dy = -spec.ClaimRange; dy <= spec.ClaimRange; dy++)
+            for (var dx = -spec.ClaimRange; dx <= spec.ClaimRange; dx++)
+                sim.World.Grid.SetBiome(new TileCoord(2 + dx, 2 + dy), Biome.Forest);
 
         sim.SubmitIntent(0, new PlaceSiteIntent(new TileCoord(2, 2), StructureKind.LumberCamp));
         sim.Run();

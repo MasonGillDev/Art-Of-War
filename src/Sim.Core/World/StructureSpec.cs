@@ -39,9 +39,21 @@ public sealed record StructureSpec
 
     // M9 — fertility degrade contribution while actively producing. Combined
     // with BiomeDegradationConfig.DegradePeriod (global) to give a rate.
-    // Zero = this extractor type does NOT degrade in M9 (Quarry, Mine — out
-    // of scope; Hills/Mountain don't participate in the F/G/D ladder).
-    // MAX over overlapping in-range producers (NEVER sum) is enforced in
-    // BiomeDegradation.MaxInRangeProducingDegradeAmount.
+    // Zero = this extractor type does NOT degrade (Quarry, Mine — out of
+    // scope; Hills/Mountain don't participate in the F/G/D ladder).
+    // M15: degradation applies to the extractor's CLAIMED tiles
+    // (Claims.ClaimantDegradeAmount); overlap is structurally impossible
+    // (one claimant per tile) but the fold stays MAX, never sum.
     public int DegradeAmount { get; init; }
+
+    // M15 — extraction claims (docs/extraction-claims.md). Number of
+    // RequiredBiome tiles the extractor must claim at placement; the claim
+    // is the degradation footprint, the exclusion territory, and the
+    // production-taper denominator. Zero = non-claiming kind (Quarry,
+    // Mine): fully legacy own-tile behavior.
+    public int ClaimCount { get; init; }
+
+    // M15 — Chebyshev range (from the building tile) within which claim
+    // tiles may be chosen. Meaningless when ClaimCount == 0.
+    public int ClaimRange { get; init; }
 }

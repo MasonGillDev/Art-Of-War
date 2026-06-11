@@ -576,3 +576,45 @@ pinned by `CraftEquipmentTests.Craft_InsufficientInput_Rejected_NothingMutated`)
 - New global-iteration sites: none (`EquipUnitIntent` and
   `CraftEquipmentIntent` look up single entities by key;
   `DropEquipmentToGround` iterates one unit's buff list).
+
+## Update 2026-06-11 — extraction claims (M15)
+
+New mutation surface: the claim lists on `Extractor.ClaimTiles` and
+`ConstructionSite.ClaimTiles` (get-only lists; contents-only mutation).
+Exactly four writers, all at deterministic boundaries:
+
+| Site | Purpose | Verdict |
+|---|---|---|
+| `Logistics/PlaceSiteIntent.cs` (`Resolve`) | Reserves the claim on the site (explicit validated list, or deterministic `Claims.AutoSelect`) | Allowed — intent resolution |
+| `Logistics/BuildCompleteEvent.cs` | COPIES the site claim onto the finished extractor (AddRange of value coords — no aliasing, pinned by `BuildComplete_TransfersClaim_AsCopy_NotAlias`) | Allowed — event resolution; sites never produce → no rate change → no catch-up at transfer |
+| `World/Structure.cs` (`ArmIfDormant` lazy fill) | Fills empty claims on hand-built extractors via the same AutoSelect | Allowed — runs only inside event/intent resolution against a COMPLETE world. Deliberately NOT in `GameWorld.AddStructure`: that runs during `Snapshot.ReadStructures` mid-rebuild, where an auto-claim could see different neighbor claims than the live run (hash divergence). Restored extractors carry claims and skip the fill. |
+| `Persistence/Snapshot.cs` (`ReadClaimTiles`) | Restore | Allowed — serialization |
+
+Pure-read surface: `Claims.Validate` / `AutoSelect` / `ClaimantAt` /
+`ClaimantDegradeAmount` / `InBandClaimCount` — pinned by
+`ClaimsHelperTests.Helpers_ArePureReads_NoMutation` (100× + hash).
+`BiomeDegradation.DeriveRate` now sources degrade from
+`Claims.ClaimantDegradeAmount` (MAX fold kept on principle — order-
+independent even if the one-claimant invariant were violated);
+`OnProductionTransition` catch-up scope is CLAIM-BOUNDED (≤ ClaimCount
+tiles — tighter than the retired radius box; the radius scan
+`MaxInRangeProducingDegradeAmount` is deleted).
+
+`Snapshot.FormatVersion` 9 → 10 (claim lists on both carriers — the
+format change the Extractor Phase-A note predicted). Closure gates:
+`ClaimsDeterminismTests` (twin pipeline, mid-production restore, view
+purity) + `ClaimExclusionTests.MidBuild_PendingClaim_SnapshotRoundTrip`.
+`GenesisSpec` gained `BiomeDegradation` config (parallel to the other
+three) so demos/tests pace degradation without touching defaults.
+
+**Bug caught by the M15 closure gate** (fixed in the same milestone):
+`Snapshot.WriteFertility` filtered out `Deviation == 0` entries on the
+belief they "should not exist" — but those are the M9 transition
+ANCHORS (deviation 0, lastUpdate = transition tick), explicitly
+load-bearing per docs/biome-degradation.md. Dropping them made a
+restored producing extractor over-apply its degrade rate across the
+entire pre-snapshot history. The filter was SYMMETRIC, so round-trip
+hashes looked identical while live and restored sims evolved apart —
+exactly the failure class the mid-production headline test exists to
+catch. Lesson recorded: serialize state FAITHFULLY; "should not exist"
+beliefs belong in asserts, not silent filters.

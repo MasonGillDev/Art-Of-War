@@ -353,6 +353,7 @@ One commit per milestone is the default. Phase commits are appropriate when phas
 | **M13** | **Food consumption (castle sink: per-period drain by population; M9-style lazy catch-up; predicted-dry-out FamineCheckEvent; staggered StarvationDeathEvent — oldest first; recovery-clean)** | **✅** |
 | **M12** | **Boats (per-unit Traversal enum; water-only BoatMovementCost; Dock = shipyard + embark/disembark seam with Slip + auto-production + stall/re-arm; embarked passengers off-tile; Embark/MoveIntent/Disembark; sink-drowns; recovery-clean)** | **✅** |
 | **M14** | **Military (Barracks trains Soldier/Archer via `RoleTrainerCatalog`; Sword/Bow/Shield as `Resource` values; instant `CraftEquipmentIntent`; `EquipUnitIntent` → 2-slot distinct-kind Buff loadouts; `EffectivePower(now)` expiry seam; death/retrain drops items to the ground pile; zero new anchors → recovery-clean for free. Ranged-from-adjacent still deferred. See `docs/military-training.md` + `docs/equipment-model.md`)** | **✅** |
+| **M15** | **Extraction claims (LumberCamp/Farm work explicit player-chosen claim tiles — degradation footprint = claim, one claimant per tile across all kinds/owners, full structural exclusion both directions, ceil production taper by in-band claims, claim-exhausted dormancy + decline-to-arm; claims reserve at site placement and transfer at completion; FormatVersion 10; deterministic auto-select when the intent omits tiles. Demolish/Quarry-Mine claims/claim-editing deferred. See `docs/extraction-claims.md`)** | **✅** |
 
 ### After M8 — the big systems
 

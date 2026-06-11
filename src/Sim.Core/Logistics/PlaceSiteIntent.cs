@@ -21,12 +21,20 @@ public sealed class PlaceSiteIntent : Intent
     // Tile and Water biome at resolution time. Null for non-Dock kinds.
     public TileCoord? DockSlip { get; }
 
+    // M15 — claiming kinds only (Spec.ClaimCount > 0: LumberCamp, Farm).
+    // The working tiles the player painted; null = "auto-select for me"
+    // (deterministic Claims.AutoSelect; placement rejects if the land
+    // can't support a full claim). Ignored for non-claiming kinds.
+    public List<TileCoord>? ClaimTiles { get; }
+
     [System.Text.Json.Serialization.JsonConstructor]
-    public PlaceSiteIntent(TileCoord tile, StructureKind kind, TileCoord? dockSlip = null)
+    public PlaceSiteIntent(TileCoord tile, StructureKind kind, TileCoord? dockSlip = null,
+        List<TileCoord>? claimTiles = null)
     {
         Tile = tile;
         Kind = kind;
         DockSlip = dockSlip;
+        ClaimTiles = claimTiles;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
@@ -40,6 +48,13 @@ public sealed class PlaceSiteIntent : Intent
 
         if (sim.World.Structures.ContainsKey(Tile))
             return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} already has a structure");
+
+        // M15 — full structural exclusion: NO structure of any kind may be
+        // placed on a tile claimed by anyone (the owner included). Claims
+        // are physical territory. docs/extraction-claims.md.
+        if (Claims.ClaimantAt(sim.World, Tile) is { } claimant)
+            return IntentOutcome.Reject(
+                $"tile {Tile.X},{Tile.Y} is claimed by the structure at {claimant.X},{claimant.Y}");
 
         if (spec.RequiredBiome != Biome.None)
         {
@@ -80,13 +95,41 @@ public sealed class PlaceSiteIntent : Intent
                     $"slip {slip.X},{slip.Y} must be Water but is {slipBiome}");
         }
 
+        // M15 — claiming kinds reserve their working tiles AT PLACEMENT so
+        // two in-flight sites can't promise the same land. Explicit list →
+        // strict validation; omitted → deterministic auto-select. Either
+        // way the claim resolves (and fail-clean rejects) BEFORE the site
+        // mutates the world. Stored canonical (y, x).
+        List<TileCoord>? claim = null;
+        if (spec.ClaimCount > 0)
+        {
+            if (ClaimTiles is not null)
+            {
+                var reason = Claims.Validate(sim.World, Tile, spec, ClaimTiles, sim.Now);
+                if (reason is not null)
+                    return IntentOutcome.Reject(reason);
+                claim = new List<TileCoord>(ClaimTiles);
+                claim.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+            }
+            else
+            {
+                claim = Claims.AutoSelect(sim.World, Tile, spec, sim.Now);
+                if (claim is null)
+                    return IntentOutcome.Reject(
+                        $"insufficient claimable {spec.RequiredBiome} for {Kind} " +
+                        $"(needs {spec.ClaimCount} tiles within range {spec.ClaimRange})");
+            }
+        }
+
         // OwnerId carried from the issuing player via the base Intent.PlayerId.
         // The built structure (when BuildCompleteEvent fires) inherits this.
-        sim.World.AddStructure(new ConstructionSite(Tile, Kind)
+        var site = new ConstructionSite(Tile, Kind)
         {
             OwnerId = PlayerId,
             DockSlip = Kind == StructureKind.Dock ? DockSlip : null,
-        });
+        };
+        if (claim is not null) site.ClaimTiles.AddRange(claim);
+        sim.World.AddStructure(site);
         return IntentOutcome.Applied;
     }
 

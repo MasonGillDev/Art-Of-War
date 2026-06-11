@@ -61,7 +61,11 @@ public static class Snapshot
     // the StorageStructure shape), and Unit.Buffs was already
     // serialized since v4. A v9 snapshot written before the milestone
     // parses identically under post-milestone code.
-    public const int FormatVersion = 9;
+    //
+    //  10 — M15 extraction claims (Extractor.ClaimTiles +
+    //       ConstructionSite.ClaimTiles) — the format change the old
+    //       Extractor "PHASE-A PLACEHOLDER" comment always predicted.
+    public const int FormatVersion = 10;
 
     public static string Hash(Simulation sim)
     {
@@ -501,6 +505,9 @@ public static class Snapshot
         bw.Write(e.TickArmed);
         // M4: queued ProductionTickEvent anchor.
         WriteNullableLong(bw, e.NextProductionTickSeq);
+        // M15: claimed tiles — list is maintained in canonical (y, x)
+        // order by every writer, so we serialize verbatim.
+        WriteClaimTiles(bw, e.ClaimTiles);
     }
 
     private static Extractor ReadExtractor(BinaryReader br, Extractor e)
@@ -511,7 +518,23 @@ public static class Snapshot
         e.LastProductionTick = br.ReadInt64();
         e.TickArmed = br.ReadBoolean();
         e.NextProductionTickSeq = ReadNullableLong(br);
+        ReadClaimTiles(br, e.ClaimTiles);
         return e;
+    }
+
+    // M15 — shared claim-list (de)serialization for both carriers
+    // (Extractor + ConstructionSite).
+    private static void WriteClaimTiles(BinaryWriter bw, List<TileCoord> claims)
+    {
+        bw.Write(claims.Count);
+        foreach (var t in claims) { bw.Write(t.X); bw.Write(t.Y); }
+    }
+
+    private static void ReadClaimTiles(BinaryReader br, List<TileCoord> claims)
+    {
+        var n = br.ReadInt32();
+        for (var i = 0; i < n; i++)
+            claims.Add(new TileCoord(br.ReadInt32(), br.ReadInt32()));
     }
 
     private static void WriteConstruction(BinaryWriter bw, ConstructionSite c)
@@ -531,6 +554,9 @@ public static class Snapshot
         WriteNullableLong(bw, c.BuildCompleteSeq);
         // M12: Dock slip carrier (null for non-Dock targets).
         WriteNullableTileCoord(bw, c.DockSlip);
+        // M15: pending claim reserved at placement (empty for
+        // non-claiming targets).
+        WriteClaimTiles(bw, c.ClaimTiles);
     }
 
     private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at, int ownerId)
@@ -565,6 +591,7 @@ public static class Snapshot
         c.ScheduledCompletion = ReadNullableLong(br);
         c.BuildCompleteSeq = ReadNullableLong(br);
         c.DockSlip = ReadNullableTileCoord(br);
+        ReadClaimTiles(br, c.ClaimTiles);
         return c;
     }
 
@@ -931,12 +958,16 @@ public static class Snapshot
         bw.Write(c.DegradePeriod);
         bw.Write(c.DegradeRadius);
 
-        // Sparse fertility dict in canonical (y, x) order. Entries with
-        // Deviation == 0 should not exist (CatchUp removes them); guard
-        // anyway so a hand-constructed test world doesn't break canonical
-        // hashing.
+        // Sparse fertility dict in canonical (y, x) order — serialized
+        // FAITHFULLY, including Deviation == 0 entries. Those are the M9
+        // transition ANCHORS (deviation 0, lastUpdate = transition tick):
+        // dropping them restores a producing extractor's tiles with an
+        // implied lastUpdate of 0, over-applying the degrade rate across
+        // the whole pre-snapshot history. (Latent M9 bug; caught by M15's
+        // MidProduction_ClaimsPartiallyDegraded_SnapshotRoundTrip — the
+        // filter was symmetric so round-trip hashes LOOKED identical while
+        // the live and restored sims evolved apart.)
         var list = world.Fertility
-            .Where(kv => kv.Value.Deviation != 0)
             .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
             .ToList();
         bw.Write(list.Count);

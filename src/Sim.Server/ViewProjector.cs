@@ -224,6 +224,7 @@ public sealed class ViewProjector
     {
         var dto = new StructDto { X = s.At.X, Y = s.At.Y, Kind = (int)s.Kind, OwnerId = s.OwnerId };
         if (s.OwnerId == viewerPlayerId) EnrichOwned(dto, s, world, now);
+        FillClaims(dto, s);
         return dto;
     }
 
@@ -233,9 +234,29 @@ public sealed class ViewProjector
     private static StructDto ToStructDto(StructureView sv, int viewerPlayerId, GameWorld world, long now)
     {
         var dto = new StructDto { X = sv.At.X, Y = sv.At.Y, Kind = (int)sv.Kind, OwnerId = sv.OwnerId };
-        if (sv.OwnerId == viewerPlayerId && world.Structures.TryGetValue(sv.At, out var real))
-            EnrichOwned(dto, real, world, now);
+        if (world.Structures.TryGetValue(sv.At, out var real))
+        {
+            if (sv.OwnerId == viewerPlayerId) EnrichOwned(dto, real, world, now);
+            // M15 — claims are NOT own-only (the one exception to the
+            // enrichment rule): a visible structure's land use is physical
+            // and scoutable; placement rejections reference it anyway.
+            FillClaims(dto, real);
+        }
         return dto;
+    }
+
+    // M15 — claimed tiles for either carrier (extractor or pending site).
+    private static void FillClaims(StructDto dto, Structure s)
+    {
+        var claims = s switch
+        {
+            Extractor e => e.ClaimTiles,
+            ConstructionSite c => c.ClaimTiles,
+            _ => null,
+        };
+        if (claims is null || claims.Count == 0) return;
+        dto.ClaimX = claims.Select(t => t.X).ToArray();
+        dto.ClaimY = claims.Select(t => t.Y).ToArray();
     }
 
     // Holdings / extractor buffer / construction-site status — private activity, only

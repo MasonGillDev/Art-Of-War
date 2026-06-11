@@ -13,7 +13,17 @@ public class ProductionTests
     {
         var grid = new TileGrid(6, 6, Biome.Grassland);
         var tile = new TileCoord(2, 2);
-        grid.SetBiome(tile, biome);
+        // M15: a claiming kind needs ClaimCount in-biome tiles within
+        // ClaimRange (lazy auto-claim fills them at first arm) — paint the
+        // whole claim box, derived from the spec.
+        var spec = StructureCatalog.Spec(kind);
+        var r = Math.Max(spec.ClaimRange, 0);
+        for (var dy = -r; dy <= r; dy++)
+            for (var dx = -r; dx <= r; dx++)
+            {
+                var t = new TileCoord(tile.X + dx, tile.Y + dy);
+                if (t.X >= 0 && t.Y >= 0 && t.X < 6 && t.Y < 6) grid.SetBiome(t, biome);
+            }
         var world = new GameWorld(grid);
         var extractor = world.AddStructure(new Extractor(kind, tile));
         var sim = new Simulation(world, seed: 1);

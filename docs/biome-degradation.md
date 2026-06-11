@@ -364,3 +364,24 @@ space), with expectations derived from config + `StructureSpec.DegradeAmount`
 — so future pacing retunes are a one-file change that the contract tests
 survive untouched. Same pattern as the test-sized `CombatConfig` in
 `CombatResolutionTests`.
+
+## Update 2026-06-11 — footprint model superseded by claims (M15)
+
+For LumberCamp and Farm, the Chebyshev-radius degradation footprint and
+the own-tile dormancy check described above are superseded by
+**extraction claims** (see `docs/extraction-claims.md` and
+`docs/m15-extraction-claims-spec.md`): the extractor degrades exactly
+its claimed tiles, goes dormant when no claimed tile remains in band,
+and its own tile no longer degrades. `DegradeRadius` survives as the
+default claim range. Two semantic changes worth naming:
+
+- Only a tile's CLAIMANT suppresses its recovery while producing —
+  under the radius model any in-range producer did.
+- MAX-over-overlapping-producers still exists in code as a defensive
+  fold, but overlap is structurally impossible (one claimant per tile,
+  enforced at placement).
+
+The lazy catch-up math, the snap penalty, the implicit latch, the
+carry/anchor discipline, and the off-ladder rules are all unchanged —
+claims only re-target WHICH tiles the existing machinery applies to.
+Quarry/Mine (DegradeAmount 0) keep the M9 model verbatim.

@@ -166,7 +166,12 @@ public static class BiomeDegradation
         GameWorld world, TileCoord tile, long now, BiomeDegradationConfig config)
     {
         var storedFert = baseline + storedDev;
-        var degradeAmount = MaxInRangeProducingDegradeAmount(world, tile, config);
+        // M15 — the degrade source is the tile's CLAIMANT (a producing
+        // extractor whose claim contains this tile), not a radius scan.
+        // Only the claimant suppresses recovery now: a neighboring
+        // producing camp no longer touches land it didn't claim. See
+        // docs/extraction-claims.md.
+        var degradeAmount = Sim.Core.World.Claims.ClaimantDegradeAmount(world, tile);
         // Implicit latch: stored fertility below threshold → permanent desert.
         // Recovery is forced to 0; only degrade applies (which just pushes the
         // deviation further negative — biome stays Desert).
@@ -184,76 +189,43 @@ public static class BiomeDegradation
         return (0, 1);
     }
 
-    // MAX (not sum) of DegradeAmount across in-range, actively-producing
-    // extractor instances. The "active production" gate is TickArmed: it's
-    // true precisely for the interval [start-producing, stop-producing].
-    //
-    // PURE — reads world.Structures; writes nothing.
-    //
-    // SCALING: O(structures) per call. At M9 extractor counts this is fine.
-    // A per-tile spatial index (Dictionary<TileCoord, List<Extractor>>) would
-    // make this O(extractors-in-radius) but isn't needed yet. Architecture
-    // §4 rule 10 flags this shape — comment kept here as a reminder.
-    private static int MaxInRangeProducingDegradeAmount(
-        GameWorld world, TileCoord tile, BiomeDegradationConfig config)
-    {
-        var max = 0;
-        var r = config.DegradeRadius;
-        foreach (var s in world.Structures.Values)
-        {
-            if (s is not Extractor e) continue;
-            if (!e.TickArmed) continue;
-            if (e.Spec.DegradeAmount <= 0) continue;
-            var dx = Math.Abs(e.At.X - tile.X);
-            var dy = Math.Abs(e.At.Y - tile.Y);
-            if (dx > r || dy > r) continue;  // Chebyshev > radius
-            if (e.Spec.DegradeAmount > max) max = e.Spec.DegradeAmount;
-        }
-        return max;
-    }
+    // (M15) The M9 radius scan — MaxInRangeProducingDegradeAmount — is
+    // retired: the degrade source is Claims.ClaimantDegradeAmount (MAX
+    // fold over producing claimants; overlap is structurally impossible
+    // but the fold stays order-independent on principle). The O(structures)
+    // scaling note moves with it — see Claims.ClaimantAt.
 
-    // Catch up every tile in the extractor's radius (Chebyshev, including
-    // own tile) to `now` using the rate that applied JUST BEFORE this call.
+    // Catch up every tile the extractor CLAIMS (its working tiles — the
+    // building's own tile is not among them and never degrades) to `now`
+    // using the rate that applied JUST BEFORE this call.
     //
     // The caller is responsible for sequencing TickArmed correctly so that
     // the rate read inside CatchUp reflects the pre-change world state:
     //
     //   ON START (dormant → producing):
     //     Call this BEFORE setting TickArmed=true. The calling extractor's
-    //     TickArmed is false → MaxInRangeProducingDegradeAmount EXCLUDES it
+    //     TickArmed is false → Claims.ClaimantDegradeAmount EXCLUDES it
     //     → tiles catch up under the pre-start rate. After this returns,
     //     the caller sets TickArmed=true and the new (higher) rate kicks in.
+    //     (The M15 lazy auto-claim assigns ClaimTiles before this call —
+    //     safe for the same reason: claim presence without TickArmed
+    //     contributes no rate.)
     //
     //   ON STOP (producing → dormant):
     //     Call this BEFORE setting TickArmed=false. The calling extractor's
-    //     TickArmed is still true → MaxInRangeProducingDegradeAmount
+    //     TickArmed is still true → Claims.ClaimantDegradeAmount
     //     INCLUDES it → tiles catch up under the pre-stop rate. After this
     //     returns, the caller sets TickArmed=false and the new (lower) rate
     //     governs going forward.
     //
-    // Either way, the function body is identical: iterate tiles in the
-    // Chebyshev radius, call CatchUp on each. The catch-up scope is
-    // RADIUS-BOUNDED (never a global sweep — that's the M9 promise; see
-    // architecture §4 rule 3).
+    // The catch-up scope is CLAIM-BOUNDED (≤ ClaimCount tiles — never a
+    // global sweep; the M9 promise, now tighter than the radius box).
     internal static void OnProductionTransition(
         GameWorld world, Extractor extractor, long now, BiomeDegradationConfig config)
     {
         if (extractor.Spec.DegradeAmount <= 0) return;  // Quarry / Mine: no-op
-        var center = extractor.At;
-        var r = config.DegradeRadius;
-        var w = world.Grid.Width;
-        var h = world.Grid.Height;
-        for (var dy = -r; dy <= r; dy++)
-        {
-            var y = center.Y + dy;
-            if (y < 0 || y >= h) continue;
-            for (var dx = -r; dx <= r; dx++)
-            {
-                var x = center.X + dx;
-                if (x < 0 || x >= w) continue;
-                CatchUp(world, new TileCoord(x, y), now, config);
-            }
-        }
+        foreach (var t in extractor.ClaimTiles)
+            CatchUp(world, t, now, config);
     }
 
     // The integer-exact, observation-independent math. PURE.

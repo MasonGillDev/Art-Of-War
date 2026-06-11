@@ -121,4 +121,10 @@ public sealed class StructDto
     public bool Building { get; set; }                 // construction site: actively building
     public int BuildProgress { get; set; } = -1;       // construction site: % complete (0..100); -1 = N/A
     public long BuildEtaTicks { get; set; } = -1;      // construction site: ticks to completion while building; -1 = N/A
+    // M15 — claimed working tiles (parallel arrays; JsonUtility-friendly).
+    // UNLIKE the own-only enrichment above, claims are emitted for ANY
+    // visible structure (extractor or pending site): they're physical land
+    // use, revealed by scouting — and the reject toast needs no secret.
+    public int[] ClaimX { get; set; } = [];
+    public int[] ClaimY { get; set; } = [];
 }

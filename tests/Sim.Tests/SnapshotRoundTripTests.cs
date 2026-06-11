@@ -56,6 +56,10 @@ public class SnapshotRoundTripTests
         camp.Buffer = 12;
         camp.LastProductionTick = 84;
         camp.TickArmed = true;
+        // M15: claimed tiles (canonical (y,x) order — the writer discipline).
+        camp.ClaimTiles.Add(new TileCoord(3, 1));
+        camp.ClaimTiles.Add(new TileCoord(1, 2));
+        camp.ClaimTiles.Add(new TileCoord(3, 2));
 
         // ConstructionSite, paused mid-build, partially delivered. ScheduledCompletion
         // and LastActiveAtTick are null because it's PAUSED — exactly the state
@@ -66,6 +70,11 @@ public class SnapshotRoundTripTests
         site.BuildPaused = true;
         site.LastActiveAtTick = null;
         site.ScheduledCompletion = null;
+        // M15: pending claim reserved at placement.
+        site.ClaimTiles.Add(new TileCoord(4, 2));
+        site.ClaimTiles.Add(new TileCoord(3, 3));
+        site.ClaimTiles.Add(new TileCoord(5, 3));
+        site.ClaimTiles.Add(new TileCoord(4, 4));
 
         // Units in a mix of states. Build them in non-sorted order to make
         // sure canonical ordering is doing the work.
@@ -145,6 +154,38 @@ public class SnapshotRoundTripTests
     {
         var bytes = new byte[64];
         Assert.Throws<InvalidDataException>(() => Snapshot.Restore(bytes, seed: 1));
+    }
+
+    [Fact]
+    public void ClaimTiles_RoundTrip_BothCarriers_ContentAndOrder()
+    {
+        // M15: claims on the Extractor AND the pending claim on a
+        // ConstructionSite must restore with identical content and order
+        // (the list is canonical (y,x); the snapshot writes verbatim).
+        var original = BuildRichWorld();
+        var bytes = Snapshot.Serialize(original);
+        var restored = Snapshot.Restore(bytes, seed: 0xBADF00D);
+
+        var camp = (Extractor)restored.World.Structures[new TileCoord(2, 2)];
+        Assert.Equal(
+            new[] { new TileCoord(3, 1), new TileCoord(1, 2), new TileCoord(3, 2) },
+            camp.ClaimTiles);
+
+        var site = (ConstructionSite)restored.World.Structures[new TileCoord(4, 3)];
+        Assert.Equal(
+            new[] { new TileCoord(4, 2), new TileCoord(3, 3), new TileCoord(5, 3), new TileCoord(4, 4) },
+            site.ClaimTiles);
+
+        // Empty claims (non-claiming kinds / unfilled fixtures) stay empty:
+        // the Mountain quarry in BuildRichWorld has none... it has no
+        // extractor — assert via a fresh non-claiming extractor instead.
+        var grid = new TileGrid(4, 4, Biome.Mountain);
+        var w2 = new GameWorld(grid);
+        w2.AddStructure(new Extractor(StructureKind.Quarry, new TileCoord(1, 1)));
+        var sim2 = new Simulation(w2, seed: 7);
+        var restored2 = Snapshot.Restore(Snapshot.Serialize(sim2), seed: 7);
+        Assert.Empty(((Extractor)restored2.World.Structures[new TileCoord(1, 1)]).ClaimTiles);
+        Assert.Equal(Snapshot.Hash(sim2), Snapshot.Hash(restored2));
     }
 
     private sealed class RecordingEvent : ScheduledEvent

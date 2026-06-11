@@ -35,6 +35,11 @@ public sealed record GenesisSpec
     // gestation, food cost). Defaulted.
     public Population.PopulationConfig Population { get; init; } = new();
 
+    // M9/M15: world-level biome-degradation configuration (fertility space,
+    // periods, claim range default). Defaulted; demo/host scenarios override
+    // for faster pacing, same as the other configs.
+    public Sim.Core.Biomes.BiomeDegradationConfig BiomeDegradation { get; init; } = new();
+
     public int FactionCount => FactionStarts.Count;
 }
 
@@ -79,7 +84,7 @@ public static class Genesis
         foreach (var (coord, biome) in spec.Biomes)
             grid.SetBiome(coord, biome);
 
-        var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population);
+        var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population, spec.BiomeDegradation);
 
         // Iterate factions in OwnerId order — deterministic placement,
         // matches the snapshot canonical Players order (sorted-by-id).

@@ -58,6 +58,12 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         // OwnerId inherits from the ConstructionSite (which got it from
         // PlaceSiteIntent's PlayerId at submission time).
         var built = BuildStructure(site.TargetKind, SiteTile, site.OwnerId, site.DockSlip);
+        // M15 — the claim reserved at placement transfers to the finished
+        // extractor. COPY (AddRange of value-type coords), never alias the
+        // site's list. Sites never produce, so no degradation rate changes
+        // at transfer — no catch-up needed (docs/extraction-claims.md).
+        if (built is Extractor builtExtractor && site.ClaimTiles.Count > 0)
+            builtExtractor.ClaimTiles.AddRange(site.ClaimTiles);
         world.AddStructure(built);
         // M3 Phase B: if the new structure is a vision source (Castle /
         // Tower), reveal its area for the owner.

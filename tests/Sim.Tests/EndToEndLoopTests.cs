@@ -32,7 +32,12 @@ public class EndToEndLoopTests
     private static (Simulation sim, ConstructionSite farmSite) Bootstrap()
     {
         var grid = new TileGrid(WorldSize, WorldSize, Biome.Grassland);
-        grid.SetBiome(CampAt, Biome.Forest); // single Forest tile for LumberCamp
+        // M15: the LumberCamp claims ClaimCount Forest tiles in range —
+        // paint its full claim box (derived from the spec), not one tile.
+        var paintSpec = StructureCatalog.Spec(StructureKind.LumberCamp);
+        for (var dy = -paintSpec.ClaimRange; dy <= paintSpec.ClaimRange; dy++)
+            for (var dx = -paintSpec.ClaimRange; dx <= paintSpec.ClaimRange; dx++)
+                grid.SetBiome(new TileCoord(CampAt.X + dx, CampAt.Y + dy), Biome.Forest);
         var world = new GameWorld(grid);
 
         // Castle holds enough Wood to build the LumberCamp directly.
