@@ -265,3 +265,29 @@ snapshotted). Snapshot.FormatVersion stays at 6.
   rate × last-touched-tick, compute on access" pure-read derived state.
 - M3 fog of war (`Sim.Core.Vision.View.VisibleTiles`) provides the
   player-perspective primitive PlanCost queries.
+
+## Update 2026-06-11 — march pace (×3) and the 1-tile-=-1-km anchor
+
+Biome move costs tripled (Grassland 10→30, Forest 30→90, Hills 25→75,
+Mountain 45→135, Desert 40→120, Water-on-foot 250→750; boats stay 6).
+
+**The anchor:** 1 tile ≈ 1 km. The old costs were a 6 km/h *stroll*
+sustained forever — units crossed the 256-tile map in 1.8 game-days, so
+distance was strategically free next to everything else on the
+days-to-a-season band (docks 10 d, war delay 30 d, land exhaustion
+~104 d). The new costs price a SUSTAINED march (~2 km/h on open ground —
+rest, camps, and terrain included): crossing the map is a 5.3-day
+expedition, a maxed road (−66%) restores the old pace (roads ARE the
+speed upgrade), and a boat is 5× open-ground pace (the Dock's promise).
+
+**Crowding bands scaled in lockstep** (10/25/50 → 30/75/150, now the
+named constants Small/Medium/LargeBand). The bands are pegged at
++1/+2.5/+5 grassland-tiles-worth: a 16+ pileup must cost more than a
+short detour around it, or the route-around-visible-crowds behaviour
+silently dies — which is exactly how the proportionality break surfaced
+(Path_AvoidsVisibleCrowd_RoutesAround failed when terrain tripled and
+the bands didn't).
+
+**Tests** now derive every movement expectation from
+`Biomes.MoveCost` / `RoadConstants` / the band constants — the next
+retune of any of these numbers is a one-file change.

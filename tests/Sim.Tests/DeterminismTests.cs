@@ -53,7 +53,8 @@ public class DeterminismTests
     [Fact]
     public void UnitReachesDestination_AtExpectedTick()
     {
-        // Open 3x3 grid, Grassland cost 10 per step. (0,0) -> (2,2) = 4 steps = 40 ticks.
+        // Open 3x3 grid. (0,0) -> (2,2) = 4 steps at the grassland cost —
+        // derived so movement retunes don't touch this test.
         var grid = new TileGrid(3, 3);
         var world = new GameWorld(grid);
         world.AddUnit(1, new TileCoord(0, 0));
@@ -61,7 +62,7 @@ public class DeterminismTests
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(2, 2)));
         sim.Run();
         Assert.Equal(new TileCoord(2, 2), sim.World.Units[1].Position);
-        Assert.Equal(40, sim.Now);
+        Assert.Equal(4 * Biomes.MoveCost(Biome.Grassland), sim.Now);
     }
 
     // Counter-event proves the tiebreak: two events scheduled at the same tick

@@ -14,7 +14,25 @@ namespace Sim.Tests;
 // observation independence over real production-state changes.
 public class BiomeFertilityCatchUpTests
 {
-    private static readonly BiomeDegradationConfig Cfg = new();
+    // Explicit SMALL-SCALE config: these tests pin the catch-up MATH
+    // (snaps, clamps, observation independence), which is scale-free —
+    // the production default carries the gameplay pacing (a ×100 point
+    // space with hourly periods) and is free to retune without touching
+    // these contracts. Same pattern as CombatResolutionTests' test-sized
+    // CombatConfig.
+    private static readonly BiomeDegradationConfig Cfg = new(
+        ForestBaseline:    100,
+        GrasslandBaseline:  50,
+        DesertBaseline:     10,
+        HillsBaseline:      30,
+        MountainBaseline:   60,
+        WaterBaseline:       0,
+        ForestThreshold:    75,
+        DesertThreshold:    25,
+        RecoveryAmount:      1,
+        RecoveryPeriod:     30,
+        DegradePeriod:      10,
+        DegradeRadius:       2);
 
     private static GameWorld MakeWorld(Biome biome = Biome.Forest, int width = 4, int height = 4)
     {

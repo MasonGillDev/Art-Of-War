@@ -37,10 +37,12 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 10 },
             BuildDurationTicks = 10 * Time.Hour,
             RequiredBuilderCount = 1,
-            // M9 — degrades Forest at the BiomeDegradationConfig.DegradePeriod
-            // cadence. 1 fertility per period × ForestBaseline 100 →
-            // ~1000 ticks of continuous production exhaust a Forest tile.
-            DegradeAmount = 1,
+            // M9 — degrades Forest at 2 fertility per DegradePeriod (logging
+            // strips land faster than farming exhausts it). Forest (10000)
+            // crosses below ForestThreshold 7500 after ~1250 hourly periods
+            // ≈ 52 days of continuous production, then snaps to Grassland —
+            // a durable but REVERSIBLE loss (~208 days of rest to regrow).
+            DegradeAmount = 2,
         },
         [StructureKind.Quarry] = new StructureSpec
         {
@@ -97,14 +99,14 @@ public static class StructureCatalog
             BuildDurationTicks = 10 * Time.Hour,
             RequiredBuilderCount = 1,
             // M9 — Farm drives Grassland into PERMANENT Desert (latch fires
-            // when current fertility crosses below 25). 1 fertility per
-            // DegradePeriod (10 ticks) × Grassland headroom (50→24 = 26
-            // points) → ~260 ticks of continuous production make a fresh
-            // Grassland tile permanently dead. The PERMANENCE is the
-            // punishment (LumberCamp's Forest→Grassland is reversible; this
-            // is not), not the speed: Farm now takes the same wall-clock
-            // time per band as LumberCamp does, but its band crossing is
-            // one-way.
+            // when current fertility crosses below DesertThreshold 2500).
+            // 1 fertility per hourly DegradePeriod × Grassland headroom
+            // (5000→2499 = ~2500 points) → ~104 days (~3.5 game-months) of
+            // continuous production make a fresh Grassland tile permanently
+            // dead. The PERMANENCE is the punishment (LumberCamp's
+            // Forest→Grassland is reversible; this is not) — and it claims
+            // the whole DegradeRadius around the farm, so rotating farmland
+            // is the long game.
             DegradeAmount = 1,
         },
         [StructureKind.ConstructionSite] = new StructureSpec

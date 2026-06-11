@@ -11,8 +11,18 @@ public class RoadCostTests
 {
     private static GameWorld GrasslandWorld(int w = 4, int h = 4)
     {
-        var grid = new TileGrid(w, h, Biome.Grassland); // cost 10
+        var grid = new TileGrid(w, h, Biome.Grassland);
         return new GameWorld(grid);
+    }
+
+    // Expected cost on a maxed-out road, derived from the same constants the
+    // production formula reads — so biome-cost retunes never touch this file.
+    // (At cap: reduction = biomeCost × MAX_REDUCTION_PERCENT %, floored at MIN_COST.)
+    private static int CapCost(Biome b)
+    {
+        var c = Biomes.MoveCost(b);
+        var reduced = c - (int)((long)c * RoadConstants.MAX_REDUCTION_PERCENT / 100L);
+        return reduced < RoadConstants.MIN_COST ? RoadConstants.MIN_COST : reduced;
     }
 
     [Fact]
@@ -44,8 +54,8 @@ public class RoadCostTests
     [Fact]
     public void Cost_NeverDropsBelow_MIN_COST()
     {
-        // Grassland (cost 10) at cap with MAX_REDUCTION_PERCENT = 66 →
-        // reduction = 10 * 66 / 100 = 6 → cost = 4. Still above MIN_COST=1.
+        // Grassland at cap: reduced by MAX_REDUCTION_PERCENT, never below
+        // MIN_COST. Expected derives from the constants.
         var world = GrasslandWorld();
         var tile = new TileCoord(1, 1);
 
@@ -54,35 +64,41 @@ public class RoadCostTests
         Assert.True(cost >= RoadConstants.MIN_COST,
             $"Cost {cost} below MIN_COST {RoadConstants.MIN_COST}");
 
-        Assert.Equal(4, cost);
+        Assert.Equal(CapCost(Biome.Grassland), cost);
     }
 
     [Fact]
     public void ForestRoad_AtCap_ProportionallyReduced()
     {
-        // Forest cost = 30, MAX_REDUCTION_PERCENT = 66 → reduction = 19,
-        // cap cost = 11. (Old flat-8 model gave 22; proportional model
-        // makes the road actually useful on expensive terrain.)
+        // Proportional reduction makes the road actually useful on
+        // expensive terrain (the old flat-8 model barely dented forest).
+        // Expected derives from constants; the relational assert pins the
+        // "meaningful speedup" shape under any tuning.
         var grid = new TileGrid(4, 4, Biome.Forest);
         var world = new GameWorld(grid);
         var tile = new TileCoord(1, 1);
         world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        Assert.Equal(11, Road.EffectiveCost(world, tile, now: 0));
+        var cost = Road.EffectiveCost(world, tile, now: 0);
+        Assert.Equal(CapCost(Biome.Forest), cost);
+        Assert.True(cost * 2 < Biomes.MoveCost(Biome.Forest),
+            "a maxed road should at least halve forest cost");
     }
 
     [Fact]
     public void MountainRoad_AtCap_ProportionallyReduced()
     {
-        // The load-bearing case for proportional roads: a maxed road on
-        // mountain (cost 45) gives reduction = 45 * 66 / 100 = 29, so cost
-        // = 16. Under the old flat-8 model mountain went 45 → 37 (1.22x);
-        // under proportional, 45 → 16 (~2.8x). Roads are now meaningfully
-        // useful on hard terrain.
+        // The load-bearing case for proportional roads: a maxed mountain
+        // road gets the same ~3x speedup as every other biome (the old
+        // flat-8 model gave mountain a useless 1.22x). Derived from
+        // constants; the relational assert pins the proportionality.
         var grid = new TileGrid(4, 4, Biome.Mountain);
         var world = new GameWorld(grid);
         var tile = new TileCoord(1, 1);
         world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        Assert.Equal(16, Road.EffectiveCost(world, tile, now: 0));
+        var cost = Road.EffectiveCost(world, tile, now: 0);
+        Assert.Equal(CapCost(Biome.Mountain), cost);
+        Assert.True(cost * 2 < Biomes.MoveCost(Biome.Mountain),
+            "a maxed road should at least halve mountain cost");
     }
 
     [Fact]

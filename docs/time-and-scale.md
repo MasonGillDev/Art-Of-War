@@ -122,3 +122,42 @@ Famine grace        ==  Time.Day                 ==    1,440
 Year > Month > Day > Hour > Minute in *every* place a duration appears.
 If any future config violates this ladder, the bug is in the config, not
 the calendar.
+
+## Update 2026-06-11 — the three time bands (proportion audit)
+
+A full audit of every time-denominated constant found the sim running on
+two incompatible clocks: an economy clock (minutes→days) and a literal-
+calendar demographic clock (months→decades), 30–500× apart. A child took
+13 game-years (~94 wall-hours at 20 tps) to become trainable while
+starvation killed hourly — population could crash in an afternoon and
+needed a generation to recover. `--tps` cannot fix ratios; it scales
+everything uniformly.
+
+The sim now runs on three deliberate bands:
+
+- **Action band** (minutes–hours): movement per tile, production
+  periods, builds, combat rounds, meals.
+- **Strategic band** (days–season): docks, war telegraphing, road decay,
+  land degradation/regrowth, starvation cascades, map-crossing journeys,
+  and now ALL OF DEMOGRAPHY.
+- The old epoch band is gone.
+
+Two knobs moved demography down a band while preserving its internal
+proportions:
+
+- `PopulationConfig.TicksPerYear = 4 × Time.Day` — the demographic
+  clock. One age-year per 4 game-days: gestation 3 d, trainable 52 d,
+  fertile 72–180 d, lifespan 200–320 d (avg ≈ one forest regrowth).
+  A generation ≈ a season. Age gates stay denominated in age-years, so
+  this one constant rescales everything demographic.
+- `GestationTicks = (9/12) × TicksPerYear` — keep this invariant when
+  retuning so "nine months" tracks the demographic clock.
+
+Movement joined the strategic band via the ×3 march-pace retune (see
+docs/movement-cost.md). The robustness fix that came out of it:
+`Population.AgeYears` now computes in long and clamps (the
+adult-by-default BornTick sentinel produced int-cast sign-garbage that
+flipped with TicksPerYear retunes).
+
+`--tps` is now a pure pace dial: it changes how fast the whole game
+plays, never the relationships inside it.

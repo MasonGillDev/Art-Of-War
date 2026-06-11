@@ -1,4 +1,4 @@
-using Sim.Core.Biomes;
+﻿using Sim.Core.Biomes;
 using Sim.Core.Engine;
 using Sim.Core.Persistence;
 using Sim.Core.Vision;
@@ -6,22 +6,43 @@ using Sim.Core.World;
 
 namespace Sim.Tests;
 
-// M9 Phase E — fog × biome integration. The remembered-terrain map
+// M9 Phase E â€” fog Ã— biome integration. The remembered-terrain map
 // (M3) now records LAST-SEEN biome rather than worldgen biome. A tile that
 // degrades behind the fog still shows its last-seen value until a re-scout
 // refreshes it.
 public class BiomeDegradationFogTests
 {
-    private static readonly BiomeDegradationConfig Cfg = new();
+    // Explicit SMALL-SCALE test config (the production default carries the
+    // gameplay pacing on a Ã—100 point space). Seeded deviations below
+    // (-40 = mid-Grassland, -90 = Desert) are in THIS scale; the worlds are
+    // built with the same config so Sight.Reveal / BuildPlayerView read it.
+    private static readonly BiomeDegradationConfig Cfg = new(
+        ForestBaseline:    100,
+        GrasslandBaseline:  50,
+        DesertBaseline:     10,
+        HillsBaseline:      30,
+        MountainBaseline:   60,
+        WaterBaseline:       0,
+        ForestThreshold:    75,
+        DesertThreshold:    25,
+        RecoveryAmount:      1,
+        RecoveryPeriod:     30,
+        DegradePeriod:      10,
+        DegradeRadius:       2);
+
+    private static GameWorld MakeWorld(TileGrid grid) => new(
+        grid, new Sim.Core.Diplomacy.DiplomacyConfig(),
+        new Sim.Core.Combat.CombatConfig(), new Sim.Core.Population.PopulationConfig(),
+        Cfg);
 
     [Fact]
     public void Reveal_RecordsLastSeenBiome_AtCallTime()
     {
-        // A Forest tile, no degradation. Reveal at t=0 → remembered = Forest.
+        // A Forest tile, no degradation. Reveal at t=0 â†’ remembered = Forest.
         // Pre-place a Fertility entry that pushes the tile to Grassland. New
-        // reveal at later tick → remembered updates to Grassland.
+        // reveal at later tick â†’ remembered updates to Grassland.
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         var tile = new TileCoord(4, 4);
 
         Sight.Reveal(world, 0, tile, r: 0 + 1, now: 0);
@@ -40,7 +61,7 @@ public class BiomeDegradationFogTests
         // Scout Forest, leave, degrade it (no further reveal), the player
         // view still shows Forest.
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         var sim = new Simulation(world, seed: 1);
         var tile = new TileCoord(4, 4);
 
@@ -54,7 +75,7 @@ public class BiomeDegradationFogTests
         Assert.Equal(Biome.Grassland, BiomeDegradation.BiomeAt(world, tile, sim.Now, Cfg));
 
         // Player view: the tile is in Explored, NOT in Visible (no current
-        // vision source) → it appears in RememberedTerrain showing the last-
+        // vision source) â†’ it appears in RememberedTerrain showing the last-
         // seen value (Forest), NOT the current value (Grassland).
         var view = View.BuildPlayerView(world, 0, sim.Now);
         Assert.DoesNotContain(tile, view.Visible);
@@ -69,7 +90,7 @@ public class BiomeDegradationFogTests
         // (the view tier rule: visible tiles fall through to live world data,
         // not the cached remembered value).
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         var sim = new Simulation(world, seed: 1);
         var tile = new TileCoord(4, 4);
 
@@ -78,11 +99,11 @@ public class BiomeDegradationFogTests
         world.AddStructure(castle);
         Sight.Reveal(world, 0, tile, Sight.RadiusFor(StructureKind.Castle), now: 0);
 
-        // Degrade — would normally shift the player's view if we used last-seen.
+        // Degrade â€” would normally shift the player's view if we used last-seen.
         world.Fertility[tile] = new Fertility(deviation: -40, lastUpdateTick: 0);
 
         var view = View.BuildPlayerView(world, 0, sim.Now);
-        // Tile is currently visible → BiomeAt shows Grassland, but the view
+        // Tile is currently visible â†’ BiomeAt shows Grassland, but the view
         // doesn't put it in RememberedTerrain (visible tiles fall through to
         // live data).
         Assert.Contains(tile, view.Visible);
@@ -92,10 +113,10 @@ public class BiomeDegradationFogTests
     [Fact]
     public void ReScout_RefreshesRememberedBiome_ToCurrent()
     {
-        // Scout, leave, degrade, scout AGAIN → remembered biome refreshes
+        // Scout, leave, degrade, scout AGAIN â†’ remembered biome refreshes
         // from Forest to Grassland.
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         var tile = new TileCoord(4, 4);
 
         Sight.Reveal(world, 0, tile, r: 1, now: 0);
@@ -113,11 +134,11 @@ public class BiomeDegradationFogTests
     public void View_DoesNotLeak_CurrentBiome_OnNonVisibleTiles()
     {
         // After degrading a tile behind the fog, the player view's
-        // RememberedTerrain must NOT contain the current biome — only the
+        // RememberedTerrain must NOT contain the current biome â€” only the
         // last-seen one. This is the privacy contract: no info-leak through
         // remembered terrain.
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         var sim = new Simulation(world, seed: 1);
         var tile = new TileCoord(4, 4);
 
@@ -138,7 +159,7 @@ public class BiomeDegradationFogTests
         // additions: BuildPlayerView called many times in a row must not
         // change the sim hash.
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         var sim = new Simulation(world, seed: 1);
         var tile = new TileCoord(4, 4);
 
@@ -157,7 +178,7 @@ public class BiomeDegradationFogTests
         // through Snapshot. Otherwise post-recovery views would lose their
         // stale-memory and reveal the current biome incorrectly.
         var grid = new TileGrid(8, 8, Biome.Forest);
-        var world = new GameWorld(grid);
+        var world = MakeWorld(grid);
         Sight.Reveal(world, 0, new TileCoord(4, 4), r: 1, now: 0);
         Sight.Reveal(world, 1, new TileCoord(2, 2), r: 1, now: 0);
         // Mutate one tile's remembered biome (simulating a scout that saw it

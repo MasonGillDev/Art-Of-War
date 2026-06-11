@@ -322,3 +322,45 @@ Snapshot serialization adds the new field; the format-version bumps to 6.
   extends.
 - `persistent-rts-design.md` §11 — the "trade as escape from collapse"
   loop M9 finally makes meaningful.
+
+## Update 2026-06-10 — land degrades on the calendar, not the hour hand
+
+**The retune.** The original pacing desertified land absurdly fast against
+the unified Time vocabulary: a Farm permanently killed its 5×5 radius after
+~13 game-hours of continuous production — before a single-unmatched-worker
+Farm could even fill its 40-cap buffer once. New defaults:
+
+| Knob | Old | New |
+|---|---|---|
+| Fertility space (F/G/D baselines) | 100 / 50 / 10 | **10000 / 5000 / 1000** (×100) |
+| Thresholds (Forest / Desert) | 75 / 25 | **7500 / 2500** |
+| DegradePeriod | 30 min | **1 game-hour** |
+| RecoveryPeriod | 40 min | **2 game-hours** |
+| LumberCamp DegradeAmount | 1 | **2** (logging strips faster than farming exhausts) |
+| Farm DegradeAmount | 1 | 1 |
+
+Resulting horizons (continuous production; calendar time is longer because
+degradation only accrues while producing): Farm → permanent Desert in
+~2500 hours ≈ **104 game-days (~3.5 months)**; LumberCamp → reversible
+Grassland in ~1250 hours ≈ **52 days**; post-snap Grassland → Forest regrow
+in ~5000 hours ≈ **208 days (~7 months)**.
+
+**Why scale the point space instead of lengthening the period.** The first
+attempt (DegradePeriod = 3 days, same 100-point space) was rejected by the
+test suite for a structural reason worth recording: catch-up **drops the
+partial-period carry at every production transition** (the anchor
+discipline, §"Why anchor lastUpdateTick"). An extractor's buffer-full /
+re-arm duty cycle is a few hundred ticks; with a multi-day period every
+armed stretch completes ZERO periods, every transition re-anchors, and the
+land never degrades — "extract forever" returns, silently, for any
+extractor that pauses between hauls. **Invariant: DegradePeriod must stay
+much shorter than an extractor's typical armed stretch.** Long land
+lifetimes therefore come from a big point budget at a short period, never
+from a long period.
+
+**Tests.** The math/wiring tests no longer ride the default config: they
+pin contracts on explicit small-scale configs (the original 100-point
+space), with expectations derived from config + `StructureSpec.DegradeAmount`
+— so future pacing retunes are a one-file change that the contract tests
+survive untouched. Same pattern as the test-sized `CombatConfig` in
+`CombatResolutionTests`.

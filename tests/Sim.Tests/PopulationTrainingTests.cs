@@ -82,9 +82,10 @@ public class PopulationTrainingTests
         var sim = MakeSim(unit1AgeYears: 8);
         var target = new TileCoord(5, 5);
         sim.SubmitIntent(0, new MoveIntent(1, target));
-        // Cap the run before the unit's eventual old-age death (lifespan
-        // 100y × 10 ticks/y = ~1000 ticks).
-        sim.Run(until: 100);
+        // Walk budget derives from the biome cost so movement retunes
+        // don't touch this test; still capped before the unit's eventual
+        // old-age death (lifespan 100y × 10 ticks/y = ~1000 ticks).
+        sim.Run(until: 12 * Biomes.MoveCost(Biome.Grassland));
         Assert.Equal(target, sim.World.Units[1].Position);
     }
 }

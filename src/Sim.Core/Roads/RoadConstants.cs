@@ -22,11 +22,11 @@ public static class RoadConstants
     // With MAX_REDUCTION_PERCENT = 66, every biome gets ~3x speedup at
     // max condition (still floored by MIN_COST, still differentiated by
     // absolute biome cost):
-    //   Grassland (cost 10) at max → cost 4
-    //   Hills     (cost 25) at max → cost 9
-    //   Forest    (cost 30) at max → cost 11
-    //   Desert    (cost 40) at max → cost 14
-    //   Mountain  (cost 45) at max → cost 16
+    //   Grassland (cost  30) at max → cost 11
+    //   Hills     (cost  75) at max → cost 26
+    //   Forest    (cost  90) at max → cost 31
+    //   Desert    (cost 120) at max → cost 41
+    //   Mountain  (cost 135) at max → cost 46
     //
     // Roads only apply to Foot traversal — Water uses BoatMovementCost,
     // so this percentage never touches water tile costs.

@@ -56,13 +56,13 @@ public class CombatTriggerTests
         sim.Run(until: Delay + 1);
         Assert.True(sim.World.Diplomacy.AreHostile(0, 1));
 
-        // Both factions march to (10, 10). Grassland cost = 10 ticks/tile;
-        // unit 1 has 8 tiles to walk, unit 2 has 7. Run past arrival of
-        // both (Now + ~85) but short enough to catch combat in progress
-        // before all units die.
+        // Both factions march to (10, 10): unit 1 walks 8 tiles, unit 2
+        // walks 7. Budget derives from the grassland cost — just past both
+        // arrivals, short enough to catch combat in progress before all
+        // units die.
         sim.SubmitIntent(sim.Now, new MoveIntent(1, new TileCoord(10, 10)));
         sim.SubmitIntent(sim.Now, new MoveIntent(2, new TileCoord(10, 10)) { PlayerId = 1 });
-        sim.Run(until: sim.Now + 85);
+        sim.Run(until: sim.Now + 9 * Biomes.MoveCost(Biome.Grassland));
 
         // Either CombatStates has an entry on the tile (mid-fight), OR
         // one of the units has already taken damage / been removed.

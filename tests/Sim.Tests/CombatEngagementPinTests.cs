@@ -15,12 +15,19 @@ namespace Sim.Tests;
 //
 // The pin must hold even when a hop is cheaper than RoundIntervalTicks —
 // the exact condition under which the pre-pin trigger let units march
-// through. Tests pave row 5 with max-condition road so each hop costs 4
-// ticks (grassland 10 × 34%); RoundInterval = 30 puts round 1 well after
-// the hop the attacker would have taken without the pin.
+// through. Tests pave row 5 with max-condition road (hop cost = RoadHop,
+// derived from the biome + road constants); RoundInterval is set above it
+// so round 1 lands well after the hop the attacker would have taken
+// without the pin.
 public class CombatEngagementPinTests
 {
-    private const long RoundInterval = 30;
+    // Max-road grassland hop cost, derived so movement retunes don't
+    // touch this file. The RoundInterval premise (hop < round) is
+    // asserted in the helper below.
+    private static readonly int RoadHop = System.Math.Max(RoadConstants.MIN_COST,
+        Biomes.MoveCost(Biome.Grassland)
+        - (int)((long)Biomes.MoveCost(Biome.Grassland) * RoadConstants.MAX_REDUCTION_PERCENT / 100L));
+    private static readonly long RoundInterval = RoadHop * 3;   // round 1 well after a hop
     private const int BaseHealth = 10;
     private const int RoadRow = 5;
     private const int GridSize = 12;
@@ -124,8 +131,9 @@ public class CombatEngagementPinTests
 
         var neutral = world.AddUnit(new Unit(300, new TileCoord(1, RoadRow)) { Role = UnitRole.Builder, OwnerId = 2 });
         sim.SubmitIntent(sim.Now, new MoveIntent(300, new TileCoord(9, RoadRow)) { PlayerId = 2 });
-        // 8 road hops × 4 ticks = 32 ticks to reach (9,5).
-        sim.Run(until: 40);
+        // 8 road hops to reach (9,5), plus slack for crowding on the
+        // contested tile. Budget derives from the road-hop cost.
+        sim.Run(until: 12 * RoadHop);
 
         Assert.Equal(new TileCoord(9, RoadRow), neutral.Position);
         Assert.Null(neutral.PathRemaining);
@@ -148,9 +156,9 @@ public class CombatEngagementPinTests
 
         var reinforcement = world.AddUnit(new Unit(101, new TileCoord(0, RoadRow)) { Role = UnitRole.Builder, OwnerId = 0 });
         sim.SubmitIntent(sim.Now, new MoveIntent(101, new TileCoord(9, RoadRow)) { PlayerId = 0 });
-        // 5 road hops × 4 ticks ≈ tick 20 (a little more once banded
-        // crowding kicks in on the contested tile — still < round 2).
-        sim.Run(until: 40);
+        // 5 road hops to the contested tile (a little more once banded
+        // crowding kicks in there). Budget derives from the hop cost.
+        sim.Run(until: 12 * RoadHop);
 
         Assert.Equal(new TileCoord(5, RoadRow), reinforcement.Position);
         Assert.Null(reinforcement.PathRemaining);

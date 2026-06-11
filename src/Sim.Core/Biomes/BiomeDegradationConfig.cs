@@ -42,34 +42,49 @@ public readonly record struct BiomeDegradationConfig(
     long DegradePeriod,
     int DegradeRadius)
 {
+    // SCALE NOTE: the fertility space is ×100 the original M9 scale
+    // (10000/5000/1000 instead of 100/50/10). The point space is fine-
+    // grained ON PURPOSE: catch-up drops the partial-period carry at every
+    // production transition (the M9 anchor discipline), so the degrade
+    // period must stay much shorter than an extractor's arm/dormant duty
+    // cycle (a few hundred ticks) or duty-cycling would shed all
+    // degradation and reopen "extract forever." Long land lifetimes
+    // therefore come from a BIG point budget at a SHORT period — never
+    // from a long period. Tests pin the math on an explicit small-scale
+    // config; only these defaults carry the gameplay pacing.
     public BiomeDegradationConfig() : this(
-        // F/G/D baselines drive band membership at deviation=0.
-        // Forest 100 / Grassland 50 / Desert 10 puts the bands well clear of
-        // the thresholds (Forest 75 / Desert 25) so a fresh-from-worldgen tile
-        // sits squarely inside its band.
-        ForestBaseline:    100,
-        GrasslandBaseline:  50,
-        DesertBaseline:     10,
+        // F/G/D baselines drive band membership at deviation=0, placed well
+        // clear of the thresholds (7500 / 2500) so a fresh-from-worldgen
+        // tile sits squarely inside its band.
+        ForestBaseline:    10000,
+        GrasslandBaseline:  5000,
+        DesertBaseline:     1000,
         // H/M/W baselines stored for API uniformity; ignored by Band() because
         // those biomes are off-ladder (see BiomeDegradation.IsOnLadder).
-        HillsBaseline:      30,
-        MountainBaseline:   60,
-        WaterBaseline:       0,
-        // Forest ≥ 75 → Forest. Grassland 25 .. 74. Desert < 25 (LATCHED).
-        // Generated-desert tiles sit at baseline 10 < 25 → implicit latch
-        // from t=0.
-        ForestThreshold:    75,
-        DesertThreshold:    25,
-        // Recovery is slower than degrade ("regrows takes longer" — design
-        // doc). 1 fertility per 30 game-minutes; abandoned Grassland
-        // (deviation -50) takes 1500 minutes (~25 hr) to climb back to
-        // Forest baseline.
+        HillsBaseline:      3000,
+        MountainBaseline:   6000,
+        WaterBaseline:         0,
+        // Forest ≥ 7500. Grassland 2500..7499. Desert < 2500 (LATCHED).
+        // Generated-desert tiles sit at baseline 1000 < 2500 → implicit
+        // latch from t=0.
+        ForestThreshold:    7500,
+        DesertThreshold:    2500,
+        // Recovery is slower than degrade ("regrowing takes longer" — design
+        // doc): half the degrade tempo. A logged-out tile snapped to
+        // GrasslandBaseline 5000 climbs the 2500 points back to Forest in
+        // 5000 game-hours ≈ 208 days (~7 game-months) of rest. Land-use
+        // decisions play out on the calendar, not the hour hand.
         RecoveryAmount:      1,
-        RecoveryPeriod:     40 * Time.Minute,
+        RecoveryPeriod:      2 * Time.Hour,
         // Single period for all extractor-driven degrade. MAX-over-overlap
         // becomes a simple integer compare on StructureSpec.DegradeAmount.
-        // 20 game-minutes paces extraction's environmental cost; tunable.
-        DegradePeriod:      30 * Time.Minute,
+        // 1 point per game-hour puts land exhaustion on a real-life-ish
+        // scale: a Farm (amount 1) crosses Grassland→Desert after ~2500
+        // hours ≈ 104 days (~3.5 game-months) of CONTINUOUS production; a
+        // LumberCamp (amount 2) crosses Forest→Grassland after ~1250 hours
+        // ≈ 52 days (~7 weeks). Degradation only accrues while producing,
+        // so calendar time is longer in practice.
+        DegradePeriod:       1 * Time.Hour,
         // Chebyshev radius around an extractor. Radius 1 = 3×3 area (8
         // neighbours + own tile). Tuneable once play surfaces the right
         // pressure curve.

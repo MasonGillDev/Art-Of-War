@@ -99,10 +99,12 @@ public class RoadPathfindingTests
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(4, 0)));
         sim.Run();
 
-        // 4 tiles entered, each at cost 4 (Grassland 10 with 66%
-        // proportional reduction = 6, so cost 4). No tile crossed below
-        // MIN_COST. Final tick = 16.
-        Assert.Equal(16, sim.Now);
+        // 4 tiles entered, each at the derived max-road cost. No tile
+        // crossed below MIN_COST.
+        var biome = Biomes.MoveCost(Biome.Grassland);
+        var capCost = System.Math.Max(RoadConstants.MIN_COST,
+            biome - (int)((long)biome * RoadConstants.MAX_REDUCTION_PERCENT / 100L));
+        Assert.Equal(4 * capCost, sim.Now);
         Assert.True(sim.Now >= 4 * RoadConstants.MIN_COST);
     }
 
@@ -130,8 +132,12 @@ public class RoadPathfindingTests
         var roadTicks = Walk(worldRoad);
         Assert.True(roadTicks < rawTicks,
             $"Road walk should be faster: road={roadTicks}, raw={rawTicks}");
-        // 5 tiles entered at 10 each = 50; on road, 5 * 4 = 20.
-        Assert.Equal(50, rawTicks);
-        Assert.Equal(20, roadTicks);
+        // 5 tiles entered at biome cost raw; at the derived max-road cost
+        // on the road. Both expectations follow any movement retune.
+        var biome = Biomes.MoveCost(Biome.Grassland);
+        var capCost = System.Math.Max(RoadConstants.MIN_COST,
+            biome - (int)((long)biome * RoadConstants.MAX_REDUCTION_PERCENT / 100L));
+        Assert.Equal(5 * biome, rawTicks);
+        Assert.Equal(5 * capCost, roadTicks);
     }
 }

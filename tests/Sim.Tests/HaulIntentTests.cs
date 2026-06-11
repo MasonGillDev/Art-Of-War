@@ -64,9 +64,9 @@ public class HaulIntentTests
         sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(3, 0), Resource.Wood));
         sim.Run();
 
-        // No move-to-source leg means total ticks = move-to-dest only.
-        // 3 tiles at Grassland (cost 10) = 30 ticks.
-        Assert.Equal(30, sim.Now);
+        // No move-to-source leg means total ticks = move-to-dest only:
+        // 3 grassland tiles at the derived biome cost.
+        Assert.Equal(3 * Biomes.MoveCost(Biome.Grassland), sim.Now);
         Assert.Equal(10, stockpile.AmountOf(Resource.Wood));
     }
 

@@ -22,22 +22,32 @@ public class MovementCrowdingTests
     // The curve
     // ====================================================================
 
+    // Terrain base every scenario below builds on — derived, never
+    // hard-coded, so movement retunes don't touch this file.
+    private static readonly int G = Biomes.MoveCost(Biome.Grassland);
+
     [Fact]
     public void BandedCrowdingCost_HitsExpectedTiers()
     {
+        // The CURVE is the contract (band boundaries at 3/7/15); the
+        // band VALUES derive from the named constants so tuning them
+        // doesn't touch this test.
         // 1-3 units : +0   (normal play; no penalty)
         Assert.Equal(0, MovementConstants.BandedCrowdingCost(1));
         Assert.Equal(0, MovementConstants.BandedCrowdingCost(2));
         Assert.Equal(0, MovementConstants.BandedCrowdingCost(3));
-        // 4-7 units : +10
-        Assert.Equal(10, MovementConstants.BandedCrowdingCost(4));
-        Assert.Equal(10, MovementConstants.BandedCrowdingCost(7));
-        // 8-15 units : +25
-        Assert.Equal(25, MovementConstants.BandedCrowdingCost(8));
-        Assert.Equal(25, MovementConstants.BandedCrowdingCost(15));
-        // 16+ units : +50
-        Assert.Equal(50, MovementConstants.BandedCrowdingCost(16));
-        Assert.Equal(50, MovementConstants.BandedCrowdingCost(1000));
+        // 4-7 units
+        Assert.Equal(MovementConstants.SmallBand, MovementConstants.BandedCrowdingCost(4));
+        Assert.Equal(MovementConstants.SmallBand, MovementConstants.BandedCrowdingCost(7));
+        // 8-15 units
+        Assert.Equal(MovementConstants.MediumBand, MovementConstants.BandedCrowdingCost(8));
+        Assert.Equal(MovementConstants.MediumBand, MovementConstants.BandedCrowdingCost(15));
+        // 16+ units
+        Assert.Equal(MovementConstants.LargeBand, MovementConstants.BandedCrowdingCost(16));
+        Assert.Equal(MovementConstants.LargeBand, MovementConstants.BandedCrowdingCost(1000));
+        // Sanity ordering — bands must escalate.
+        Assert.True(MovementConstants.SmallBand < MovementConstants.MediumBand);
+        Assert.True(MovementConstants.MediumBand < MovementConstants.LargeBand);
     }
 
     // ====================================================================
@@ -69,47 +79,46 @@ public class MovementCrowdingTests
     [Fact]
     public void ExecutionCost_SoloUnit_NoCrowdingAddedToTerrain()
     {
-        // Single unit on Grassland (terrain cost 10) → cost = 10, no penalty.
+        // Single unit on Grassland → pure terrain cost, no penalty.
         var (sim, _) = BuildWorld(gridSize: 6, biome: Biome.Grassland);
         sim.World.AddUnit(new Unit(1, new TileCoord(2, 2)));
 
         var cost = MovementCost.ExecutionCost(sim.World, new TileCoord(2, 2), new TileCoord(3, 2), sim.Now);
-        Assert.Equal(10, cost);
+        Assert.Equal(G, cost);
     }
 
     [Fact]
     public void ExecutionCost_LargeStackOnSource_PaysSourceCrowding()
     {
-        // 10 units bunched on (2,2). Grassland terrain = 10. Source-side
-        // crowding for 10 units = +25 (8-15 band). Destination empty.
-        // max(25, 0) = 25. Total cost 35.
+        // 10 units bunched on (2,2): source-side crowding pays the 8-15
+        // band. Destination empty → max(medium, 0) = medium.
         var (sim, _) = BuildWorld(gridSize: 6, biome: Biome.Grassland);
         for (var i = 1; i <= 10; i++)
             sim.World.AddUnit(new Unit(i, new TileCoord(2, 2)));
 
         var cost = MovementCost.ExecutionCost(sim.World, new TileCoord(2, 2), new TileCoord(3, 2), sim.Now);
-        Assert.Equal(10 + 25, cost);
+        Assert.Equal(G + MovementConstants.MediumBand, cost);
     }
 
     [Fact]
     public void ExecutionCost_DestCrowdedSourceClear_PaysDestCrowding()
     {
-        // 1 unit on (2,2) (source), 6 units already on (3,2) (dest). The
-        // 1-unit source is +0, 6 units on dest is +10 (4-7 band).
-        // max(0, 10) = 10. Total = 10 + 10 = 20.
+        // 1 unit on (2,2) (source, +0), 6 units on (3,2) (dest, 4-7 band).
+        // max(0, small) = small.
         var (sim, _) = BuildWorld(gridSize: 6, biome: Biome.Grassland);
         sim.World.AddUnit(new Unit(1, new TileCoord(2, 2)));
         for (var i = 2; i <= 7; i++)
             sim.World.AddUnit(new Unit(i, new TileCoord(3, 2)));
 
         var cost = MovementCost.ExecutionCost(sim.World, new TileCoord(2, 2), new TileCoord(3, 2), sim.Now);
-        Assert.Equal(10 + 10, cost);
+        Assert.Equal(G + MovementConstants.SmallBand, cost);
     }
 
     [Fact]
     public void ExecutionCost_BothCrowded_TakesMaxNotSum()
     {
-        // 5 units source (band +10), 9 units dest (band +25). max=25, not 35.
+        // 5 units source (small band), 9 units dest (medium band).
+        // max(small, medium) = medium — never the sum.
         var (sim, _) = BuildWorld(gridSize: 6, biome: Biome.Grassland);
         for (var i = 1; i <= 5; i++)
             sim.World.AddUnit(new Unit(i, new TileCoord(2, 2)));
@@ -117,7 +126,7 @@ public class MovementCrowdingTests
             sim.World.AddUnit(new Unit(i, new TileCoord(3, 2)));
 
         var cost = MovementCost.ExecutionCost(sim.World, new TileCoord(2, 2), new TileCoord(3, 2), sim.Now);
-        Assert.Equal(10 + 25, cost);
+        Assert.Equal(G + MovementConstants.MediumBand, cost);
     }
 
     // ====================================================================
@@ -137,7 +146,7 @@ public class MovementCrowdingTests
         var visible = new HashSet<TileCoord>();
 
         var cost = MovementCost.PlanCost(sim.World, new TileCoord(5, 5), playerId: 0, visible, sim.Now);
-        Assert.Equal(10 + 10, cost);  // grassland + 4-7 band
+        Assert.Equal(G + MovementConstants.SmallBand, cost);  // grassland + 4-7 band
     }
 
     [Fact]
@@ -153,12 +162,12 @@ public class MovementCrowdingTests
         var visible = new HashSet<TileCoord>();
 
         var cost = MovementCost.PlanCost(sim.World, new TileCoord(5, 5), playerId: 0, visible, sim.Now);
-        Assert.Equal(10, cost);  // pure terrain, fog hid the crowd
+        Assert.Equal(G, cost);  // pure terrain, fog hid the crowd
 
         // Ground truth disagrees: ExecutionCost sees all 5 enemies.
         var actualCost = MovementCost.ExecutionCost(
             sim.World, new TileCoord(4, 5), new TileCoord(5, 5), sim.Now);
-        Assert.Equal(10 + 10, actualCost);  // 4-7 band kicks in
+        Assert.Equal(G + MovementConstants.SmallBand, actualCost);  // 4-7 band kicks in
     }
 
     [Fact]
@@ -172,7 +181,7 @@ public class MovementCrowdingTests
         var visible = new HashSet<TileCoord> { new(5, 5) };
 
         var cost = MovementCost.PlanCost(sim.World, new TileCoord(5, 5), playerId: 0, visible, sim.Now);
-        Assert.Equal(10 + 10, cost);
+        Assert.Equal(G + MovementConstants.SmallBand, cost);
     }
 
     [Fact]
@@ -198,9 +207,11 @@ public class MovementCrowdingTests
     public void Path_AvoidsVisibleCrowd_RoutesAround()
     {
         // 8-wide grid. Place a Tower at (4,2) — radius 7 covers (4,4) cleanly.
-        // Pile 16 enemies onto (4,4) → visible cluster, +50 cost band. A
+        // Pile 16 enemies onto (4,4) → visible cluster, LargeBand cost. A
         // direct path from (0,4) to (7,4) would go straight through (4,4);
-        // the planner detours since the +50 makes a 1-tile-up bypass cheaper.
+        // the planner detours because the band exceeds the 2-extra-tile
+        // bypass cost (LargeBand is pegged at 5 grassland-tiles-worth
+        // precisely so crowds stay worth routing around).
         var (sim, world) = BuildWorld(gridSize: 8, biome: Biome.Grassland);
         var tower = world.AddStructure(new Tower(new TileCoord(4, 2)) { OwnerId = 0 });
         Sight.Reveal(world, 0, tower.At, Sight.RadiusFor(StructureKind.Tower), now: 0);

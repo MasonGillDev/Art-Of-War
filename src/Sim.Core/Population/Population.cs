@@ -18,7 +18,13 @@ public static class Population
     {
         var ageTicks = now - unit.BornTick;
         if (ageTicks < 0) ageTicks = 0;
-        return (int)(ageTicks / config.TicksPerYear);
+        // Compute in long and clamp. The adult-by-default sentinel
+        // (BornTick = long.MinValue / 2) yields an astronomical year
+        // count; a raw (int) cast would keep only the low 32 bits —
+        // sign-garbage that flips with every TicksPerYear retune. The
+        // clamp makes "ancient" read as int.MaxValue under ANY tuning.
+        var years = ageTicks / config.TicksPerYear;
+        return years > int.MaxValue ? int.MaxValue : (int)years;
     }
 
     public static bool CanTrain(Unit unit, long now, PopulationConfig config) =>
