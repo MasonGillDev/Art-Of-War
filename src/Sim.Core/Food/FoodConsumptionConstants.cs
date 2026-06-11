@@ -23,8 +23,12 @@ public static class FoodConsumptionConstants
 
     // Phase D — first death occurs StarvationStartDelay ticks after the
     // famine started. Subsequent deaths follow at StarvationDeathInterval
-    // ticks apart. 1 game-day grace, then 1 game-hour per death — a
-    // reasonable first-pass tuning; revisit with playtesting.
-    public const int StarvationStartDelay = Time.Day;
-    public const int StarvationDeathInterval = Time.Hour;
+    // ticks apart. 3 game-days grace ≈ one farm-bootstrap cycle (site +
+    // hauls + 10h build + first food haul home), so a famine gives the
+    // player roughly one full "fix it" window before the first body.
+    // The grace isn't free: famine DEBT (Castle.FoodDebt) accrues at the
+    // full population rate the whole time and must be repaid in full to
+    // stop the deaths — see docs/food-consumption.md (Update 2026-06-11).
+    public const int StarvationStartDelay = 3 * Time.Day;
+    public const int StarvationDeathInterval = 12 * Time.Hour;
 }

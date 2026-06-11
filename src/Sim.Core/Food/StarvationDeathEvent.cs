@@ -10,17 +10,19 @@ namespace Sim.Core.Food;
 //
 // Fencing:
 //   - (At, Seq) must match the castle's (NextStarvationDeathTick,
-//     NextStarvationDeathSeq). If a deposit cleared the anchor (famine
-//     ended) or a population-shift re-issued one, the old event no-ops.
-//   - Castle.FamineStartTick must still be set. A deposit cleared this
-//     plus the anchor; a defensive belt-and-suspenders check guards
-//     against unusual reschedule paths.
+//     NextStarvationDeathSeq). If a debt-clearing deposit cleared the
+//     anchor (famine ended) or a population-shift re-issued one, the
+//     old event no-ops.
+//   - Castle.FoodDebt must still be positive (famine active). A full
+//     repayment cleared this plus the anchor; a defensive
+//     belt-and-suspenders check guards against unusual reschedule paths.
 //
 // Removal piggybacks on CombatRules.OnUnitDeath (the M7 single death
 // pipeline), which drops cargo, group-cleanup, clears in-flight, and
 // calls Population.OnUnitRemoved — which decrements PopulationCount,
-// catches up food at the OLD rate (a no-op during famine since Holdings
-// are 0), and runs breeding stop-on-removal.
+// catches up food at the OLD rate (during famine that GROWS FoodDebt:
+// the victim ate, on credit, right up to their death), and runs
+// breeding stop-on-removal.
 public sealed class StarvationDeathEvent : ScheduledEvent
 {
     public TileCoord CastleAt { get; }
@@ -43,7 +45,7 @@ public sealed class StarvationDeathEvent : ScheduledEvent
                 $"event=({At},{Seq}))");
             return;
         }
-        if (castle.FamineStartTick is null)
+        if (castle.FamineStartTick is null || castle.FoodDebt <= 0)
         {
             Outcome = IntentOutcome.Reject("famine no longer active");
             FoodConsumption.ClearStarvationDeathAnchor(castle);
@@ -59,22 +61,23 @@ public sealed class StarvationDeathEvent : ScheduledEvent
         var victim = FindOldestCitizen(world, castle.OwnerId);
         if (victim is null)
         {
-            // No citizens left to feed. Famine implicitly ends — the
-            // rate is zero so consumption can't continue, and there's
-            // nothing to be hungry. Clear FamineStartTick for cleanliness.
-            castle.FamineStartTick = null;
+            // No citizens left to kill. Deaths stop (nothing reschedules)
+            // but the famine does NOT end: the debt is still owed, and
+            // FamineStartTick stays set so the FoodDebt > 0 ⇔ famine
+            // invariant holds. With the rate at zero the debt is frozen;
+            // only a repaying deposit closes it out.
             return;
         }
 
         Sim.Core.Combat.CombatRules.OnUnitDeath(sim, victim);
 
-        // If that was the last citizen, end the famine. (Population
-        // counters are decremented by OnUnitRemoved, which we just
-        // ran via OnUnitDeath.)
+        // If that was the last citizen, stop the cadence — same reasoning
+        // as the no-victim branch: debt outlives the dead. (Population
+        // counters are decremented by OnUnitRemoved, which we just ran
+        // via OnUnitDeath.)
         if (world.Players.TryGetValue(castle.OwnerId, out var p)
             && p.PopulationCount == 0)
         {
-            castle.FamineStartTick = null;
             return;
         }
 

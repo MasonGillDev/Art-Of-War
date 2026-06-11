@@ -74,12 +74,16 @@ public static class WorldFactory
                 CastlePosition = start,
                 // Generous starting stock so the player can bootstrap the economy without
                 // soft-locking: a lumber camp costs wood, so running dry before building one
-                // strands you. Food covers the M13 consumption drain until a farm is up.
+                // strands you. Food must cover the M13 drain until a farm is up AND
+                // delivering back to the castle: 14 starting citizens eat 56/game-day
+                // (1 each per 6h period), and the farm bootstrap at march-pace hauling
+                // is ~2-3 game-days. 200 ≈ 3.6 game-days of runway (~4.3 wall-min at
+                // 20 tps) — the opening is a real race, but a winnable one.
                 CastleHoldings = new SortedDictionary<Resource, int>
                 {
                     [Resource.Wood] = 70,
                     [Resource.Stone] = 50,
-                    [Resource.Food] = 40,
+                    [Resource.Food] = 200,
                 },
                 UnitSpawns = unitSpawns.ToArray(),
             },

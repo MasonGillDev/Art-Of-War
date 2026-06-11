@@ -480,3 +480,66 @@ breaks, your civ shrinks" — failed in practice.
 - `src/Sim.Core/Food/FoodConsumption.cs` — guarded
   `ScheduleNextStarvationDeath` in `CatchUp`'s famine-trigger branch
   with `if (!castle.NextStarvationDeathTick.HasValue)`.
+
+## Update 2026-06-11 — famine DEBT model (negative food)
+
+**Change:** Famine is no longer a boolean larder-is-empty state — it is a
+**debt**. The consumption clock never stops: every meal the larder can't
+cover accrues in a new persistent field, `Castle.FoodDebt` (snapshot
+FormatVersion 11). The castle's effective food level is
+`Holdings[Food] − FoodDebt`, which goes **negative on the HUD** during
+famine — the magnitude is exactly the deposit needed to stop the deaths.
+Deposits pay the debt before restocking the larder; famine (and the death
+cadence) ends only when the debt hits **exactly zero**. Alongside the
+model change, the cascade was retuned: `StarvationStartDelay` 1 → **3
+game-days** (≈ one farm-bootstrap cycle) and `StarvationDeathInterval`
+1 → **12 game-hours**.
+
+**Why:** Two pressures converged. First, the 2026-06-09 trickle-deposit
+fix (preserve-cadence) worked but was a patch on the real problem: with a
+boolean famine, *any* deposit > 0 ended it, so the system needed careful
+anchor carry-over rules to stay exploit-free. The debt model kills the
+exploit **structurally** — a deposit smaller than the hole leaves you in
+the hole — which is exactly the "debt-tracking" alternative the 2026-06-09
+addendum called *most rigorous but requires a new persistent field and
+snapshot-format bump*. That cost is now paid. Second, playtesting at 20
+tps showed the cascade was too fast to react to once famine hit; but
+simply extending grace under the boolean model would have widened the
+trickle window. Debt makes a long grace SAFE to grant: the 3 days aren't
+free, they're a loan at full interest (debt grows at the full population
+rate throughout).
+
+**Design choices locked in:**
+- **Debt grows at the full population rate while starving.** That is the
+  bleeding. It is self-limiting: each death shrinks the rate; at
+  population zero the debt freezes.
+- **Deaths do not reduce the debt.** The dead stop eating going forward;
+  the hole they left stands. If the last citizen dies the cadence stops
+  (nothing to kill) but the famine is NOT forgiven — the debt waits for
+  a deposit.
+- **No debt cap** initially. The death cascade bounds growth naturally;
+  a cap is a one-line knob if deep holes prove unrecoverable in play.
+- **A full repayment earns a fresh grace window** on the next famine.
+  Legitimate by construction: you cannot reach it with trickles.
+
+**What got simpler:** `CatchUp` lost both special cases — the famine
+clock-freeze (the anchor used to stop at the failure boundary; now it
+always advances and the shortfall is owed) and the 2026-06-09 anchor
+carry-over guard (famine-end now clears the death anchor, and famine-end
+is unreachable by trickling). `CurrentLevel` is signed and uniform.
+
+**Acceptance tests** (`FoodConsumptionTests`): shortfall-becomes-debt
+arithmetic; signed `CurrentLevel` (negative by exactly the debt);
+observation-independence across the famine boundary (debt + onset tick
+identical under any catch-up pattern); deposit pays debt first /
+remainder restocks; partial payment leaves famine active and the death
+fires on schedule; full repayment cancels the scheduled death and the
+next famine gets fresh grace; debt outlives a fully-dead population;
+snapshot round-trip of `FoodDebt`.
+
+**Files touched:** `FoodConsumptionConstants.cs` (retune),
+`Structure.cs` (`Castle.FoodDebt`), `FoodConsumption.cs` (uniform
+catch-up; signed `CurrentLevel`), `CargoTransfer.cs` (debt-first deposit
++ famine-end at zero), `StarvationDeathEvent.cs` (debt-gated; debt
+outlives the dead), `Snapshot.cs` (v11), `ViewProjector.cs` (signed
+`CastleFood` on the existing wire field — no schema change).

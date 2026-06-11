@@ -65,7 +65,10 @@ public static class Snapshot
     //  10 — M15 extraction claims (Extractor.ClaimTiles +
     //       ConstructionSite.ClaimTiles) — the format change the old
     //       Extractor "PHASE-A PLACEHOLDER" comment always predicted.
-    public const int FormatVersion = 10;
+    //  11 — famine-debt model (Castle.FoodDebt) — the snapshot bump the
+    //       2026-06-09 trickle-deposit addendum deferred; paid 2026-06-11
+    //       when the debt model shipped (docs/food-consumption.md).
+    public const int FormatVersion = 11;
 
     public static string Hash(Simulation sim)
     {
@@ -614,6 +617,7 @@ public static class Snapshot
     {
         bw.Write(c.LastFoodConsumedTick);
         WriteNullableLong(bw, c.FamineStartTick);
+        bw.Write(c.FoodDebt);   // v11 — famine-debt model
         WriteNullableLong(bw, c.NextFamineCheckTick);
         WriteNullableLong(bw, c.NextFamineCheckSeq);
         WriteNullableLong(bw, c.NextStarvationDeathTick);
@@ -626,6 +630,7 @@ public static class Snapshot
         ReadStorage(br, c);
         c.LastFoodConsumedTick = br.ReadInt64();
         c.FamineStartTick = ReadNullableLong(br);
+        c.FoodDebt = br.ReadInt32();   // v11 — famine-debt model
         c.NextFamineCheckTick = ReadNullableLong(br);
         c.NextFamineCheckSeq = ReadNullableLong(br);
         c.NextStarvationDeathTick = ReadNullableLong(br);

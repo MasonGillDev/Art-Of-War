@@ -289,13 +289,18 @@ public class FoodConsumptionTests
     }
 
     [Fact]
-    public void CatchUp_ClampsAtZero_WhenDemandExceedsHoldings()
+    public void CatchUp_ShortfallBecomesFamineDebt_NotForgiven()
     {
         var (sim, castle) = MakeSimWithFood(unitCount: 10, startingFood: 25);
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
-        // 10 citizens × 1/period × 10 periods = 100 demanded > 25 held.
+        var rate = 10 * FoodConsumptionConstants.FoodPerCitizenPerPeriod;
+        // demand = rate × 10 periods; everything the larder can't cover
+        // lands in FoodDebt — the debt model's core arithmetic.
         FoodConsumption.CatchUp(castle, sim, now: 10 * period);
         Assert.Equal(0, castle.AmountOf(Resource.Food));
+        Assert.Equal(10 * rate - 25, castle.FoodDebt);
+        // The clock never freezes: the anchor advanced through the famine.
+        Assert.Equal(10 * period, castle.LastFoodConsumedTick);
     }
 
     [Fact]
@@ -320,6 +325,26 @@ public class FoodConsumptionTests
     }
 
     [Fact]
+    public void CurrentLevel_GoesNegative_ByExactlyTheDebt()
+    {
+        // Signed effective level: Holdings − FoodDebt − pending consumption.
+        // During famine the HUD number is negative by exactly the deposit
+        // needed to stop the bleeding.
+        var (sim, castle) = MakeSimWithFood(unitCount: 4, startingFood: 10);
+        var period = FoodConsumptionConstants.FoodConsumptionPeriod;
+        var rate = 4 * FoodConsumptionConstants.FoodPerCitizenPerPeriod;
+        var now = 8 * period;
+
+        var derived = FoodConsumption.CurrentLevel(castle, sim, now);
+        Assert.Equal(10 - 8 * rate, derived);   // negative
+
+        FoodConsumption.CatchUp(castle, sim, now);
+        Assert.Equal(0, castle.AmountOf(Resource.Food));
+        Assert.Equal(8 * rate - 10, castle.FoodDebt);
+        Assert.Equal(derived, castle.AmountOf(Resource.Food) - castle.FoodDebt);
+    }
+
+    [Fact]
     public void CatchUp_IsObservationIndependent()
     {
         // Compute once at T vs many irregular times along the way to T;
@@ -336,6 +361,28 @@ public class FoodConsumptionTests
 
         Assert.Equal(castle1.AmountOf(Resource.Food), castle2.AmountOf(Resource.Food));
         Assert.Equal(castle1.LastFoodConsumedTick, castle2.LastFoodConsumedTick);
+    }
+
+    [Fact]
+    public void CatchUp_AcrossFamineBoundary_IsObservationIndependent()
+    {
+        // Same M9 pin but the window crosses into famine: debt total and
+        // famine-onset boundary must not depend on when anyone looked.
+        var (sim1, castle1) = MakeSimWithFood(unitCount: 4, startingFood: 20);
+        var (sim2, castle2) = MakeSimWithFood(unitCount: 4, startingFood: 20);
+        var period = FoodConsumptionConstants.FoodConsumptionPeriod;
+        var target = 12 * period + 17;
+
+        FoodConsumption.CatchUp(castle1, sim1, now: target);
+        foreach (var stop in new[] { 1L, period, 3 * period + 5, 5 * period,
+                                     7 * period, 11 * period, target })
+            FoodConsumption.CatchUp(castle2, sim2, now: stop);
+
+        Assert.Equal(castle1.AmountOf(Resource.Food), castle2.AmountOf(Resource.Food));
+        Assert.Equal(castle1.LastFoodConsumedTick, castle2.LastFoodConsumedTick);
+        Assert.Equal(castle1.FoodDebt, castle2.FoodDebt);
+        Assert.Equal(castle1.FamineStartTick, castle2.FamineStartTick);
+        Assert.Equal(castle1.NextStarvationDeathTick, castle2.NextStarvationDeathTick);
     }
 
     [Fact]
@@ -526,10 +573,15 @@ public class FoodConsumptionPhaseCTests
         var rate = 5 * FoodConsumptionConstants.FoodPerCitizenPerPeriod;
         var fullMeals = 23 / rate;                       // integer floor (4 at rate 5)
         var failureBoundary = (fullMeals + 1) * period;  // first meal that can't feed everyone
-        FoodConsumption.CatchUp(castle, sim, now: failureBoundary + period); // well past dry-out
+        var now = failureBoundary + period;              // well past dry-out
+        FoodConsumption.CatchUp(castle, sim, now);
         Assert.Equal(0, castle.AmountOf(Resource.Food));
         Assert.Equal(failureBoundary, castle.FamineStartTick);
-        Assert.Equal(failureBoundary, castle.LastFoodConsumedTick);
+        // Debt model: the anchor no longer freezes at the failure boundary —
+        // it advances through all completed periods, and the uncovered
+        // demand is owed.
+        Assert.Equal(now, castle.LastFoodConsumedTick);
+        Assert.Equal((fullMeals + 2) * rate - 23, castle.FoodDebt);
     }
 
     [Fact]
@@ -543,21 +595,25 @@ public class FoodConsumptionPhaseCTests
         sim.Run(until: 11 * period);
         Assert.Equal(11 * period, castle.FamineStartTick);
         Assert.Equal(0, castle.AmountOf(Resource.Food));
+        // 11 periods of demand, 50 in the larder — the gap is owed.
+        Assert.Equal(11 * 5 * FoodConsumptionConstants.FoodPerCitizenPerPeriod - 50,
+            castle.FoodDebt);
         // No further check scheduled — famine handles it now (Phase D).
         Assert.Null(castle.NextFamineCheckTick);
     }
 
     [Fact]
-    public void HaulDeposit_DuringFamine_ClearsFamineAndReschedules()
+    public void HaulDeposit_DuringFamine_PaysDebtFirst_ThenRestocks()
     {
         var (sim, castle) = MakeSimWithFood(unitCount: 5, startingFood: 50);
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
+        var perCitizen = FoodConsumptionConstants.FoodPerCitizenPerPeriod;
 
         // Drive into famine.
         sim.Run(until: 11 * period);
         Assert.NotNull(castle.FamineStartTick);
 
-        // Add a hauler at the castle with food.
+        // Add a hauler at the castle with food (a 6th mouth from now on).
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
@@ -565,14 +621,18 @@ public class FoodConsumptionPhaseCTests
         });
         hauler.TrySetActivity(Activity.Hauling);
 
-        // Famine state at the moment of deposit.
         var depositTick = 12 * period;
         AdvanceSimNow(sim, depositTick);
         var ev = new HaulDepositEvent(99, new TileCoord(0, 0), expectedEpoch: hauler.AssignmentEpoch);
         ev.Apply(sim);
 
+        // Debt at deposit time: 11 periods × 5 mouths short of 50, plus one
+        // more period at 6 mouths. The 100-unit deposit pays that hole first;
+        // only the remainder restocks the larder.
+        var debtAtDeposit = (11 * 5 * perCitizen - 50) + 6 * perCitizen;
         Assert.Null(castle.FamineStartTick);
-        Assert.True(castle.AmountOf(Resource.Food) > 0);
+        Assert.Equal(0, castle.FoodDebt);
+        Assert.Equal(100 - debtAtDeposit, castle.AmountOf(Resource.Food));
         // New famine check should be scheduled in the future.
         Assert.NotNull(castle.NextFamineCheckTick);
         Assert.True(castle.NextFamineCheckTick > depositTick);
@@ -629,6 +689,8 @@ public class FoodConsumptionPhaseCTests
 
         sim.Run(until: period);
         Assert.Equal(period, castle.FamineStartTick);
+        // One wholly-unfed meal is already on the books.
+        Assert.Equal(5 * FoodConsumptionConstants.FoodPerCitizenPerPeriod, castle.FoodDebt);
     }
 
     [Fact]
@@ -639,14 +701,17 @@ public class FoodConsumptionPhaseCTests
         sim.Run(until: 11 * period);
         // Now in famine.
         Assert.NotNull(castle.FamineStartTick);
+        Assert.True(castle.FoodDebt > 0);
         var savedFamine = castle.FamineStartTick;
         var savedLast = castle.LastFoodConsumedTick;
+        var savedDebt = castle.FoodDebt;
 
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 0xF00D);
         var rc = (Castle)restored.World.Structures[new TileCoord(0, 0)];
         Assert.Equal(savedFamine, rc.FamineStartTick);
         Assert.Equal(savedLast, rc.LastFoodConsumedTick);
+        Assert.Equal(savedDebt, rc.FoodDebt);
     }
 
     private static void AdvanceSimNow(Simulation sim, long now)
@@ -859,7 +924,7 @@ public class FoodConsumptionPhaseDTests
     }
 
     [Fact]
-    public void StarvationDeath_FencesWhenFamineEnds()
+    public void FullDebtRepayment_EndsFamine_AndCancelsScheduledDeath()
     {
         var (sim, castle) = MakeFamineSim(unitCount: 3, startingFood: 30);
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
@@ -867,7 +932,7 @@ public class FoodConsumptionPhaseDTests
         Assert.NotNull(castle.NextStarvationDeathTick);
         var scheduledDeath = castle.NextStarvationDeathTick!.Value;
 
-        // Deposit food, ending famine.
+        // Deposit far more than the debt — famine genuinely over.
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
@@ -878,40 +943,36 @@ public class FoodConsumptionPhaseDTests
         new HaulDepositEvent(99, new TileCoord(0, 0), expectedEpoch: hauler.AssignmentEpoch)
             .Apply(sim);
 
-        // Famine cleared, but the scheduled death STAYS in flight —
-        // closes the trickle-deposit exploit. The death fences itself
-        // when it fires (FamineStartTick is null at that point) and
-        // clears its own anchor.
+        // Debt model: paying the WHOLE debt is the legitimate escape, so
+        // the death anchor is cleared immediately (the in-flight event
+        // fences on the cleared anchor). The next famine gets a fresh
+        // grace window — earned, because the hole was repaid in full.
         Assert.Null(castle.FamineStartTick);
-        Assert.Equal(scheduledDeath, castle.NextStarvationDeathTick);
+        Assert.Equal(0, castle.FoodDebt);
+        Assert.Null(castle.NextStarvationDeathTick);
 
         var popBefore = sim.World.Players[0].PopulationCount;
         sim.Run(until: scheduledDeath);
         Assert.Equal(popBefore, sim.World.Players[0].PopulationCount);
-        // After the orphan death fenced, the anchor is cleaned up.
-        Assert.Null(castle.NextStarvationDeathTick);
     }
 
     [Fact]
-    public void TrickleDeposit_DoesNotResetStarvationCadence()
+    public void PartialPayment_FamineContinues_DeathFiresOnSchedule()
     {
-        // The exploit: previously, depositing any food during famine
-        // cleared the starvation anchor — so a re-famine got a fresh
-        // StarvationStartDelay grace window, and trickle deposits could
-        // postpone deaths indefinitely. Fix: keep the original anchor;
-        // a re-famine before the original death tick honours the original
-        // schedule.
+        // The trickle-deposit exploit is dead STRUCTURALLY under the debt
+        // model: a deposit smaller than the debt never ends the famine —
+        // it only shrinks the hole. No anchor gymnastics needed; the
+        // scheduled death just fires.
         var (sim, castle) = MakeFamineSim(unitCount: 5, startingFood: 50);
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
         sim.Run(until: 11 * period);
         Assert.NotNull(castle.FamineStartTick);
         Assert.NotNull(castle.NextStarvationDeathTick);
         var originalDeathTick = castle.NextStarvationDeathTick!.Value;
+        var debtAtFamine = castle.FoodDebt;
+        Assert.True(debtAtFamine > 0);
 
-        // Trickle in just 5 food — enough for one period at the original
-        // rate, not enough to escape the cadence. (Hauler is added to the
-        // world raw, which bumps PopulationCount via GameWorld.AddUnit;
-        // capture popBeforeDeath AFTER the bump.)
+        // Trickle in 5 food — less than the (still growing) debt.
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
@@ -923,21 +984,60 @@ public class FoodConsumptionPhaseDTests
             .Apply(sim);
         var popBeforeDeath = sim.World.Players[0].PopulationCount;
 
-        // Famine cleared, but the original death is still scheduled at
-        // its original tick — no fresh grace window.
-        Assert.Null(castle.FamineStartTick);
+        // Famine NOT cleared; the payment dented the debt but the larder
+        // stays empty and the original death stays scheduled.
+        Assert.NotNull(castle.FamineStartTick);
+        Assert.True(castle.FoodDebt > 0);
+        Assert.Equal(0, castle.AmountOf(Resource.Food));
         Assert.Equal(originalDeathTick, castle.NextStarvationDeathTick);
 
-        // Let the new food deplete (famine re-arms shortly after) and
-        // advance to the original death tick. A death MUST fire on the
-        // original schedule — the genesis units have negative BornTicks,
-        // so a genesis citizen is the victim, not the hauler.
+        // The death fires on the original schedule — the genesis units
+        // have negative BornTicks, so a genesis citizen is the victim,
+        // not the hauler.
         sim.Run(until: originalDeathTick);
         Assert.Equal(popBeforeDeath - 1, sim.World.Players[0].PopulationCount);
     }
 
     [Fact]
-    public void LastCitizenDies_FamineEndsImplicitly()
+    public void FullRepayment_NextFamine_GetsFreshGraceWindow()
+    {
+        var (sim, castle) = MakeFamineSim(unitCount: 5, startingFood: 50);
+        var period = FoodConsumptionConstants.FoodConsumptionPeriod;
+        var perCitizen = FoodConsumptionConstants.FoodPerCitizenPerPeriod;
+        sim.Run(until: 11 * period);
+        Assert.NotNull(castle.FamineStartTick);
+
+        // Pay the exact debt plus two more meals for the (now 6-mouth)
+        // household — famine ends with a small runway.
+        var debtAtDeposit = castle.FoodDebt + 6 * perCitizen; // +1 period at 6 mouths by deposit time
+        var surplusMeals = 2;
+        var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
+        {
+            Role = UnitRole.Hauler, OwnerId = 0,
+            CargoResource = Resource.Food,
+            CargoAmount = debtAtDeposit + surplusMeals * 6 * perCitizen,
+            BornTick = 0,
+        });
+        hauler.TrySetActivity(Activity.Hauling);
+        AdvanceSimNow(sim, 12 * period);
+        new HaulDepositEvent(99, new TileCoord(0, 0), expectedEpoch: hauler.AssignmentEpoch)
+            .Apply(sim);
+        Assert.Null(castle.FamineStartTick);
+        Assert.Null(castle.NextStarvationDeathTick);
+
+        // The surplus runs out and famine #2 begins — with a FULL fresh
+        // StarvationStartDelay before its first death.
+        var secondFamineTick = 12 * period + (surplusMeals + 1) * period;
+        Assert.Equal(secondFamineTick, castle.NextFamineCheckTick);
+        sim.Run(until: secondFamineTick);
+        Assert.Equal(secondFamineTick, castle.FamineStartTick);
+        Assert.Equal(
+            secondFamineTick + FoodConsumptionConstants.StarvationStartDelay,
+            castle.NextStarvationDeathTick);
+    }
+
+    [Fact]
+    public void LastCitizenDies_DeathsStop_ButDebtOutlivesTheDead()
     {
         var (sim, castle) = MakeFamineSim(unitCount: 2, startingFood: 20);
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
@@ -945,8 +1045,12 @@ public class FoodConsumptionPhaseDTests
 
         sim.Run(until: firstDeath + FoodConsumptionConstants.StarvationDeathInterval);
         Assert.Equal(0, sim.World.Players[0].PopulationCount);
-        Assert.Null(castle.FamineStartTick);
+        // Debt model: the cadence stops (nothing left to kill, anchor
+        // cleared) but the famine is NOT forgiven — the debt stands until
+        // a deposit pays it, even with nobody alive to eat.
         Assert.Null(castle.NextStarvationDeathTick);
+        Assert.NotNull(castle.FamineStartTick);
+        Assert.True(castle.FoodDebt > 0);
     }
 
     [Fact]
@@ -958,12 +1062,14 @@ public class FoodConsumptionPhaseDTests
         Assert.NotNull(castle.NextStarvationDeathTick);
         var savedTick = castle.NextStarvationDeathTick;
         var savedSeq = castle.NextStarvationDeathSeq;
+        var savedDebt = castle.FoodDebt;
 
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 0xF00D);
         var rc = (Castle)restored.World.Structures[new TileCoord(0, 0)];
         Assert.Equal(savedTick, rc.NextStarvationDeathTick);
         Assert.Equal(savedSeq, rc.NextStarvationDeathSeq);
+        Assert.Equal(savedDebt, rc.FoodDebt);
     }
 
     private static (Simulation sim, Castle castle) MakeFamineSim(

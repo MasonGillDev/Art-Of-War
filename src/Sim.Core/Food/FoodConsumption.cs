@@ -2,14 +2,19 @@ using Sim.Core.World;
 
 namespace Sim.Core.Food;
 
-// M13 — castle food consumption.
+// M13 — castle food consumption. Reworked 2026-06-11 to the famine-DEBT
+// model (docs/food-consumption.md, Update 2026-06-11): the consumption
+// clock never stops. Demand the larder can't cover accrues in
+// Castle.FoodDebt; the effective food level (Holdings − FoodDebt) goes
+// negative; deposits pay the debt before restocking; famine — and the
+// death cadence — ends only at debt zero.
 //
 // MUTATION POINT (single): Castle.Holdings[Food] is reduced ONLY by
-// FoodConsumption.CatchUp. Castle.LastFoodConsumedTick, FamineStartTick,
-// NextFamineCheckTick/Seq are mutated only here and in the matching
-// FamineCheckEvent.Apply (which clears its own anchor before delegating
-// back). Deposits go through StorageStructure.Deposit (the normal path);
-// withdrawals for any other reason are out-of-scope.
+// FoodConsumption.CatchUp; FoodDebt grows only here and shrinks only in
+// CargoTransfer.DepositInto. Castle.LastFoodConsumedTick, FamineStartTick,
+// NextFamineCheckTick/Seq are mutated only here, in CargoTransfer's
+// debt-payment branch, and in the matching FamineCheckEvent.Apply (which
+// clears its own anchor before delegating back).
 //
 // PURE-READ WALL: CurrentLevel reads state and never writes — see the
 // 100×-no-mutation pin in FoodConsumptionTests.
@@ -20,9 +25,10 @@ namespace Sim.Core.Food;
 // (population add/remove, food deposit, FamineCheckEvent fire) so the
 // rate over the elapsed interval is constant by construction. Time
 // advances by completed periods only — the remainder carries within the
-// constant-rate segment, except across a famine boundary where we
-// anchor LastFoodConsumedTick to the failure tick (the architecture
-// §2.5 spatial-extension discipline).
+// constant-rate segment. The debt model removed the old famine special
+// case (the anchor used to freeze at the failure boundary); now the
+// anchor always advances and the shortfall is owed, which makes the
+// catch-up math one uniform branch.
 //
 // SCHEDULING (split from math): OnRateOrFoodChanged is the only site
 // that schedules FamineCheckEvent. CatchUp does NOT schedule — it only
@@ -34,19 +40,21 @@ namespace Sim.Core.Food;
 //   - FamineCheckEvent.Apply: clear anchor, CatchUp(now), OnRateOrFoodChanged.
 public static class FoodConsumption
 {
-    // Period-quantised current food level — pure read. Computes what
-    // CatchUp would leave without mutating any state. Used by views.
+    // Period-quantised effective food level — pure read. Computes what
+    // CatchUp would leave (Holdings − FoodDebt − pending consumption)
+    // without mutating any state. NEGATIVE during famine: the magnitude
+    // is exactly the deposit needed to stop the deaths. Used by views.
     public static int CurrentLevel(Castle castle, Simulation sim, long now)
     {
         var consumed = ConsumptionUpTo(castle, sim, now);
         var available = castle.AmountOf(Resource.Food);
-        return Math.Max(0, available - consumed);
+        return available - castle.FoodDebt - consumed;
     }
 
-    // Period-quantised catch-up. Subtracts consumed food from Holdings.
-    // Advances LastFoodConsumedTick by completed periods (carry-remainder)
-    // when food is sufficient; advances to the exact failure-boundary tick
-    // when food runs out and sets FamineStartTick to that same tick.
+    // Period-quantised catch-up. Subtracts consumed food from Holdings;
+    // any demand the larder can't cover accrues in FoodDebt instead of
+    // being forgiven. LastFoodConsumedTick always advances by completed
+    // periods (carry-remainder) — the clock never freezes for famine.
     // Idempotent within a tick (second call sees zero elapsed periods).
     public static void CatchUp(Castle castle, Simulation sim, long now)
     {
@@ -60,15 +68,7 @@ public static class FoodConsumption
         var pop = PopulationOf(sim.World, castle.OwnerId);
         var rate = pop * FoodConsumptionConstants.FoodPerCitizenPerPeriod;
 
-        // Already in famine: just advance the anchor. No consumption
-        // (food is 0), FamineStartTick unchanged.
-        if (castle.FamineStartTick.HasValue)
-        {
-            castle.LastFoodConsumedTick += periods * period;
-            return;
-        }
-
-        // No mouths to feed. Anchor advances; no consumption; no famine.
+        // No mouths to feed. Anchor advances; no consumption; debt frozen.
         if (rate <= 0)
         {
             castle.LastFoodConsumedTick += periods * period;
@@ -85,33 +85,30 @@ public static class FoodConsumption
             return;
         }
 
-        // Famine triggered within this catch-up window. The last
-        // successful full meal sits at boundary `fullMeals × period`
-        // from the anchor; the meal at `(fullMeals + 1) × period` is
-        // where Food first failed to feed everyone. Consume what
-        // remains in the larder (the partial-meal scrap is taken too)
-        // and mark famine at the failure boundary.
-        var fullMeals = available / rate;
-        var failureBoundary = castle.LastFoodConsumedTick + (fullMeals + 1) * period;
-
+        // Shortfall: the larder covers part (or none) of the demand and
+        // the rest is owed. During famine the hole keeps deepening at
+        // the full population rate — that's the bleeding the player has
+        // to stop by paying the debt back to zero (CargoTransfer's food
+        // path). Deaths shrink the rate, so the debt is self-limiting.
+        var anchorBefore = castle.LastFoodConsumedTick;
+        var shortfall = wouldConsume - available;
         castle.Withdraw(Resource.Food, available);  // takes everything
-        castle.FamineStartTick = failureBoundary;
-        castle.LastFoodConsumedTick = failureBoundary;
+        castle.LastFoodConsumedTick += periods * period;
+        castle.FoodDebt = (int)Math.Min(int.MaxValue, castle.FoodDebt + shortfall);
 
-        // M13 Phase D — schedule the first starvation death. Only on
-        // the famine-trigger transition (not while already in famine);
-        // this branch IS that transition. Future deaths reschedule
-        // themselves from inside StarvationDeathEvent.Apply.
-        //
-        // Carry-over guard: if an anchor from a PREVIOUS famine is still
-        // in flight (the player deposited food, cleared the famine, then
-        // ran out again before the original death fired), leave that
-        // original schedule intact rather than granting a fresh
-        // StarvationStartDelay grace window. Closes the trickle-deposit
-        // exploit. See docs/food-consumption.md (Update 2026-06-09).
-        if (!castle.NextStarvationDeathTick.HasValue)
+        // Famine-onset transition (debt was zero, now isn't): mark the
+        // boundary of the first meal that couldn't feed everyone and
+        // schedule the first starvation death after the grace window.
+        // Future deaths reschedule themselves from inside
+        // StarvationDeathEvent.Apply; the cadence stops only when the
+        // debt is repaid in full (which is also what cleared any prior
+        // death anchor — so an unconditional schedule here is safe, and
+        // a stale anchor would be fenced by the overwrite anyway).
+        if (!castle.FamineStartTick.HasValue)
         {
-            ScheduleNextStarvationDeath(castle, sim, fireAt: failureBoundary
+            var fullMeals = available / rate;
+            castle.FamineStartTick = anchorBefore + (fullMeals + 1) * period;
+            ScheduleNextStarvationDeath(castle, sim, fireAt: castle.FamineStartTick.Value
                 + FoodConsumptionConstants.StarvationStartDelay);
         }
     }
@@ -170,12 +167,11 @@ public static class FoodConsumption
     }
 
     // Pure-read helper — what consumption-amount applies between the
-    // castle's current anchor and `now`. Returns the value CatchUp
-    // would subtract from Holdings. Famine-aware: a castle already in
-    // famine has Food = 0 and no further consumption.
+    // castle's current anchor and `now`. Returns the demand CatchUp
+    // would charge (Holdings first, then FoodDebt) over the completed
+    // periods. The clock never stops, famine or not.
     private static int ConsumptionUpTo(Castle castle, Simulation sim, long now)
     {
-        if (castle.FamineStartTick.HasValue) return 0;
         var period = FoodConsumptionConstants.FoodConsumptionPeriod;
         var elapsed = now - castle.LastFoodConsumedTick;
         if (elapsed <= 0) return 0;

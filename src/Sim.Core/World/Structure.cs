@@ -71,9 +71,19 @@ public sealed class Castle : StorageStructure
 
     // M13 Phase C — famine anchor. Set by FoodConsumption.CatchUp at the
     // exact meal-boundary tick where food first failed to feed everyone.
-    // Cleared by HaulDepositEvent.Apply (food path) when a deposit brings
-    // Holdings[Food] back above 0.
+    // Cleared by CargoTransfer.DepositInto (food path) when a deposit
+    // pays FoodDebt all the way back to zero.
     public long? FamineStartTick { get; set; }
+
+    // Famine DEBT (2026-06-11 rework, docs/food-consumption.md). Every
+    // meal the larder can't cover lands here instead of being forgiven:
+    // the castle's effective food level is Holdings[Food] − FoodDebt
+    // (negative on the HUD during famine). Deposits pay the debt FIRST;
+    // famine ends — and starvation deaths stop — only when the debt is
+    // repaid in full. Invariant: FoodDebt > 0 ⇔ FamineStartTick set
+    // (both mutate only in FoodConsumption.CatchUp and
+    // CargoTransfer.DepositInto).
+    public int FoodDebt { get; set; }
 
     // M13 Phase C — predicted-next-dry-out anchor. The FamineCheckEvent
     // fences on (At == NextFamineCheckTick, Seq == NextFamineCheckSeq).
@@ -86,8 +96,9 @@ public sealed class Castle : StorageStructure
     // FoodConsumption.CatchUp transitions to famine (first death scheduled
     // at FamineStartTick + StarvationStartDelay) and on each subsequent
     // StarvationDeathEvent firing (next at now + StarvationDeathInterval).
-    // Cleared when famine ends (HaulDepositEvent food path) or when
-    // population hits zero. Fenced like the famine check.
+    // Cleared when the famine debt is fully repaid (CargoTransfer food
+    // path) or when no citizens remain to kill. Fenced like the famine
+    // check.
     public long? NextStarvationDeathTick { get; set; }
     public long? NextStarvationDeathSeq { get; set; }
 

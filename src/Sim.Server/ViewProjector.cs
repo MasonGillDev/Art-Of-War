@@ -35,8 +35,11 @@ public sealed class ViewProjector
 
     // M13 food consumption — project the viewing player's population, live castle food
     // (pure-read CurrentLevel), per-period drain, runway-to-dry, and famine/starvation
-    // countdown. All ticks-until values are pre-computed against `now` so the client
-    // doesn't need the sim clock. Enemy food is never exposed (we only read OUR castle).
+    // countdown. CastleFood is SIGNED: during famine it goes negative by exactly the
+    // unpaid FoodDebt (the famine-debt model, docs/food-consumption.md Update
+    // 2026-06-11) — the magnitude is the deposit needed to stop the deaths. All
+    // ticks-until values are pre-computed against `now` so the client doesn't need
+    // the sim clock. Enemy food is never exposed (we only read OUR castle).
     private static void FillFood(ViewDto dto, Simulation sim, long now, int playerId)
     {
         var world = sim.World;
