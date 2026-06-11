@@ -34,9 +34,17 @@ public sealed class Diplomacy
     }
 
     // The combat gate. Combat (M7) calls this every time two forces might
-    // engage; today it's queryable but unused. True iff the pair's state
-    // is Enemy.
-    public bool AreHostile(int a, int b) => RelationshipBetween(a, b) == RelationshipState.Enemy;
+    // engage. True iff the pair's state is Enemy — except the bandit
+    // faction (M16), which is hostile to EVERYONE, always: no relationship
+    // rows, no war telegraph, no peace. The reserved id never appears in
+    // Relationships (diplomacy intents reject it).
+    public bool AreHostile(int a, int b)
+    {
+        if (a == b) return false;
+        if (a == Bandits.BanditConstants.OwnerId || b == Bandits.BanditConstants.OwnerId)
+            return true;
+        return RelationshipBetween(a, b) == RelationshipState.Enemy;
+    }
 
     // ---- Internal mutation API -----------------------------------------
 

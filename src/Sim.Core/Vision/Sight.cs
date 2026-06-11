@@ -17,6 +17,11 @@ public static class Sight
     public static int RadiusFor(UnitRole role) => role switch
     {
         UnitRole.Scout      => 6,
+        // M16 — raiders hunt by sight (the driver targets only what the
+        // party can SEE — bandits get fog too). Scout-grade eyes make
+        // wandering parties actually find things; their vision is never
+        // player-facing (Reveal skips the faction).
+        UnitRole.Bandit     => 6,
         _                   => 3,
     };
 
@@ -52,6 +57,12 @@ public static class Sight
     internal static void Reveal(GameWorld world, int playerId, TileCoord center, int r, long now)
     {
         if (r <= 0) return;
+        // M16 — bandits keep no remembered map. They hunt from LIVE sight
+        // only (View.VisibleTiles works for any owner without Explored
+        // rows), and skipping the write keeps snapshots lean: a faction
+        // that wanders the whole map would otherwise drag an Explored set
+        // the size of the world through every snapshot.
+        if (playerId == Sim.Core.Bandits.BanditConstants.OwnerId) return;
         if (!world.Explored.TryGetValue(playerId, out var set))
         {
             set = new HashSet<TileCoord>();

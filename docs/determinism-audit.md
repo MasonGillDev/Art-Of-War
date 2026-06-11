@@ -618,3 +618,35 @@ hashes looked identical while live and restored sims evolved apart —
 exactly the failure class the mid-production headline test exists to
 catch. Lesson recorded: serialize state FAITHFULLY; "should not exist"
 beliefs belong in asserts, not silent filters.
+
+## Update 2026-06-11 — M16 bandits
+
+New mutation surfaces, all inside the event stream:
+
+- `SpawnBanditPartyIntent.Resolve` — allocates `world.NextUnitId` per
+  party member and adds units via `Population.OnUnitAdded` (the
+  canonical runtime-add hook). Deliberately does NOT call
+  `ScheduleLifespan`: bandits are age-exempt, and rolling lifespans here
+  would consume RNG and shift every later demographic roll.
+- `DespawnBanditPartyIntent.Resolve` — clears cargo (loot leaves the
+  world; nothing drops) then removes each unit through
+  `CombatRules.OnUnitDeath`, the M7 single death pipeline. Validates ALL
+  party members before mutating ANY (atomic despawn).
+- `Genesis.Build` — registers the bandit `Player` row unconditionally;
+  rejects `FactionStartSpec` claiming the reserved id.
+- `Sight.Reveal` — early-returns for the bandit owner (no Explored /
+  RememberedBiome rows accrue for the faction; live sight via
+  `View.VisibleTiles` needs neither).
+
+NOT a mutation surface: the `BanditDriver` (Sim.Server). It reads
+through pure-read walls (`View.VisibleTiles`, `BanditRules.*`) and acts
+only by `SubmitIntent`. Its internal state (party tracking, RNG) is
+ephemeral and outside the determinism contract — the durable intent log
+carries its decisions. Closure gate:
+`BanditDriverTests.Headline_ReplayFromIntentLog_HashesMatch` (live run
+with driver vs. driverless replay of the round-tripped intent log —
+hash-equal; replay interleaves submissions chronologically, matching
+how live submission ordered Seqs).
+
+No snapshot format change: bandit units/Player row serialize
+generically; `UnitRole.Bandit` is an append-only enum byte.

@@ -36,6 +36,12 @@ public sealed class ProposeRelationshipIntent : Intent
     {
         if (ProposerId == TargetId)
             return IntentOutcome.Reject($"proposer {ProposerId} cannot propose to itself");
+        // M16 — no peace with bandits, in either direction. (Their Player
+        // row passes the existence checks, so the reject must be explicit.
+        // RespondToProposalIntent needs no guard: a proposal naming bandits
+        // can never exist.)
+        if (ProposerId == Bandits.BanditConstants.OwnerId || TargetId == Bandits.BanditConstants.OwnerId)
+            return IntentOutcome.Reject("the bandit faction is outside diplomacy (always hostile)");
         if (!sim.World.Players.ContainsKey(ProposerId))
             return IntentOutcome.Reject($"proposer {ProposerId} is not a registered faction");
         if (!sim.World.Players.ContainsKey(TargetId))

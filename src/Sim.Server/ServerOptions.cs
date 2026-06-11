@@ -10,11 +10,13 @@ public sealed record ServerOptions
     public int MapWidth { get; init; } = 256;
     public int MapHeight { get; init; } = 256;
     public ulong Seed { get; init; } = 0xC0FFEE;          // sim RNG seed
+    public bool Bandits { get; init; } = true;            // M16 — --bandits 0 to disable the driver
 
     public static ServerOptions Parse(string[] args)
     {
         int port = 8080, mapSeed = 1151, mapWidth = 256, mapHeight = 256;
         var tps = 20.0;
+        var bandits = 1;
         for (var i = 0; i + 1 < args.Length; i++)
         {
             switch (args[i])
@@ -24,6 +26,7 @@ public sealed record ServerOptions
                 case "--mapseed": int.TryParse(args[i + 1], out mapSeed); break;
                 case "--width":   int.TryParse(args[i + 1], out mapWidth); break;
                 case "--height":  int.TryParse(args[i + 1], out mapHeight); break;
+                case "--bandits": int.TryParse(args[i + 1], out bandits); break;
             }
         }
         return new ServerOptions
@@ -33,6 +36,7 @@ public sealed record ServerOptions
             MapSeed = mapSeed,
             MapWidth = mapWidth,
             MapHeight = mapHeight,
+            Bandits = bandits != 0,
         };
     }
 }

@@ -105,6 +105,28 @@ restore. No new state, no snapshot bump.
 - `UnassignWorkers_OnOtherPlayersExtractor_Rejected`
 - `AssignBuilders_OnOtherPlayersSite_Rejected`
 
+## Update 2026-06-11 — M16: server-internal intents + the raiding economy pinned
+
+**New authorization class: SERVER-INTERNAL intents.**
+`SpawnBanditPartyIntent` / `DespawnBanditPartyIntent` (and the bandit
+`PlayerId = BanditConstants.OwnerId` itself) are rejected at the WIRE
+(`GameHost.SubmitEnvelopeJson`) regardless of payload — only the
+in-process `BanditDriver` may submit them, below the HTTP gate. They
+remain ordinary durable intents past that gate (registered in
+`IntentJson`, replayed by recovery). Defense in depth: both intents ALSO
+reject `PlayerId != BanditConstants.OwnerId` at resolve time, so even a
+bypassed wire guard can't let a player conjure or vanish bandits.
+
+**The haul source-ownership deferral is now a pinned DESIGN DECISION,
+not an open question.** M16's `LoadCargoIntent` deliberately copies
+`HaulIntent`'s stance: unit ownership is checked, source ownership is
+not. Loading from a hostile structure's buffer **is the raiding
+economy** — bandits robbing your lumber camp, you looting theirs back,
+players raiding each other's unguarded frontiers. Whether you can stand
+on the tile alive is combat's problem, not authorization's. The eventual
+trade/alliance milestone may add rules for *non-hostile* access
+etiquette; hostile access stays open by design.
+
 ## References
 
 - `docs/intent-validation.md` — the "Resolve re-validates everything,

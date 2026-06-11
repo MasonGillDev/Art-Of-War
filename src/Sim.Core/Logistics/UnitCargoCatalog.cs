@@ -27,12 +27,17 @@ public static class UnitCargoCatalog
 {
     public const int HaulerCapacity = 25;
     public const int BoatCapacity = 100;
+    // M16 — stealing matters, but a party can't empty a stockpile in one
+    // visit (a 4-bandit raid lifts at most 60 against a LumberCamp's
+    // 30-cap buffer or a Stockpile's 500).
+    public const int BanditCapacity = 15;
     public const int DefaultCapacity = 5;
 
     public static int CapacityFor(UnitRole role) => role switch
     {
         UnitRole.Hauler => HaulerCapacity,
         UnitRole.Boat => BoatCapacity,
+        UnitRole.Bandit => BanditCapacity,
         _ => DefaultCapacity,
     };
 }

@@ -20,6 +20,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sim.Core\Sim.Core.csproj" />
+    <!-- M16: the bandit driver (proto-automation layer) lives server-side;
+         its brain is unit-tested here against a hand-driven Simulation. -->
+    <ProjectReference Include="..\..\src\Sim.Server\Sim.Server.csproj" />
   </ItemGroup>
 
 </Project>

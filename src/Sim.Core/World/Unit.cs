@@ -14,6 +14,7 @@ public enum UnitRole : byte
     Boat = 8, // M12 — water vehicle (carries passengers + cargo)
     Soldier = 9, // military — melee tank, trained at Barracks
     Archer = 10, // military — glass cannon, trained at Barracks (ranged-from-adjacent deferred)
+    Bandit = 11, // M16 — NPC raider; never trainable, spawned only by the bandit driver
 }
 
 public sealed class Unit

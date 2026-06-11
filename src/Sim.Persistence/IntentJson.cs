@@ -51,8 +51,14 @@ public static class IntentJson
         [typeof(EmbarkIntent)]                = "EmbarkIntent",
         [typeof(DisembarkIntent)]             = "DisembarkIntent",
         [typeof(UnloadCargoIntent)]           = "UnloadCargoIntent",
+        [typeof(LoadCargoIntent)]             = "LoadCargoIntent",
         [typeof(CraftEquipmentIntent)]        = "CraftEquipmentIntent",
         [typeof(EquipUnitIntent)]             = "EquipUnitIntent",
+        // M16 — server-internal (the wire rejects them; the bandit driver
+        // submits in-process) but DURABLE like any intent: recovery replays
+        // bandit spawns/despawns from the log.
+        [typeof(Sim.Core.Bandits.SpawnBanditPartyIntent)]   = "SpawnBanditPartyIntent",
+        [typeof(Sim.Core.Bandits.DespawnBanditPartyIntent)] = "DespawnBanditPartyIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -87,8 +93,11 @@ public static class IntentJson
             "EmbarkIntent"                 => JsonSerializer.Deserialize<EmbarkIntent>(payload, Options),
             "DisembarkIntent"              => JsonSerializer.Deserialize<DisembarkIntent>(payload, Options),
             "UnloadCargoIntent"            => JsonSerializer.Deserialize<UnloadCargoIntent>(payload, Options),
+            "LoadCargoIntent"              => JsonSerializer.Deserialize<LoadCargoIntent>(payload, Options),
             "CraftEquipmentIntent"         => JsonSerializer.Deserialize<CraftEquipmentIntent>(payload, Options),
             "EquipUnitIntent"              => JsonSerializer.Deserialize<EquipUnitIntent>(payload, Options),
+            "SpawnBanditPartyIntent"       => JsonSerializer.Deserialize<Sim.Core.Bandits.SpawnBanditPartyIntent>(payload, Options),
+            "DespawnBanditPartyIntent"     => JsonSerializer.Deserialize<Sim.Core.Bandits.DespawnBanditPartyIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

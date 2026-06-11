@@ -40,6 +40,12 @@ public sealed class DeclareWarIntent : Intent
     {
         if (DeclarerId == TargetId)
             return IntentOutcome.Reject($"declarer {DeclarerId} cannot declare war on itself");
+        // M16 — bandits are ALREADY at war with everyone (AreHostile special
+        // case) and can never make peace; a declaration naming them is
+        // meaningless. Explicit reject: the bandit Player row exists in
+        // world.Players, so the existence checks below would wave it through.
+        if (DeclarerId == Bandits.BanditConstants.OwnerId || TargetId == Bandits.BanditConstants.OwnerId)
+            return IntentOutcome.Reject("the bandit faction is outside diplomacy (always hostile)");
         if (!sim.World.Players.ContainsKey(DeclarerId))
             return IntentOutcome.Reject($"declarer {DeclarerId} is not a registered faction");
         if (!sim.World.Players.ContainsKey(TargetId))

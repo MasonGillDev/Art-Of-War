@@ -60,4 +60,29 @@ public class IntentJsonTests
         Assert.Equal(Resource.Shield, replay.Item);
         Assert.Equal(1, replay.PlayerId);
     }
+
+    [Fact]
+    public void BanditIntents_RoundTrip()
+    {
+        // M16 — server-internal but durable: recovery replays bandit
+        // spawns/despawns from the log like any other intent.
+        var spawn = new Sim.Core.Bandits.SpawnBanditPartyIntent(new TileCoord(40, 41), size: 4)
+            { PlayerId = Sim.Core.Bandits.BanditConstants.OwnerId };
+        var (tn, payload) = IntentJson.Serialize(spawn);
+        Assert.Equal("SpawnBanditPartyIntent", tn);
+        var replaySpawn = Assert.IsType<Sim.Core.Bandits.SpawnBanditPartyIntent>(
+            IntentJson.Deserialize(tn, payload));
+        Assert.Equal(new TileCoord(40, 41), replaySpawn.At);
+        Assert.Equal(4, replaySpawn.Size);
+        Assert.Equal(Sim.Core.Bandits.BanditConstants.OwnerId, replaySpawn.PlayerId);
+
+        var despawn = new Sim.Core.Bandits.DespawnBanditPartyIntent(new[] { 7, 8, 9 })
+            { PlayerId = Sim.Core.Bandits.BanditConstants.OwnerId };
+        var (tn2, p2) = IntentJson.Serialize(despawn);
+        Assert.Equal("DespawnBanditPartyIntent", tn2);
+        var replayDespawn = Assert.IsType<Sim.Core.Bandits.DespawnBanditPartyIntent>(
+            IntentJson.Deserialize(tn2, p2));
+        Assert.Equal(new[] { 7, 8, 9 }, replayDespawn.UnitIds);
+        Assert.Equal(Sim.Core.Bandits.BanditConstants.OwnerId, replayDespawn.PlayerId);
+    }
 }

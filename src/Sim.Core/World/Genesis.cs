@@ -76,15 +76,27 @@ public static class Genesis
                 "GenesisSpec.FactionStarts must contain at least one FactionStartSpec.");
         var seenOwners = new HashSet<int>();
         foreach (var fs in spec.FactionStarts)
+        {
+            if (fs.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId)
+                throw new InvalidOperationException(
+                    $"OwnerId {fs.OwnerId} is reserved for the bandit faction (M16).");
             if (!seenOwners.Add(fs.OwnerId))
                 throw new InvalidOperationException(
                     $"GenesisSpec.FactionStarts has duplicate OwnerId {fs.OwnerId}.");
+        }
 
         var grid = new TileGrid(spec.Width, spec.Height, spec.DefaultBiome);
         foreach (var (coord, biome) in spec.Biomes)
             grid.SetBiome(coord, biome);
 
         var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population, spec.BiomeDegradation);
+
+        // M16 — every world carries the bandit faction, usually empty: a
+        // Player row with no castle, no holdings, no spawns. Registering it
+        // here (not lazily at first spawn) keeps GameWorld.AddUnit's
+        // population bookkeeping unconditional and the snapshot canonical.
+        world.Players[Sim.Core.Bandits.BanditConstants.OwnerId] =
+            new Player(Sim.Core.Bandits.BanditConstants.OwnerId);
 
         // Iterate factions in OwnerId order — deterministic placement,
         // matches the snapshot canonical Players order (sorted-by-id).

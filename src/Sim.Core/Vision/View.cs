@@ -163,9 +163,14 @@ public static class View
 
         // M6 diplomatic state — public knowledge for Factions / Relationships
         // / PendingWars; only IncomingProposals is per-viewer scoped.
+        // M16: the bandit faction is omitted — it is outside diplomacy
+        // (always hostile, no proposals possible), so listing it would only
+        // bait clients into offering doomed war/peace actions. Bandit UNITS
+        // still project normally when visible.
         var factions = new List<FactionView>();
         foreach (var (id, _) in world.Players)
-            factions.Add(new FactionView(id));
+            if (id != Bandits.BanditConstants.OwnerId)
+                factions.Add(new FactionView(id));
 
         var relationships = new List<RelationshipView>();
         var pendingWars = new List<PendingWarView>();

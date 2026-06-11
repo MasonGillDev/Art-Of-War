@@ -50,7 +50,9 @@ public class MultiFactionGenesisTests
     {
         var world = Genesis.Build(MakeNFactionSpec(n));
 
-        Assert.Equal(n, world.Players.Count);
+        // n player factions + the always-present bandit row (M16).
+        Assert.Equal(n + 1, world.Players.Count);
+        Assert.True(world.Players.ContainsKey(Sim.Core.Bandits.BanditConstants.OwnerId));
         for (var i = 0; i < n; i++)
         {
             Assert.True(world.Players.ContainsKey(i), $"player {i} missing");
@@ -87,7 +89,7 @@ public class MultiFactionGenesisTests
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 0xA0F);
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
-        Assert.Equal(n, restored.World.Players.Count);
+        Assert.Equal(n + 1, restored.World.Players.Count); // + bandit row (M16)
     }
 
     [Fact]

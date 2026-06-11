@@ -16,6 +16,7 @@ public sealed class GameHost : IDisposable
     private readonly Simulation _sim;
     private readonly ViewProjector _projector;
     private readonly double _ticksPerSecond;
+    private readonly Bandits.BanditDriver? _bandits;
 
     private readonly object _gate = new();
     private long _virtualTick;        // current virtual tick; read/written only under _gate
@@ -29,7 +30,8 @@ public sealed class GameHost : IDisposable
     private long _nextNoticeId = 1;
     private readonly Dictionary<int, List<NoticeDto>> _notices = new();
 
-    public GameHost(WorldBuild build, ulong seed, double ticksPerSecond)
+    public GameHost(WorldBuild build, ulong seed, double ticksPerSecond,
+        Bandits.BanditConfig? banditConfig = null)
     {
         // Spec-aware ctor: builds the world via Genesis AND rolls each genesis unit's
         // lifespan (death-by-age). The plain (GameWorld, seed) ctor would skip that and
@@ -37,6 +39,10 @@ public sealed class GameHost : IDisposable
         _sim = new Simulation(build.Spec, seed);
         _projector = new ViewProjector(build);
         _ticksPerSecond = ticksPerSecond;
+        // M16 — the bandit brain rides the clock loop (same thread, same
+        // lock); null when disabled.
+        if (banditConfig is { Enabled: true })
+            _bandits = new Bandits.BanditDriver(banditConfig);
     }
 
     public void Start()
@@ -64,6 +70,10 @@ public sealed class GameHost : IDisposable
             {
                 _virtualTick = (long)accum;
                 _sim.Run(until: _virtualTick);
+                // M16 — the bandit driver reads the freshly-advanced world and
+                // submits its intents (they resolve on the next Run). Same
+                // thread, under the lock: its pure reads can never race the sim.
+                _bandits?.Think(_sim, _virtualTick);
                 HarvestRejections();
             }
             Thread.Sleep(20);
@@ -82,6 +92,14 @@ public sealed class GameHost : IDisposable
                 return Ack(false, "missing typeName");
 
             var intent = IntentJson.Deserialize(env.TypeName, env.Payload ?? "{}");
+            // M16 — the bandit faction is SERVER-INTERNAL: no wire client may
+            // speak as it (any PlayerId) or invoke its spawn/despawn intents
+            // (any claimed id). The in-process driver submits below this gate.
+            // First server-internal intent class — docs/intent-authorization.md.
+            if (intent.PlayerId == Sim.Core.Bandits.BanditConstants.OwnerId
+                || intent is Sim.Core.Bandits.SpawnBanditPartyIntent
+                || intent is Sim.Core.Bandits.DespawnBanditPartyIntent)
+                return Ack(false, "bandit-faction intents are server-internal");
             lock (_gate)
             {
                 var at = Math.Max(_sim.Now, _virtualTick);

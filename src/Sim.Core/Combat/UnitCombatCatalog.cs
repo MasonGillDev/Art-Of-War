@@ -39,6 +39,9 @@ public static class UnitCombatCatalog
         // cannon. Both numbers are balance knobs.
         [UnitRole.Soldier]    = new UnitCombatSpec { Role = UnitRole.Soldier,    BaseHealth = 30, BasePower = 3 },
         [UnitRole.Archer]     = new UnitCombatSpec { Role = UnitRole.Archer,     BaseHealth = 15, BasePower = 5 },
+        // M16 — Bandit: between a Soldier and a citizen. A lone citizen
+        // loses to one, a Soldier beats one, a party is a real threat.
+        [UnitRole.Bandit]     = new UnitCombatSpec { Role = UnitRole.Bandit,     BaseHealth = 25, BasePower = 3 },
     };
 
     public static UnitCombatSpec Spec(UnitRole role) =>
