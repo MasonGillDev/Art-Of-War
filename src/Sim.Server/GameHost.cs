@@ -17,6 +17,7 @@ public sealed class GameHost : IDisposable
     private readonly ViewProjector _projector;
     private readonly double _ticksPerSecond;
     private readonly Bandits.BanditDriver? _bandits;
+    private readonly List<Ai.AiPlayerDriver> _ais = new();
 
     private readonly object _gate = new();
     private long _virtualTick;        // current virtual tick; read/written only under _gate
@@ -31,7 +32,7 @@ public sealed class GameHost : IDisposable
     private readonly Dictionary<int, List<NoticeDto>> _notices = new();
 
     public GameHost(WorldBuild build, ulong seed, double ticksPerSecond,
-        Bandits.BanditConfig? banditConfig = null)
+        Bandits.BanditConfig? banditConfig = null, Ai.AiConfig? aiConfig = null)
     {
         // Spec-aware ctor: builds the world via Genesis AND rolls each genesis unit's
         // lifespan (death-by-age). The plain (GameWorld, seed) ctor would skip that and
@@ -43,6 +44,12 @@ public sealed class GameHost : IDisposable
         // lock); null when disabled.
         if (banditConfig is { Enabled: true })
             _bandits = new Bandits.BanditDriver(banditConfig);
+        // M17 — one AI driver per non-human faction in the genesis spec
+        // (the human is faction 0; bandits aren't a FactionStartSpec).
+        if (aiConfig is { Enabled: true })
+            foreach (var fs in build.Spec.FactionStarts)
+                if (fs.OwnerId != 0)
+                    _ais.Add(new Ai.AiPlayerDriver(fs.OwnerId, aiConfig));
     }
 
     public void Start()
@@ -70,10 +77,11 @@ public sealed class GameHost : IDisposable
             {
                 _virtualTick = (long)accum;
                 _sim.Run(until: _virtualTick);
-                // M16 — the bandit driver reads the freshly-advanced world and
-                // submits its intents (they resolve on the next Run). Same
-                // thread, under the lock: its pure reads can never race the sim.
+                // M16/M17 — the NPC brains read the freshly-advanced world and
+                // submit their intents (they resolve on the next Run). Same
+                // thread, under the lock: their pure reads can never race the sim.
                 _bandits?.Think(_sim, _virtualTick);
+                foreach (var ai in _ais) ai.Think(_sim, _projector, _virtualTick);
                 HarvestRejections();
             }
             Thread.Sleep(20);

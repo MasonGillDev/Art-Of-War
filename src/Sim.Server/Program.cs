@@ -14,12 +14,13 @@ var options = ServerOptions.Parse(args);
 var build = WorldFactory.Build(options);
 
 using var host = new GameHost(build, options.Seed, options.TicksPerSecond,
-    new Sim.Server.Bandits.BanditConfig { Enabled = options.Bandits });
+    new Sim.Server.Bandits.BanditConfig { Enabled = options.Bandits },
+    new Sim.Server.Ai.AiConfig { Enabled = options.AiPlayers > 0, TracePrint = options.AiTrace });
 host.Start();
 
 using var api = new HttpApi(host, options.Port);
 
-Console.WriteLine($"Sim.Server listening on http://localhost:{options.Port}/  (tps={options.TicksPerSecond}, seed=0x{options.Seed:X}, bandits={(options.Bandits ? "on" : "off")})");
+Console.WriteLine($"Sim.Server listening on http://localhost:{options.Port}/  (tps={options.TicksPerSecond}, seed=0x{options.Seed:X}, bandits={(options.Bandits ? "on" : "off")}, ai={options.AiPlayers})");
 Console.WriteLine("  GET  /view/{playerId}");
 Console.WriteLine("  POST /intent");
 Console.WriteLine("Ctrl+C to stop.");

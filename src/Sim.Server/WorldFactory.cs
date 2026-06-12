@@ -33,72 +33,75 @@ public static class WorldFactory
         // public — no core changes) so the client can build a smooth heightmap whose
         // slopes line up with the biome bands.
         var elevation = QuantizeElevation(NoiseField.Generate(cfg.Seed + cfg.ElevationSeedOffset, cfg));
-        var spec = BuildSpec(map);
+        var spec = BuildSpec(map, opts.AiPlayers);
         return new WorldBuild(spec, map, elevation, cfg);
     }
 
-    private static GenesisSpec BuildSpec(GeneratedMap map)
+    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers)
     {
         var start = map.Start;
-
-        TileCoord Clamp(int x, int y) => new(
-            Math.Clamp(x, 0, map.Width - 1),
-            Math.Clamp(y, 0, map.Height - 1));
-
-        // Two of each role, so the player has the units to drive every initial task
-        // (build, haul, work each extractor, scout). Laid out in a grid around the
-        // castle so they don't all stack on one tile.
-        var roster = new[]
-        {
-            UnitRole.Builder, UnitRole.Hauler, UnitRole.Lumberjack,
-            UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer, UnitRole.Scout,
-        };
-        var unitSpawns = new List<UnitSpawn>();
         var nextId = 1;
-        var slot = 0;
-        foreach (var role in roster)
-            for (var copy = 0; copy < 2; copy++)
-            {
-                var dx = (slot % 5) - 2;   // -2..2 across
-                var dy = (slot / 5) - 1;   // a few rows around the castle
-                unitSpawns.Add(new UnitSpawn(nextId++, Clamp(start.X + dx, start.Y + dy), role));
-                slot++;
-            }
 
-        // M6: each faction has its own start (castle + holdings + units).
-        var factions = new List<FactionStartSpec>
+        // M17 — every faction (human and AI) gets the IDENTICAL start:
+        // fairness includes the opening. Loadout rationale: a lumber camp
+        // costs wood, so running dry before building one strands you; food
+        // must cover the M13 drain until a farm is up AND delivering back
+        // to the castle — 14 citizens eat 56/game-day, the bootstrap is
+        // ~2-3 game-days at march pace, 200 ≈ 3.6 game-days of runway.
+        FactionStartSpec MakeFaction(int ownerId, TileCoord castleAt)
         {
-            new()
+            TileCoord Clamp(int x, int y) => new(
+                Math.Clamp(x, 0, map.Width - 1),
+                Math.Clamp(y, 0, map.Height - 1));
+
+            // Two of each role — units to drive every initial task (build,
+            // haul, work each extractor, scout), gridded around the castle
+            // so they don't all stack on one tile.
+            var roster = new[]
             {
-                OwnerId = 0,
-                CastlePosition = start,
-                // Generous starting stock so the player can bootstrap the economy without
-                // soft-locking: a lumber camp costs wood, so running dry before building one
-                // strands you. Food must cover the M13 drain until a farm is up AND
-                // delivering back to the castle: 14 starting citizens eat 56/game-day
-                // (1 each per 6h period), and the farm bootstrap at march-pace hauling
-                // is ~2-3 game-days. 200 ≈ 3.6 game-days of runway (~4.3 wall-min at
-                // 20 tps) — the opening is a real race, but a winnable one.
+                UnitRole.Builder, UnitRole.Hauler, UnitRole.Lumberjack,
+                UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer, UnitRole.Scout,
+            };
+            var spawns = new List<UnitSpawn>();
+            var slot = 0;
+            foreach (var role in roster)
+                for (var copy = 0; copy < 2; copy++)
+                {
+                    var dx = (slot % 5) - 2;   // -2..2 across
+                    var dy = (slot / 5) - 1;   // a few rows around the castle
+                    spawns.Add(new UnitSpawn(nextId++, Clamp(castleAt.X + dx, castleAt.Y + dy), role, OwnerId: ownerId));
+                    slot++;
+                }
+            return new FactionStartSpec
+            {
+                OwnerId = ownerId,
+                CastlePosition = castleAt,
                 CastleHoldings = new SortedDictionary<Resource, int>
                 {
                     [Resource.Wood] = 70,
                     [Resource.Stone] = 50,
                     [Resource.Food] = 200,
                 },
-                UnitSpawns = unitSpawns.ToArray(),
-            },
-        };
+                UnitSpawns = spawns.ToArray(),
+            };
+        }
 
-        // Optional neutral second faction ~12 tiles out, so fog/combat have an "other".
-        if (FindGrasslandNear(map, start, 12) is { } enemyTile)
+        var factions = new List<FactionStartSpec> { MakeFaction(0, start) };
+
+        // M17 — N full AI factions (the token "neutral scout" faction is
+        // retired; AI players are the "other" now). Castles placed on
+        // grassland a real march away from the player and from each other;
+        // perfect fair-start placement stays deferred to M11 Phase 2.
+        var castles = new List<TileCoord> { start };
+        for (var i = 0; i < aiPlayers; i++)
         {
-            factions.Add(new FactionStartSpec
+            if (FindAiStart(map, castles) is not { } aiCastle)
             {
-                OwnerId = 1,
-                CastlePosition = enemyTile,
-                CastleHoldings = new SortedDictionary<Resource, int> { [Resource.Wood] = 20 },
-                UnitSpawns = new[] { new UnitSpawn(99, enemyTile, UnitRole.Scout, OwnerId: 1) },
-            });
+                Console.WriteLine($"WARN: no viable start for AI faction {i + 1} — skipping.");
+                continue;
+            }
+            castles.Add(aiCastle);
+            factions.Add(MakeFaction(i + 1, aiCastle));
         }
 
         var spec = new GenesisSpec
@@ -109,22 +112,34 @@ public static class WorldFactory
             FactionStarts = factions,
         };
 
-        Console.WriteLine($"Generated {map.Width}x{map.Height} continent (seed {map.Seed}); castle start at ({start.X},{start.Y}).");
+        Console.WriteLine($"Generated {map.Width}x{map.Height} continent (seed {map.Seed}); " +
+            $"castle start at ({start.X},{start.Y}); factions: {factions.Count}.");
         return spec;
     }
 
-    // Nearest Grassland tile on the Chebyshev ring at `dist` (then a few rings out)
-    // from origin — a plausible spot for the neutral scout. Null if none found.
-    private static TileCoord? FindGrasslandNear(GeneratedMap map, TileCoord origin, int dist)
+    // M17 — pick a grassland castle tile for an AI faction: as far from the
+    // player as the map allows (preferring ~half-map separation, walking
+    // inward if the continent is small), and at least MinSeparation from
+    // every already-placed castle. Deterministic: ring-perimeter scan in
+    // (dist, y, x) order, same shape as FindGrasslandNear.
+    private const int MinSeparation = 24;
+
+    private static TileCoord? FindAiStart(GeneratedMap map, List<TileCoord> castles)
     {
-        for (var r = dist; r <= dist + 10; r++)
+        var origin = castles[0];   // the player start anchors the search
+        var preferred = Math.Min(64, Math.Max(map.Width, map.Height) / 2);
+        for (var r = preferred; r >= MinSeparation; r -= 4)
         for (var dy = -r; dy <= r; dy++)
         for (var dx = -r; dx <= r; dx++)
         {
-            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue; // ring perimeter only
+            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue; // perimeter only
             int x = origin.X + dx, y = origin.Y + dy;
             if (x < 0 || x >= map.Width || y < 0 || y >= map.Height) continue;
-            if (map.Grid[x, y] == Biome.Grassland) return new TileCoord(x, y);
+            if (map.Grid[x, y] != Biome.Grassland) continue;
+            var clear = true;
+            foreach (var c in castles)
+                if (Math.Max(Math.Abs(c.X - x), Math.Abs(c.Y - y)) < MinSeparation) { clear = false; break; }
+            if (clear) return new TileCoord(x, y);
         }
         return null;
     }

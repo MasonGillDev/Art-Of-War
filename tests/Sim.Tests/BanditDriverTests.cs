@@ -183,19 +183,28 @@ public class BanditDriverTests
             live.Run(until: t);
             driver.Think(live, t);
         }
+        // Settle: resolve the final think's submissions — an in-flight
+        // submission advances the Seq counter on the live side only, and
+        // unresolved intents never reach the log the replay reads.
+        live.Run(until: 30_030);
         var endTick = live.Now;
 
         // Replay run: no driver — just the durable log, round-tripped
         // through the SAME JSON registry the SQLite store uses. Submission
-        // must INTERLEAVE chronologically the way live submission did
-        // (the driver submits at tick T after T's events have run, so its
-        // intent sorts after them); run to each intent's tick, then submit.
+        // must INTERLEAVE chronologically the way live submission did:
+        // run to each think tick, then submit that tick's WHOLE BATCH
+        // (live queues the full batch before any of it resolves — per-
+        // intent interleaving would reorder same-tick Seq allocation).
         var replay = Build();
-        foreach (var ev in live.ResolvedLog.OfType<IntentEvent>().OrderBy(e => e.Seq))
+        foreach (var batch in live.ResolvedLog.OfType<IntentEvent>()
+                     .OrderBy(e => e.Seq).GroupBy(e => e.At))
         {
-            replay.Run(until: ev.At);
-            var (typeName, payload) = Sim.Persistence.IntentJson.Serialize(ev.Intent);
-            replay.SubmitIntent(ev.At, Sim.Persistence.IntentJson.Deserialize(typeName, payload));
+            replay.Run(until: batch.Key);
+            foreach (var ev in batch)
+            {
+                var (typeName, payload) = Sim.Persistence.IntentJson.Serialize(ev.Intent);
+                replay.SubmitIntent(batch.Key, Sim.Persistence.IntentJson.Deserialize(typeName, payload));
+            }
         }
         replay.Run(until: endTick);
 
