@@ -168,6 +168,45 @@ castle-homed default.
 - Frontier forts (garrison re-homing), settlement/second-castle
   structures — the boats/frontier milestone builds on this one.
 
+## Update 2026-06-12 — Phases 1, 2 and 3a shipped; THE WALL FELL
+
+Phase 1 (e46d514): homes + auto-assignment + snapshot v13.
+Phase 2 (3e654a2): the sink split — IFoodHome over Castle + House,
+per-home debt/grace/cadence, two-sided SetHome catch-up, per-home
+event regeneration, own-house LocalFood/Residents/LocalFamine on the
+wire. Phase 3a (same commit): LogisticsLayer stocks houses against
+consumption — the castle keeps only its own residents' grace share
+and distributes the rest; red houses always draw.
+
+**The acceptance metric:** the 300-day BalanceLab — known-red as "the
+documented Malthus ending" since LabDays went to 300 — now PASSES:
+ZERO starvation deaths across 300 days, both factions famine-free at
+the horizon, population climbing (63 at d160 and rising, vs the old
+peak-151-then-extinct-by-d270 with −17,720 debt). The single-castle
+wall is gone — and the houses haven't even left the castle district
+yet (Phase 3b places them by the work clusters).
+
+**Engine finds fixed along the way** (both caught by the bandit lab):
+stale-withdrawal famine math (food taken OUT of a home never
+re-evaluated its dry-out — fatal on 100-cap house caches where one
+theft back-dates onset past the grace window) and the missing-cadence
+gap (a famined home whose household died never re-armed its death
+clock for new residents; re-armed without fresh grace).
+
+**Doctrine re-opened (user decision pending):** localized food
+shifted the recall-vs-work-through balance — OFF now out-grows ON
+(20 vs 14 total pop at d50 under bandits) at the cost of reliably
+wiping the weak colony. The A/B test asserts only the non-negotiable
+(the pinned default never gets a colony wiped) and REPORTS the
+throughput gap. Candidates when re-examined: per-post recall radius,
+refugee re-homing (evacuees' mouths follow them to the castle — a
+world-rule question, not just a brain one), or accepting the tax.
+
+**Remaining:** Phase 3b — Grow places houses near the work cluster
+they'll feed (today they hug the castle); Phase 4 — Unity client
+(house food HUD, local-famine toast; LocalFood/Residents/LocalFamine
+are already on the wire).
+
 ## References
 
 - `docs/food-consumption.md` — the castle-only decision this
