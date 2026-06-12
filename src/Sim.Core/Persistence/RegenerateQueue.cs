@@ -106,25 +106,26 @@ public static class RegenerateQueue
                 new Sim.Core.Boats.BoatProductionTickEvent(dock.At));
         }
 
-        // M13: castle famine-check and starvation-death anchors.
-        // Each Castle contributes at most two queued events, restored at
-        // their original (Tick, Seq). Iterated in canonical (y, x) order.
-        var castles = world.Structures.Values.OfType<Castle>()
-            .OrderBy(c => c.At.Y).ThenBy(c => c.At.X)
+        // M13/M19: food-home famine-check and starvation-death anchors —
+        // every IFoodHome (Castle + House) contributes at most two queued
+        // events, restored at their original (Tick, Seq). Iterated in
+        // canonical (y, x) order.
+        var homes = world.Structures.Values.OfType<Sim.Core.Food.IFoodHome>()
+            .OrderBy(h => h.At.Y).ThenBy(h => h.At.X)
             .ToList();
-        foreach (var castle in castles)
+        foreach (var home in homes)
         {
-            if (castle.NextFamineCheckTick is { } famAt
-                && castle.NextFamineCheckSeq is { } famSeq)
+            if (home.NextFamineCheckTick is { } famAt
+                && home.NextFamineCheckSeq is { } famSeq)
             {
                 sim.ScheduleWithSeq(famAt, famSeq,
-                    new Sim.Core.Food.FamineCheckEvent(castle.At));
+                    new Sim.Core.Food.FamineCheckEvent(home.At));
             }
-            if (castle.NextStarvationDeathTick is { } starvAt
-                && castle.NextStarvationDeathSeq is { } starvSeq)
+            if (home.NextStarvationDeathTick is { } starvAt
+                && home.NextStarvationDeathSeq is { } starvSeq)
             {
                 sim.ScheduleWithSeq(starvAt, starvSeq,
-                    new Sim.Core.Food.StarvationDeathEvent(castle.At));
+                    new Sim.Core.Food.StarvationDeathEvent(home.At));
             }
         }
     }

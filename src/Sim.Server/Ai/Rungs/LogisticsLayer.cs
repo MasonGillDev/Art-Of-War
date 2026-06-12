@@ -96,17 +96,41 @@ public static class LogisticsLayer
             }
         }
 
-        // Keep EVERY house stocked for births while the larder is
-        // comfortable — houses are pregnancy slots and an unstocked slot
-        // is an idle one.
-        if (ctx.View.CastleFood > ctx.Cfg.GrowthFoodFloor)
-            foreach (var house in ctx.Own.Where(s => (StructureKind)s.Kind == StructureKind.House))
-            {
-                if (ThinkContext.AmountOf(house.Holdings, Resource.Food) >= ctx.Cfg.BirthFoodCost) continue;
-                if (ctx.TakeIdleCarrier() is not { } stocker) return intents;
-                intents.Add(new HaulIntent(stocker.Id, ctx.CastleTile, ThinkContext.TileOf(house),
-                    Resource.Food) { PlayerId = ctx.PlayerId });
-            }
+        // M19 — houses are FOOD HOMES: stock against CONSUMPTION, not
+        // just the birth cost. Target = the residents' grace-window
+        // worth of meals (the famine grace IS the reaction budget — a
+        // fuller cache means a local famine can't outrun the hauls)
+        // plus the birth cost so breeding never waits, capped by the
+        // cache. LocalFood is the live SIGNED level (consumption is
+        // lazy; raw Holdings lie between events).
+        //
+        // ALLOCATION: the castle keeps only ITS OWN residents' grace
+        // share and distributes the rest — the first stocking rule
+        // gated on the GROWTH floor (250) and starved every house cache
+        // whenever the castle ran lean, which got the lab's poorest
+        // colony robbed into local famines by parked bandits while 200
+        // food sat in the keep. Houses in the red always get stocked:
+        // life outranks everything.
+        var perResidentDaily = Sim.Core.Time.Day
+            / Sim.Core.Food.FoodConsumptionConstants.FoodConsumptionPeriod
+            * Sim.Core.Food.FoodConsumptionConstants.FoodPerCitizenPerPeriod;
+        var graceDays = (int)Math.Max(1,
+            Sim.Core.Food.FoodConsumptionConstants.StarvationStartDelay / Sim.Core.Time.Day);
+        var cache = StructureCatalog.Spec(StructureKind.House).StorageCapacity;
+        var houses = ctx.Own.Where(s => (StructureKind)s.Kind == StructureKind.House).ToList();
+        var castleResidents = Math.Max(0, ctx.View.Population - houses.Sum(h => h.Residents));
+        var castleKeep = castleResidents * perResidentDaily * graceDays;
+        foreach (var house in houses)
+        {
+            var target = Math.Min(cache,
+                house.Residents * perResidentDaily * graceDays + ctx.Cfg.BirthFoodCost);
+            if (house.LocalFood >= target) continue;
+            // Castle at (or below) its own keep → only red houses draw.
+            if (ctx.View.CastleFood <= castleKeep && house.LocalFood > 0) continue;
+            if (ctx.TakeIdleCarrier() is not { } stocker) return intents;
+            intents.Add(new HaulIntent(stocker.Id, ctx.CastleTile, ThinkContext.TileOf(house),
+                Resource.Food) { PlayerId = ctx.PlayerId });
+        }
 
         return intents;
     }

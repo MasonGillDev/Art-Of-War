@@ -57,7 +57,7 @@ public sealed class AssignBuildersIntent : Intent
             if (Sim.Core.Population.Population.NearestHouseWithBed(world, PlayerId, SiteTile,
                     Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
                 is { } bed)
-                Sim.Core.Population.Population.SetHome(world, unit, bed.At);
+                Sim.Core.Population.Population.SetHome(sim, unit, bed.At);
         }
 
         var triggered = false;

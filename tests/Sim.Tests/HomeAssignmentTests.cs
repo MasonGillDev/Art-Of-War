@@ -65,7 +65,7 @@ public class HomeAssignmentTests
     private static void FillBeds(Simulation sim, House house, int count, int firstUnitId)
     {
         for (var i = 0; i < count; i++)
-            Population.SetHome(sim.World, sim.World.Units[firstUnitId + i], house.At);
+            Population.SetHome(sim,sim.World.Units[firstUnitId + i], house.At);
     }
 
     // ---- the ledger itself ---------------------------------------------------
@@ -78,11 +78,11 @@ public class HomeAssignmentTests
         var b = AddHouse(sim, new TileCoord(6, 5), food: 0);
         var u = sim.World.Units[1];
 
-        Population.SetHome(sim.World, u, a.At);
+        Population.SetHome(sim,u, a.At);
         Assert.Equal((1, 0), (a.ResidentCount, b.ResidentCount));
-        Population.SetHome(sim.World, u, b.At);
+        Population.SetHome(sim,u, b.At);
         Assert.Equal((0, 1), (a.ResidentCount, b.ResidentCount));
-        Population.SetHome(sim.World, u, null);   // death / fallback path
+        Population.SetHome(sim,u, null);   // death / fallback path
         Assert.Equal((0, 0), (a.ResidentCount, b.ResidentCount));
         Assert.Null(u.Home);
     }

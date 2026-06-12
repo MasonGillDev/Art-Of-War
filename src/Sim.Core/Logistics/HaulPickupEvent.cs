@@ -70,6 +70,19 @@ public sealed class HaulPickupEvent : ScheduledEvent
         Structure? source = null;
         world.Structures.TryGetValue(SourceTile, out source);
 
+        // M19 — taking FOOD out of a FOOD HOME shifts its dry-out: catch
+        // up FIRST so `available` reflects what the lazy clock already
+        // ate (no phantom food), and re-evaluate after the withdraw so
+        // the queued FamineCheck doesn't keep predicting from stock that
+        // left. On a 100-cap house at rate 1 a stale 25-food withdrawal
+        // back-dates famine onset by DAYS — past the grace window. (The
+        // castle tolerated this gap only because its larder dwarfs any
+        // single haul.)
+        var foodHome = source is Sim.Core.Food.IFoodHome fh && Resource == Resource.Food
+            ? fh : null;
+        if (foodHome is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(foodHome, sim, sim.Now);
+
         var availableFromStructure = source switch
         {
             StorageStructure ss => ss.AmountOf(Resource),
@@ -107,6 +120,8 @@ public sealed class HaulPickupEvent : ScheduledEvent
                     ex.ArmIfDormant(sim);
                     break;
             }
+            if (foodHome is not null)
+                Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodHome, sim);
         }
         else
         {

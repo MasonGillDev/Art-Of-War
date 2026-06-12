@@ -117,12 +117,15 @@ public static class Population
     {
         var world = sim.World;
 
-        // M13 — catch up at the OLD rate (population still counts the
-        // dying unit), then decrement. Robust to a missing player /
-        // missing castle (defensive; lost-castle case post-capture).
-        var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(world, unit.OwnerId);
-        if (castle is not null)
-            Sim.Core.Food.FoodConsumption.CatchUp(castle, sim, sim.Now);
+        // M13/M19 — catch up the dying unit's HOME at the OLD rate (the
+        // victim ate, on credit, right up to their death), then decrement
+        // and free the bed, then re-evaluate that home. When the unit was
+        // HOUSED, the castle's derived rate is untouched (population and
+        // housed-count shrink together); castle-homed is exactly the old
+        // M13 path. Robust to a missing player / missing castle.
+        var home = Sim.Core.Food.FoodConsumption.HomeOf(world, unit);
+        if (home is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(home, sim, sim.Now);
 
         // M12 — boats don't count toward population (vehicles, not
         // mouths); symmetric to GameWorld.AddUnit's BumpPopulationCount.
@@ -130,12 +133,18 @@ public static class Population
             && world.Players.TryGetValue(unit.OwnerId, out var player))
             player.DecrementPopulation();
 
-        // M13 Phase C — rate dropped; re-evaluate the famine check.
-        if (castle is not null)
-            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, sim);
+        // M19 — the dead free their bed with DIRECT bookkeeping, not
+        // SetHome: a corpse's mouth doesn't move to the castle, it stops
+        // eating (SetHome's two-sided catch-up would wrongly shift a
+        // resident onto the castle's books mid-removal).
+        if (unit.Home is { } bedTile
+            && world.Structures.TryGetValue(bedTile, out var bs) && bs is House bedHouse)
+            bedHouse.ResidentCount--;
+        unit.Home = null;
 
-        // M19 — the dead free their bed (next birth/assignment takes it).
-        SetHome(world, unit, null);
+        // M13 Phase C — rate dropped; re-evaluate the home's famine check.
+        if (home is not null)
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(home, sim);
 
         // M8 — breeding stop-on-removal.
         // Sparse iteration over Houses; houses are few.
@@ -158,14 +167,36 @@ public static class Population
 
     // ---- M19 home management (docs/m19-per-house-food-spec.md) --------------
 
-    // The ONLY writer of Unit.Home / House.ResidentCount — the
-    // PopulationCount single-mutation discipline applied to homes.
-    // Phase 2 adds the two-sided food catch-up here (old home and new
-    // home close their constant-rate windows at the same `now`, the
-    // pattern capture uses on castles today).
-    public static void SetHome(GameWorld world, Unit unit, TileCoord? newHome)
+    // The ONLY writer of Unit.Home / House.ResidentCount for LIVING
+    // units (the death path in OnUnitRemoved frees beds directly) —
+    // the PopulationCount single-mutation discipline applied to homes.
+    //
+    // M19 Phase 2 — moving a mouth is a RATE CHANGE on two sinks: both
+    // close their constant-rate windows at the same `now` BEFORE the
+    // bookkeeping moves the resident, then both re-evaluate their
+    // famine checks. House↔house moves leave the castle untouched
+    // (its derived rate nets out); castle↔house moves touch both.
+    public static void SetHome(Simulation sim, Unit unit, TileCoord? newHome)
     {
+        var world = sim.World;
+        // Normalize: a target that isn't a live, own house means the
+        // castle (defensive — triggers only ever pass real houses).
+        if (newHome is { } cand
+            && !(world.Structures.TryGetValue(cand, out var c)
+                 && c is House ch && ch.OwnerId == unit.OwnerId))
+            newHome = null;
         if (unit.Home == newHome) return;
+
+        var oldSink = Sim.Core.Food.FoodConsumption.HomeOf(world, unit);
+        Sim.Core.Food.IFoodHome? newSink =
+            newHome is { } nt && world.Structures[nt] is House nh
+                ? nh
+                : Sim.Core.Food.FoodConsumption.FindCastleFor(world, unit.OwnerId);
+        if (oldSink is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(oldSink, sim, sim.Now);
+        if (newSink is not null && !ReferenceEquals(newSink, oldSink))
+            Sim.Core.Food.FoodConsumption.CatchUp(newSink, sim, sim.Now);
+
         if (unit.Home is { } oldTile
             && world.Structures.TryGetValue(oldTile, out var oldS) && oldS is House oldHouse)
             oldHouse.ResidentCount--;
@@ -173,6 +204,11 @@ public static class Population
             && world.Structures.TryGetValue(newTile, out var newS) && newS is House newHouse)
             newHouse.ResidentCount++;
         unit.Home = newHome;
+
+        if (oldSink is not null)
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(oldSink, sim);
+        if (newSink is not null && !ReferenceEquals(newSink, oldSink))
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(newSink, sim);
     }
 
     // Nearest own house with a free bed within `radius` (Chebyshev) of

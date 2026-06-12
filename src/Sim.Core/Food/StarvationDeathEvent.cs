@@ -2,66 +2,68 @@ using Sim.Core.World;
 
 namespace Sim.Core.Food;
 
-// M13 Phase D — kills one citizen per StarvationDeathInterval while
-// famine is active on this castle, oldest first (ascending BornTick,
-// ties by ascending Id). First fire is scheduled by FoodConsumption.CatchUp
-// at FamineStartTick + StarvationStartDelay; each subsequent fire
-// reschedules itself.
+// M13 Phase D, generalized per-home in M19 — kills one RESIDENT of this
+// food home per StarvationDeathInterval while its famine is active,
+// oldest first (ascending BornTick, ties by ascending Id). A frontier
+// house starves its own household even when the castle larder is full
+// (the harsh-doctrine lock); the castle starves the mobile class.
+// First fire is scheduled by FoodConsumption.CatchUp at FamineStartTick
+// + StarvationStartDelay; each subsequent fire reschedules itself.
 //
 // Fencing:
-//   - (At, Seq) must match the castle's (NextStarvationDeathTick,
+//   - (At, Seq) must match the home's (NextStarvationDeathTick,
 //     NextStarvationDeathSeq). If a debt-clearing deposit cleared the
 //     anchor (famine ended) or a population-shift re-issued one, the
 //     old event no-ops.
-//   - Castle.FoodDebt must still be positive (famine active). A full
+//   - FoodDebt must still be positive (famine active). A full
 //     repayment cleared this plus the anchor; a defensive
 //     belt-and-suspenders check guards against unusual reschedule paths.
 //
 // Removal piggybacks on CombatRules.OnUnitDeath (the M7 single death
 // pipeline), which drops cargo, group-cleanup, clears in-flight, and
 // calls Population.OnUnitRemoved — which decrements PopulationCount,
-// catches up food at the OLD rate (during famine that GROWS FoodDebt:
-// the victim ate, on credit, right up to their death), and runs
-// breeding stop-on-removal.
+// catches up the victim's home at the OLD rate (during famine that
+// GROWS FoodDebt: the victim ate, on credit, right up to their death),
+// frees their bed, and runs breeding stop-on-removal.
 public sealed class StarvationDeathEvent : ScheduledEvent
 {
-    public TileCoord CastleAt { get; }
+    public TileCoord HomeAt { get; }
 
-    public StarvationDeathEvent(TileCoord castleAt) { CastleAt = castleAt; }
+    public StarvationDeathEvent(TileCoord homeAt) { HomeAt = homeAt; }
 
     public override void Apply(Simulation sim)
     {
         var world = sim.World;
-        if (!world.Structures.TryGetValue(CastleAt, out var s) || s is not Castle castle)
+        if (!world.Structures.TryGetValue(HomeAt, out var s) || s is not IFoodHome home)
         {
-            Outcome = IntentOutcome.Reject($"no Castle at {CastleAt}");
+            Outcome = IntentOutcome.Reject($"no food home at {HomeAt}");
             return;
         }
-        if (castle.NextStarvationDeathTick != At || castle.NextStarvationDeathSeq != Seq)
+        if (home.NextStarvationDeathTick != At || home.NextStarvationDeathSeq != Seq)
         {
             Outcome = IntentOutcome.Reject(
-                $"stale starvation death at {CastleAt} " +
-                $"(stored=({castle.NextStarvationDeathTick},{castle.NextStarvationDeathSeq}), " +
+                $"stale starvation death at {HomeAt} " +
+                $"(stored=({home.NextStarvationDeathTick},{home.NextStarvationDeathSeq}), " +
                 $"event=({At},{Seq}))");
             return;
         }
-        if (castle.FamineStartTick is null || castle.FoodDebt <= 0)
+        if (home.FamineStartTick is null || home.FoodDebt <= 0)
         {
             Outcome = IntentOutcome.Reject("famine no longer active");
-            FoodConsumption.ClearStarvationDeathAnchor(castle);
+            FoodConsumption.ClearStarvationDeathAnchor(home);
             return;
         }
 
         // Anchor matches; we're the live event. Clear it before mutating
         // so OnUnitRemoved → OnRateOrFoodChanged (called via the death
         // pipeline) sees a clean slate.
-        castle.NextStarvationDeathTick = null;
-        castle.NextStarvationDeathSeq = null;
+        home.NextStarvationDeathTick = null;
+        home.NextStarvationDeathSeq = null;
 
-        var victim = FindOldestCitizen(world, castle.OwnerId);
+        var victim = FindOldestResident(world, home);
         if (victim is null)
         {
-            // No citizens left to kill. Deaths stop (nothing reschedules)
+            // No residents left to kill. Deaths stop (nothing reschedules)
             // but the famine does NOT end: the debt is still owed, and
             // FamineStartTick stays set so the FoodDebt > 0 ⇔ famine
             // invariant holds. With the rate at zero the debt is frozen;
@@ -71,34 +73,35 @@ public sealed class StarvationDeathEvent : ScheduledEvent
 
         Sim.Core.Combat.CombatRules.OnUnitDeath(sim, victim);
 
-        // If that was the last citizen, stop the cadence — same reasoning
-        // as the no-victim branch: debt outlives the dead. (Population
-        // counters are decremented by OnUnitRemoved, which we just ran
-        // via OnUnitDeath.)
-        if (world.Players.TryGetValue(castle.OwnerId, out var p)
-            && p.PopulationCount == 0)
+        // If that was the home's last resident, stop the cadence — same
+        // reasoning as the no-victim branch: debt outlives the dead.
+        // (Counts were decremented by OnUnitRemoved, just run via
+        // OnUnitDeath.)
+        if (FoodConsumption.ResidentsOf(world, home) == 0)
         {
             return;
         }
 
         // More mouths still hungry — schedule the next death.
         FoodConsumption.ScheduleNextStarvationDeath(
-            castle, sim, fireAt: sim.Now + FoodConsumptionConstants.StarvationDeathInterval);
+            home, sim, fireAt: sim.Now + FoodConsumptionConstants.StarvationDeathInterval);
     }
 
-    // O(units) scan. Acceptable at current scale; if populations grow
-    // an order of magnitude, replace with a per-player index of units
-    // sorted by (BornTick, Id) — same shape as the M2 "iterate to find"
-    // scaling concern flagged in architecture §4 rule 10.
-    private static Unit? FindOldestCitizen(GameWorld world, int ownerId)
+    // O(units) scan for the home's oldest resident — residency resolved
+    // through FoodConsumption.HomeOf so the castle inherits everyone
+    // whose house is gone. Acceptable at current scale; if populations
+    // grow an order of magnitude, replace with a per-home index sorted
+    // by (BornTick, Id) — the M2 "iterate to find" scaling concern.
+    private static Unit? FindOldestResident(GameWorld world, IFoodHome home)
     {
         Unit? oldest = null;
         foreach (var u in world.Units.Values)
         {
-            if (u.OwnerId != ownerId) continue;
+            if (u.OwnerId != home.OwnerId) continue;
             // M12 — boats are vehicles, not citizens; never starvation
-            // victims and never the oldest-citizen target.
+            // victims and never the oldest-resident target.
             if (u.Role == UnitRole.Boat) continue;
+            if (FoodConsumption.HomeOf(world, u) is not { } uh || uh.At != home.At) continue;
             if (oldest is null
                 || u.BornTick < oldest.BornTick
                 || (u.BornTick == oldest.BornTick && u.Id < oldest.Id))
@@ -109,5 +112,5 @@ public sealed class StarvationDeathEvent : ScheduledEvent
         return oldest;
     }
 
-    public override string Describe() => $"StarvationDeath(@ {CastleAt.X},{CastleAt.Y})";
+    public override string Describe() => $"StarvationDeath(@ {HomeAt.X},{HomeAt.Y})";
 }

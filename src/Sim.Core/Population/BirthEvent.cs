@@ -58,7 +58,7 @@ public sealed class BirthEvent : ScheduledEvent
         var bed = Population.NearestHouseWithBed(world, house.OwnerId, HouseTile,
             Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius);
         if (bed is not null)
-            Population.SetHome(world, child, bed.At);
+            Population.SetHome(sim, child, bed.At);
 
         // Free both parents (Working -> Idle). The parents might no longer
         // exist (extreme edge case: combat killed both simultaneously and

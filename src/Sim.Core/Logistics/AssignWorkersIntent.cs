@@ -61,7 +61,7 @@ public sealed class AssignWorkersIntent : Intent
             if (Sim.Core.Population.Population.NearestHouseWithBed(world, PlayerId, StructureTile,
                     Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
                 is { } bed)
-                Sim.Core.Population.Population.SetHome(world, unit, bed.At);
+                Sim.Core.Population.Population.SetHome(sim, unit, bed.At);
         }
 
         var armed = false;

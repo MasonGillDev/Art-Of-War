@@ -337,6 +337,21 @@ public sealed class ViewProjector
                     dto.Holdings = new[] { new ResAmtDto { Resource = (int)ex.Spec.OutputResource, Amount = ex.Buffer } };
                 break;
 
+            // M19 — a house is a FOOD HOME: expose its live SIGNED local
+            // food (negative during a local famine by exactly the unpaid
+            // debt — same contract as the top-level CastleFood), its
+            // resident headcount, and the local-famine flag. Own-only
+            // like every enrichment; this is what lets a player (and
+            // therefore the brain, fairly) see a hungry house. Must come
+            // before StorageStructure — a House IS one.
+            case House h:
+                dto.Capacity = h.Capacity;
+                dto.Holdings = h.Holdings.Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value }).ToArray();
+                dto.LocalFood = FoodConsumption.CurrentLevel(h, world, now);
+                dto.Residents = h.ResidentCount;
+                dto.LocalFamine = h.FamineStartTick.HasValue;
+                break;
+
             case StorageStructure ss:
                 dto.Capacity = ss.Capacity;
                 dto.Holdings = ss.Holdings.Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value }).ToArray();

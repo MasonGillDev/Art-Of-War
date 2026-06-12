@@ -58,7 +58,11 @@ public abstract class StorageStructure : Structure
     }
 }
 
-public sealed class Castle : StorageStructure
+// M19 — Castle is a FOOD HOME (Sim.Core.Food.IFoodHome): the uncapped
+// mess hall for everyone not housed elsewhere. Its consumption rate is
+// the owner's population MINUS every housed resident (derived in
+// FoodConsumption.ResidentsOf).
+public sealed class Castle : StorageStructure, Sim.Core.Food.IFoodHome
 {
     public override StructureKind Kind => StructureKind.Castle;
 

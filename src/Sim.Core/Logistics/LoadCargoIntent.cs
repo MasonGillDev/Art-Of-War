@@ -60,6 +60,17 @@ public sealed class LoadCargoIntent : Intent
         var tile = unit.Position;
         world.Structures.TryGetValue(tile, out var source);
 
+        // M19 — stealing FOOD from a FOOD HOME (this IS the bandit verb)
+        // shifts its dry-out: catch up first so the theft can't take food
+        // the lazy clock already ate, re-evaluate after so the famine
+        // prediction tracks the robbed level. Without this a stale check
+        // back-dated famine onset past the grace window on small house
+        // caches (the schedule-in-the-past crash the bandit lab caught).
+        var foodHome = source is Sim.Core.Food.IFoodHome fh && Resource == Resource.Food
+            ? fh : null;
+        if (foodHome is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(foodHome, sim, sim.Now);
+
         // Structure first (HaulPickupEvent's source order), ground pile
         // for whatever space remains.
         var loaded = 0;
@@ -75,6 +86,8 @@ public sealed class LoadCargoIntent : Intent
                 ex.ArmIfDormant(sim);
                 break;
         }
+        if (foodHome is not null && loaded > 0)
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodHome, sim);
         if (loaded < space
             && world.GroundResources.TryGetValue(tile, out var pile)
             && pile.TryGetValue(Resource, out var groundAmount) && groundAmount > 0)

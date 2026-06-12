@@ -171,4 +171,11 @@ public sealed class StructDto
     // use, revealed by scouting — and the reject toast needs no secret.
     public int[] ClaimX { get; set; } = [];
     public int[] ClaimY { get; set; } = [];
+    // M19 — own HOUSES only (food homes): live SIGNED local food (negative
+    // during a local famine by exactly the unpaid debt — the CastleFood
+    // contract, per house), resident headcount, and the famine flag.
+    // Zero/false on everything that isn't your house.
+    public int LocalFood { get; set; }
+    public int Residents { get; set; }
+    public bool LocalFamine { get; set; }
 }

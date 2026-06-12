@@ -81,7 +81,7 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         // nearby whose home sits farther from their post than it does,
         // and moves them in nearest-first until the beds fill.
         if (built is House newHouse)
-            MoveNearbyWorkersIn(sim.World, newHouse);
+            MoveNearbyWorkersIn(sim, newHouse);
     }
 
     // Own citizens WORKING/BUILDING within HomeAssignRadius of the new
@@ -90,8 +90,9 @@ public sealed class BuildCompleteEvent : ScheduledEvent
     // new house is — re-homed in (distance-to-house, unit id) order
     // until ResidentCap fills. One discrete deterministic event; nobody
     // physically moves (homes are demand points, not destinations).
-    private static void MoveNearbyWorkersIn(GameWorld world, House house)
+    private static void MoveNearbyWorkersIn(Simulation sim, House house)
     {
+        var world = sim.World;
         var cap = StructureCatalog.Spec(StructureKind.House).ResidentCap;
         var radius = Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius;
         int Cheb(TileCoord a, TileCoord b) =>
@@ -108,11 +109,12 @@ public sealed class BuildCompleteEvent : ScheduledEvent
                 var currentDist = homeTile is { } h ? Cheb(u.Position, h) : int.MaxValue;
                 return Cheb(u.Position, house.At) < currentDist;
             })
-            .OrderBy(u => Cheb(u.Position, house.At)).ThenBy(u => u.Id);
+            .OrderBy(u => Cheb(u.Position, house.At)).ThenBy(u => u.Id)
+            .ToList();   // materialize — SetHome mutates resident counts mid-iteration
         foreach (var u in candidates)
         {
             if (cap > 0 && house.ResidentCount >= cap) break;
-            Sim.Core.Population.Population.SetHome(world, u, house.At);
+            Sim.Core.Population.Population.SetHome(sim, u, house.At);
         }
     }
 

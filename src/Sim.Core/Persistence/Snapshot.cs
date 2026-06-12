@@ -432,11 +432,12 @@ public static class Snapshot
             switch (s)
             {
                 // House must come before StorageStructure: it IS a
-                // StorageStructure but carries extra breeding state.
-                case House h:             WriteStorage(bw, h); WriteHouseOccupation(bw, h); break;
+                // StorageStructure but carries breeding state + (M19 v13)
+                // its own food-home anchors.
+                case House h:             WriteStorage(bw, h); WriteHouseOccupation(bw, h); WriteFoodHomeAnchors(bw, h); break;
                 // M13 — Castle has the food-consumption anchor. Castle
                 // must come before StorageStructure for the same reason.
-                case Castle castle:       WriteStorage(bw, castle); WriteCastleAnchors(bw, castle); break;
+                case Castle castle:       WriteStorage(bw, castle); WriteFoodHomeAnchors(bw, castle); break;
                 case StorageStructure ss: WriteStorage(bw, ss); break;
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
@@ -625,28 +626,35 @@ public static class Snapshot
 
     // M13 — castle food consumption anchor + (Phase C–D) famine /
     // starvation event anchors. Written after ReadStorage's payload.
-    private static void WriteCastleAnchors(BinaryWriter bw, Castle c)
+    // M13 (Castle) / M19 v13 (any IFoodHome) — the food-home anchor
+    // block, byte-identical layout for Castle and House.
+    private static void WriteFoodHomeAnchors(BinaryWriter bw, Sim.Core.Food.IFoodHome home)
     {
-        bw.Write(c.LastFoodConsumedTick);
-        WriteNullableLong(bw, c.FamineStartTick);
-        bw.Write(c.FoodDebt);   // v11 — famine-debt model
-        WriteNullableLong(bw, c.NextFamineCheckTick);
-        WriteNullableLong(bw, c.NextFamineCheckSeq);
-        WriteNullableLong(bw, c.NextStarvationDeathTick);
-        WriteNullableLong(bw, c.NextStarvationDeathSeq);
+        bw.Write(home.LastFoodConsumedTick);
+        WriteNullableLong(bw, home.FamineStartTick);
+        bw.Write(home.FoodDebt);   // v11 — famine-debt model
+        WriteNullableLong(bw, home.NextFamineCheckTick);
+        WriteNullableLong(bw, home.NextFamineCheckSeq);
+        WriteNullableLong(bw, home.NextStarvationDeathTick);
+        WriteNullableLong(bw, home.NextStarvationDeathSeq);
+    }
+
+    private static void ReadFoodHomeAnchors(BinaryReader br, Sim.Core.Food.IFoodHome home)
+    {
+        home.LastFoodConsumedTick = br.ReadInt64();
+        home.FamineStartTick = ReadNullableLong(br);
+        home.FoodDebt = br.ReadInt32();   // v11 — famine-debt model
+        home.NextFamineCheckTick = ReadNullableLong(br);
+        home.NextFamineCheckSeq = ReadNullableLong(br);
+        home.NextStarvationDeathTick = ReadNullableLong(br);
+        home.NextStarvationDeathSeq = ReadNullableLong(br);
     }
 
     private static Castle ReadCastleWithAnchors(BinaryReader br, TileCoord at, int ownerId)
     {
         var c = new Castle(at) { OwnerId = ownerId };
         ReadStorage(br, c);
-        c.LastFoodConsumedTick = br.ReadInt64();
-        c.FamineStartTick = ReadNullableLong(br);
-        c.FoodDebt = br.ReadInt32();   // v11 — famine-debt model
-        c.NextFamineCheckTick = ReadNullableLong(br);
-        c.NextFamineCheckSeq = ReadNullableLong(br);
-        c.NextStarvationDeathTick = ReadNullableLong(br);
-        c.NextStarvationDeathSeq = ReadNullableLong(br);
+        ReadFoodHomeAnchors(br, c);
         return c;
     }
 
@@ -666,14 +674,17 @@ public static class Snapshot
         var h = new House(at) { OwnerId = ownerId };
         ReadStorage(br, h);
         h.ResidentCount = br.ReadInt32();   // M19 (v13)
-        if (br.ReadByte() == 0) return h;
-        h.Occupation = new BreedingOccupation
+        if (br.ReadByte() == 1)
         {
-            ParentAId = br.ReadInt32(),
-            ParentBId = br.ReadInt32(),
-            BirthTick = br.ReadInt64(),
-            BirthSeq  = br.ReadInt64(),
-        };
+            h.Occupation = new BreedingOccupation
+            {
+                ParentAId = br.ReadInt32(),
+                ParentBId = br.ReadInt32(),
+                BirthTick = br.ReadInt64(),
+                BirthSeq  = br.ReadInt64(),
+            };
+        }
+        ReadFoodHomeAnchors(br, h);   // M19 v13 — the house is a food home
         return h;
     }
 
