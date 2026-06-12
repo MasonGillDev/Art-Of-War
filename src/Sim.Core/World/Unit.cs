@@ -143,6 +143,15 @@ public sealed class Unit
     public long? DeathTick { get; set; }
     public long? DeathSeq { get; set; }
 
+    // ---- M19 home (docs/m19-per-house-food-spec.md) ----
+    // The tile of this unit's home HOUSE; null = homed at the owner's
+    // castle (the default and the universal fallback). The home is the
+    // unit's food DEMAND POINT — meals deduct from the home's stock
+    // wherever the unit stands; nobody commutes to eat. Mutated ONLY via
+    // Population.SetHome (which keeps House.ResidentCount in step —
+    // the PopulationCount single-mutation discipline, applied here).
+    public TileCoord? Home { get; internal set; }
+
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 
     // The single mutation path for Activity. Intents call this rather than

@@ -20,6 +20,12 @@ public sealed class House : StorageStructure
     // Null = vacant; non-null = breeding in progress.
     public BreedingOccupation? Occupation { get; internal set; }
 
+    // M19 — how many units call this house HOME (their food demand
+    // point; see Unit.Home). Capped by StructureSpec.ResidentCap.
+    // Mutated ONLY via Population.SetHome; serialized (and hashed) so
+    // restore can't drift from the units' Home fields.
+    public int ResidentCount { get; internal set; }
+
     public House(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.House).StorageCapacity) { }
 }
 

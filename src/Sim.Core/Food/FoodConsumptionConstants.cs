@@ -31,4 +31,12 @@ public static class FoodConsumptionConstants
     // stop the deaths — see docs/food-consumption.md (Update 2026-06-11).
     public const int StarvationStartDelay = 3 * Time.Day;
     public const int StarvationDeathInterval = 12 * Time.Hour;
+
+    // M19 — home auto-assignment reach (docs/m19-per-house-food-spec.md):
+    // how far (Chebyshev) the three assignment triggers look for a house
+    // with a free bed — around the workplace (home-follows-work), around
+    // the new house (completion move-in), and around the birth house
+    // (newborn overflow). Beyond it, the castle is home. A house serves
+    // the work cluster around it, not the whole map.
+    public const int HomeAssignRadius = 8;
 }

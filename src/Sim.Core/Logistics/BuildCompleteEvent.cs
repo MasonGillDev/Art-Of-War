@@ -73,6 +73,47 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         // M12 — Dock starts producing boats immediately.
         if (built is Dock dock)
             Sim.Core.Boats.DockArmer.OnDockBuilt(sim, dock);
+        // M19 — auto-assignment trigger 3 (house completion): frontier
+        // crews are usually staffed BEFORE their house stands, and
+        // assignments are sticky for months — without this, the new
+        // house would sit empty while its intended residents kept
+        // draining the castle. The new house scans own citizens at work
+        // nearby whose home sits farther from their post than it does,
+        // and moves them in nearest-first until the beds fill.
+        if (built is House newHouse)
+            MoveNearbyWorkersIn(sim.World, newHouse);
+    }
+
+    // Own citizens WORKING/BUILDING within HomeAssignRadius of the new
+    // house (working units stand on their post, so unit.Position IS the
+    // workplace), whose current home is farther from that post than the
+    // new house is — re-homed in (distance-to-house, unit id) order
+    // until ResidentCap fills. One discrete deterministic event; nobody
+    // physically moves (homes are demand points, not destinations).
+    private static void MoveNearbyWorkersIn(GameWorld world, House house)
+    {
+        var cap = StructureCatalog.Spec(StructureKind.House).ResidentCap;
+        var radius = Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius;
+        int Cheb(TileCoord a, TileCoord b) =>
+            Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
+
+        var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(world, house.OwnerId);
+        var candidates = world.Units.Values
+            .Where(u => u.OwnerId == house.OwnerId
+                && u.Activity is Activity.Working or Activity.Building
+                && Cheb(u.Position, house.At) <= radius)
+            .Where(u =>
+            {
+                var homeTile = u.Home ?? castle?.At;
+                var currentDist = homeTile is { } h ? Cheb(u.Position, h) : int.MaxValue;
+                return Cheb(u.Position, house.At) < currentDist;
+            })
+            .OrderBy(u => Cheb(u.Position, house.At)).ThenBy(u => u.Id);
+        foreach (var u in candidates)
+        {
+            if (cap > 0 && house.ResidentCount >= cap) break;
+            Sim.Core.Population.Population.SetHome(world, u, house.At);
+        }
     }
 
     // Catalog dispatch. Every player-buildable kind needs a row here.

@@ -19,6 +19,14 @@ public sealed record StructureSpec
     // Storage (Castle, Stockpile). Zero for non-storage kinds.
     public int StorageCapacity { get; init; }
 
+    // M19 — how many units may call this structure HOME (their food
+    // demand point; docs/m19-per-house-food-spec.md). Zero = uncapped
+    // (the Castle: deep larder, mess hall for the mobile class) — only
+    // the House sets a real cap. Capacity pressure never blocks
+    // breeding; overflow newborns home at the nearest free bed, castle
+    // fallback.
+    public int ResidentCap { get; init; }
+
     // Extractor fields. Default values mark "not an extractor."
     public Biome RequiredBiome { get; init; } = Biome.None;
     public Resource OutputResource { get; init; } = Resource.None;

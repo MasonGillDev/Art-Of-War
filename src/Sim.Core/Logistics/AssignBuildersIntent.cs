@@ -50,6 +50,14 @@ public sealed class AssignBuildersIntent : Intent
             if (!Sim.Core.Population.Population.CanTrain(unit, sim.Now, world.PopulationConfig)) continue;
             if (!unit.TrySetActivity(Activity.Building, SiteTile)) continue;
             assigned++;
+            // M19 — auto-assignment trigger 2 (home follows work): the
+            // builder re-homes to the nearest house with a free bed near
+            // the site; none in radius → home stays. Their CURRENT home
+            // qualifies even when full (they hold one of its beds).
+            if (Sim.Core.Population.Population.NearestHouseWithBed(world, PlayerId, SiteTile,
+                    Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
+                is { } bed)
+                Sim.Core.Population.Population.SetHome(world, unit, bed.At);
         }
 
         var triggered = false;

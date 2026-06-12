@@ -54,6 +54,14 @@ public sealed class AssignWorkersIntent : Intent
             if (!unit.TrySetActivity(Activity.Working, StructureTile)) continue;
             extractor.Workers.Add(id);
             assigned++;
+            // M19 — auto-assignment trigger 2 (home follows work): the
+            // worker re-homes to the nearest house with a free bed near
+            // the workplace; none in radius → home stays. Their CURRENT
+            // home qualifies even when full (they hold one of its beds).
+            if (Sim.Core.Population.Population.NearestHouseWithBed(world, PlayerId, StructureTile,
+                    Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
+                is { } bed)
+                Sim.Core.Population.Population.SetHome(world, unit, bed.At);
         }
 
         var armed = false;

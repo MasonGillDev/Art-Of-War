@@ -71,7 +71,10 @@ public static class Snapshot
     //  12 — M18 automation (GameWorld.StandingOrders + NextOrderId). Pure
     //       durable data + cursors — no new scheduled events, so
     //       RegenerateQueue is untouched.
-    public const int FormatVersion = 12;
+    //  13 — M19 per-house food, Phase 1 (Unit.Home + House.ResidentCount).
+    //       Both serialized (and therefore hashed) so restore can never
+    //       drift the resident ledger from the units' Home fields.
+    public const int FormatVersion = 13;
 
     public static string Hash(Simulation sim)
     {
@@ -259,6 +262,8 @@ public static class Snapshot
             bw.Write(u.Passengers.Count);
             foreach (var pid in u.Passengers) bw.Write(pid); // SortedSet → ascending
             WriteNullableInt(bw, u.EmbarkedOn);
+            // M19 (v13): home — the unit's food demand point.
+            WriteNullableTileCoord(bw, u.Home);
         }
     }
 
@@ -376,8 +381,10 @@ public static class Snapshot
             var passengers = new List<int>(passengerCount);
             for (var p = 0; p < passengerCount; p++) passengers.Add(br.ReadInt32());
             var embarkedOn = ReadNullableInt(br);
+            var home = ReadNullableTileCoord(br);   // M19 (v13)
 
             var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
+            u.Home = home;   // ResidentCount restores from the House payload; no recompute
             foreach (var pid in passengers) u.Passengers.Add(pid);
             u.EmbarkedOn = embarkedOn;
             u.CargoResource = cargoR;
@@ -645,6 +652,7 @@ public static class Snapshot
 
     private static void WriteHouseOccupation(BinaryWriter bw, House h)
     {
+        bw.Write(h.ResidentCount);   // M19 (v13) — before the occupation flag
         if (h.Occupation is null) { bw.Write((byte)0); return; }
         bw.Write((byte)1);
         bw.Write(h.Occupation.ParentAId);
@@ -657,6 +665,7 @@ public static class Snapshot
     {
         var h = new House(at) { OwnerId = ownerId };
         ReadStorage(br, h);
+        h.ResidentCount = br.ReadInt32();   // M19 (v13)
         if (br.ReadByte() == 0) return h;
         h.Occupation = new BreedingOccupation
         {

@@ -134,6 +134,9 @@ public static class Population
         if (castle is not null)
             Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, sim);
 
+        // M19 — the dead free their bed (next birth/assignment takes it).
+        SetHome(world, unit, null);
+
         // M8 — breeding stop-on-removal.
         // Sparse iteration over Houses; houses are few.
         foreach (var s in world.Structures.Values)
@@ -151,6 +154,48 @@ public static class Population
             // One house at most per parent; we can stop.
             return;
         }
+    }
+
+    // ---- M19 home management (docs/m19-per-house-food-spec.md) --------------
+
+    // The ONLY writer of Unit.Home / House.ResidentCount — the
+    // PopulationCount single-mutation discipline applied to homes.
+    // Phase 2 adds the two-sided food catch-up here (old home and new
+    // home close their constant-rate windows at the same `now`, the
+    // pattern capture uses on castles today).
+    public static void SetHome(GameWorld world, Unit unit, TileCoord? newHome)
+    {
+        if (unit.Home == newHome) return;
+        if (unit.Home is { } oldTile
+            && world.Structures.TryGetValue(oldTile, out var oldS) && oldS is House oldHouse)
+            oldHouse.ResidentCount--;
+        if (newHome is { } newTile
+            && world.Structures.TryGetValue(newTile, out var newS) && newS is House newHouse)
+            newHouse.ResidentCount++;
+        unit.Home = newHome;
+    }
+
+    // Nearest own house with a free bed within `radius` (Chebyshev) of
+    // `origin`, ring-scanned in (dist, y, x) order — the deterministic
+    // search every auto-assignment trigger shares. `bedAlreadyAt` lets a
+    // unit's CURRENT home qualify even when full (the unit occupies one
+    // of those beds), so "nearest" can resolve to a no-op re-home.
+    public static House? NearestHouseWithBed(GameWorld world, int ownerId,
+        TileCoord origin, int radius, TileCoord? bedAlreadyAt = null)
+    {
+        var cap = StructureCatalog.Spec(StructureKind.House).ResidentCap;
+        for (var r = 0; r <= radius; r++)
+        for (var dy = -r; dy <= r; dy++)
+        for (var dx = -r; dx <= r; dx++)
+        {
+            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+            var t = new TileCoord(origin.X + dx, origin.Y + dy);
+            if (!world.Structures.TryGetValue(t, out var s) || s is not House house) continue;
+            if (house.OwnerId != ownerId) continue;
+            if (house.At != bedAlreadyAt && cap > 0 && house.ResidentCount >= cap) continue;
+            return house;
+        }
+        return null;
     }
 
     // M8 Phase D helper — find the House this unit is currently a

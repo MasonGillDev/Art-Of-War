@@ -145,10 +145,17 @@ public static class StructureCatalog
         {
             Kind = StructureKind.House,
             IsPlayerBuildable = true,
-            // Holdings cap kept small; the House is a breeding gate, not
-            // a general food store. Big enough to hold a few cycles' worth
-            // of BirthFoodCost so a player can pre-stock.
+            // Holdings cap kept small; the House is a breeding gate and
+            // (M19) its residents' larder, not a general food store —
+            // days of local food, not seasons. The castle is the deep
+            // reserve.
             StorageCapacity = 100,
+            // M19 — beds (user, 2026-06-12): five mouths call a house
+            // home; the cap shapes expansion (more people → more houses
+            // → more neighborhoods to stock and defend). Never blocks
+            // breeding — overflow newborns home at the next free bed,
+            // castle fallback.
+            ResidentCap = 5,
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 30 },
             BuildDurationTicks = 30 * Time.Hour,
             RequiredBuilderCount = 1,
