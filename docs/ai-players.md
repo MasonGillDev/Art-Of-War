@@ -75,6 +75,91 @@ then ignores. The brain works around it (laden idle units walk home and
 hits the same trap, which makes "partial-amount hauls or auto-unload"
 a UX candidate for the core game.
 
+## Update 2026-06-11 — the farm retune campaign (lessons 6–9)
+
+The first real balance-lab CAMPAIGN: Farm output cut 4× (2/1h → 1/2h;
+18 mouths per farm, a farmer feeds 6) to make food a continuing project
+instead of a solved one. Roughly a dozen lab iterations followed — the
+parameter held; the BRAIN needed four more capabilities to play the
+economy the parameter created, and the arbitration ledger grew:
+
+6. **Cross-think plans need OWNERSHIP, not reservations** — Grow freed
+   a farmhand to breed; Eat re-staffed them one think later; thrash
+   forever (one birth in 130 days). Fix: designated parents persist in
+   memory until breeding starts; every other selector skips them.
+   Corollary bug: the carrying-capacity gate counted designated parents
+   as missing labor and deadlocked shut — ledgers must count people, not
+   availability.
+7. **Mouths are easy to plan; ADULTS are the scarce resource** — a child
+   eats for 13 game-years before it can work. Unthrottled breeding outran
+   the workforce into extinction twice. Fix: the labor ledger + the
+   carrying-capacity gate (breed only when the adult pool clears demand
+   with margin). Population now grows in honest generational waves.
+8. **Price labor honestly** — only Farmer-role hands earn the 2:1 bonus;
+   the first ledger valued everyone as a farmer, overstating supply ~40%
+   and riding the colony off a knife-edge. Role scarcity is REAL under
+   the new economy: training farmers at a School is the designed relief
+   valve (next brain phase).
+9. **Jobs need budgets** — perpetual scouting cost two adults forever;
+   the urgent farm-backstop once built six farms in ten days; staffing
+   to cap conscripted the village. Every standing job now has a bound
+   (ScoutLegBudget, +1 insurance farm, worker budgets).
+
+Systemic game finds along the way (the new-player simulator earning
+its keep): **storage pressure is real** (an AI hoarded 4,600 wood and
+choked food intake against the castle's 5,000 cap — players will too);
+**the synchronized fertility cliff** (uniform genesis ages = all
+founders infertile the same day; fixed in WorldFactory with staggered
+ages 18–40, which benefits humans equally); **viable starts need a
+meadow, not a tile** (FindAiStart now demands ≥40 grassland within
+ring 6 — a proto fair-start rule).
+
+**The 160-day curve that shipped the retune** (faction 0, seed 7):
+pop 14 → carrying-capacity plateau at ~19–21 while the granary banks to
+~2,100 → all three founding farms exhaust their claims around day
+104–130 and the colony eats its savings down to 320 → death-detection
+releases the crews, FIVE replacement farms go up by day 140 → food and
+population climbing again by day 160 (pop 25–27, second generation
+breeding). Stability → land crisis → rotation sprawl → recovery: the
+loop the claims system was designed to force, now demonstrably forced.
+
+## Update 2026-06-11 (later) — the demographic campaign: pop 21 → 138
+
+A second lab campaign, driven by the user's TicksPerYear/lifespan
+experiments, gave the Homesteader the rest of its economy toolkit. Each
+capability was demanded by a measured failure; peak stable population
+roughly doubled per tool:
+
+- **Demand-driven exploration + the land bank** — fog made
+  SiteSearchRange meaningless (a colony starved at pop 67 with the
+  continent unexplored); crisis-triggered scouting rescued ~6 days too
+  late, so scouts now go out when known claimable land drops below a
+  floor, BEFORE anything is wrong, spiraling wider per sweep.
+- **Farm mortality accounting** — panic-built farm cohorts died in
+  synchronized cliffs (~104-day claim life); farms within ReplaceAhead
+  of their working lifetime stop counting as supply so replacements
+  pre-build. Observation (12 thinks of zero buffer) stays ground truth;
+  the husks and their claims remain locked (DemolishIntent deferral).
+- **The Train rung** — the single biggest jump (pop 69 → 159 peak).
+  School + TrainUnitIntent had NEVER been used by anyone, human or AI;
+  natives are born Role=None, perfect apprentices; each graduated
+  Farmer doubles a hand. Designation ownership reused for the
+  apprentice's walk to school.
+- **Camp rotation** — training's boom exposed that only farms had
+  death-detection: the lone lumber camp died at ~day 52, wood hit zero
+  by day 200, and 159 people starved unable to afford a 10-wood farm.
+  Exhaustion detection generalized to all extractors; one LIVE camp is
+  now an invariant; a forest-starved Build rung re-opens scouting.
+
+**Where the Homesteader's story ends (for now):** at the user's
+fast-clock settings it sustains a ~135-population colony in a 50-day
+steady state — then collapses against the SINGLE-CASTLE FOOD SINK:
+every crumb walks home to one castle while farms march outward over
+burned land. That wall is not brain-fixable; it is the per-House food
+consumption milestone (deferred in docs/food-consumption.md) plus
+DemolishIntent, now both carrying measured price tags. The balance lab
+at this scale runs ~2 minutes per 300-day match (pop ~140, two brains).
+
 ## Future expansion
 
 - **Defender** (phase 2) — react to raids: recall workers, train

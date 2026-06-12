@@ -92,8 +92,14 @@ public static class StructureCatalog
             IsPlayerBuildable = true,
             RequiredBiome = Biome.Grassland,
             OutputResource = Resource.Food,
-            BaseRatePerWorker = 2,
-            ProductionPeriodTicks = 1 * Time.Hour,
+            // 2026-06-11 retune (the M17 balance lab caught the old 2/1h
+            // feeding 72 mouths per farm — food was solved by one build).
+            // 1 per 2h × 2:1 farmer bonus × 3 workers = 72 food/game-day
+            // = 18 mouths per farm: a farmer feeds 6, a growing town needs
+            // a GROWING number of farms, and the M15 claim burn becomes a
+            // real rotation economy instead of a chore.
+            BaseRatePerWorker = 1,
+            ProductionPeriodTicks = 2 * Time.Hour,
             WorkerCap = 3,
             BufferCap = 40,
             PreferredRole = UnitRole.Farmer,

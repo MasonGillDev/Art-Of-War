@@ -69,7 +69,16 @@ public static class WorldFactory
                 {
                     var dx = (slot % 5) - 2;   // -2..2 across
                     var dy = (slot / 5) - 1;   // a few rows around the castle
-                    spawns.Add(new UnitSpawn(nextId++, Clamp(castleAt.X + dx, castleAt.Y + dy), role, OwnerId: ownerId));
+                    // STAGGERED ages 18..40 (deterministic by slot). A
+                    // uniform-age roster hits a synchronized fertility
+                    // cliff — every founder ages past MaxFertileAge the
+                    // same game-day and births stop dead until the native
+                    // generation matures (the M17 balance lab caught the
+                    // population sawtooth). A spread roster breeds in
+                    // overlapping waves.
+                    var age = 18 + slot * 22 / 13;
+                    spawns.Add(new UnitSpawn(nextId++, Clamp(castleAt.X + dx, castleAt.Y + dy), role,
+                        OwnerId: ownerId, StartingAgeYears: age));
                     slot++;
                 }
             return new FactionStartSpec
@@ -139,9 +148,26 @@ public static class WorldFactory
             var clear = true;
             foreach (var c in castles)
                 if (Math.Max(Math.Abs(c.X - x), Math.Abs(c.Y - y)) < MinSeparation) { clear = false; break; }
-            if (clear) return new TileCoord(x, y);
+            if (!clear) continue;
+            // A castle TILE isn't a START — the faction needs farmable
+            // land in walking range. Under the 18-mouths-per-farm economy
+            // (2026-06-11) a start whose nearest grassland sits 10 tiles
+            // out dies to haul distance (the balance lab watched faction 1
+            // starve on exactly such a spot). Demand a real meadow:
+            // enough grassland within ring 6 for several farms + claims.
+            if (GrasslandWithin(map, x, y, radius: 6) < 40) continue;
+            return new TileCoord(x, y);
         }
         return null;
+    }
+
+    private static int GrasslandWithin(GeneratedMap map, int cx, int cy, int radius)
+    {
+        var count = 0;
+        for (var y = Math.Max(0, cy - radius); y <= Math.Min(map.Height - 1, cy + radius); y++)
+        for (var x = Math.Max(0, cx - radius); x <= Math.Min(map.Width - 1, cx + radius); x++)
+            if (map.Grid[x, y] == Biome.Grassland) count++;
+        return count;
     }
 
     // Quantize the continuous [0,1] elevation field to integers in [0,1000] — keeps the

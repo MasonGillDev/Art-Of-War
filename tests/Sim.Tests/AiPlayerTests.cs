@@ -5,6 +5,7 @@ using Sim.Core.Intents;
 using Sim.Core.World;
 using Sim.Server;
 using Sim.Server.Ai;
+using Xunit.Abstractions;
 using Snapshot = Sim.Core.Persistence.Snapshot;
 
 namespace Sim.Tests;
@@ -14,12 +15,20 @@ namespace Sim.Tests;
 // they are the "is the opening winnable?" question, frozen as CI.
 public class AiPlayerTests
 {
+    private readonly ITestOutputHelper _output;
+    public AiPlayerTests(ITestOutputHelper output) { _output = output; }
+
     // A small generated continent with the human slot (0) + one AI
     // faction (1), identical starts. Tests drive BOTH factions with
     // Homesteader brains — AI vs AI is the balance lab.
+    // LAB_MAPSEED overrides the continent for ad-hoc seed sweeps
+    // (lab.ps1 -Seed N); unset, the seed is fixed for deterministic CI.
     private static (Simulation sim, ViewProjector projector, WorldBuild build) MakeMatch(
         int aiPlayers = 1, int mapSeed = 7, int size = 96)
     {
+        if (int.TryParse(Environment.GetEnvironmentVariable("LAB_MAPSEED"), out var envSeed)
+            && envSeed != 0)
+            mapSeed = envSeed;
         var opts = new ServerOptions
         {
             MapWidth = size, MapHeight = size, MapSeed = mapSeed, AiPlayers = aiPlayers,
@@ -164,6 +173,59 @@ public class AiPlayerTests
     {
         // Re-enable when the Defender rung lands: Homesteader + default
         // bandit pressure for 50 game-days; population may dip, never zero.
+    }
+
+    // ---- THE BALANCE LAB REPORT: the long-match curve ------------------------
+
+    // The lab's match length — tune freely (runtime is roughly linear,
+    // ~2-4s per 100 game-days). Mind two things on long runs: the
+    // assertions below encode "thriving at the end" and will rightly fail
+    // when a world's land or labor genuinely runs out (that's a finding,
+    // not a bug), and the LAB_MAPSEED env var (lab.ps1 -Seed) still works.
+    private const long LabDays = 300;
+
+    [Fact]
+    public void BalanceLab_160Days_SprawlsUnderPressure_AndRecovers()
+    {
+        // The long match: demographic surge, farm rotation (claims exhaust
+        // at ~day 104), at least one food crunch survived, and a growing
+        // population at the end. The per-decade curve prints as test
+        // output — this is the report the lab exists to produce.
+        var (sim, projector, _) = MakeMatch();
+        var cfg = new AiConfig();
+        var drivers = new[] { new AiPlayerDriver(0, cfg), new AiPlayerDriver(1, cfg) };
+        for (long t = 0; t <= LabDays * Time.Day; t += cfg.ThinkPeriodTicks)
+        {
+            sim.Run(until: t);
+            foreach (var dr in drivers) dr.Think(sim, projector, t);
+            if (t % (10 * Time.Day) == 0)
+            {
+                var c = CastleOf(sim, 0);
+                var farms = sim.World.Structures.Values.OfType<Extractor>()
+                    .Count(e => e.OwnerId == 0 && e.Kind == StructureKind.Farm);
+                _output.WriteLine($"d{t / Time.Day,3}: pop={sim.World.Players[0].PopulationCount,2} " +
+                    $"food={Sim.Core.Food.FoodConsumption.CurrentLevel(c, sim, t),5} " +
+                    $"wood={c.AmountOf(Resource.Wood),4} farms={farms}");
+            }
+        }
+        sim.Run(until: LabDays * Time.Day + cfg.ThinkPeriodTicks);
+
+        foreach (var id in new[] { 0, 1 })
+        {
+            var castle = CastleOf(sim, id);
+            var pop = sim.World.Players[id].PopulationCount;
+            // No starvation death ever (kill path leaves Outcome unset).
+            Assert.DoesNotContain(sim.ResolvedLog.OfType<Sim.Core.Food.StarvationDeathEvent>(),
+                e => e.CastleAt == castle.At && e.Outcome is null);
+            Assert.True(castle.FoodDebt == 0 && castle.FamineStartTick is null,
+                $"faction {id} ends day 160 in famine (debt={castle.FoodDebt})");
+            // GREW through the founder die-off: more people than genesis.
+            Assert.True(pop > 14, $"faction {id} ended at pop {pop} — no demographic takeoff");
+            // ROTATED: more farms than the demand-count alone would build.
+            var farms = sim.World.Structures.Values.OfType<Extractor>()
+                .Count(e => e.OwnerId == id && e.Kind == StructureKind.Farm);
+            Assert.True(farms >= 3, $"faction {id} built only {farms} farms — no rotation under pressure");
+        }
     }
 
     // ---- determinism: same proof as M16, for this driver --------------------

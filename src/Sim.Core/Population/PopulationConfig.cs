@@ -45,18 +45,21 @@ public readonly record struct PopulationConfig(
     int LifespanMinYears,
     int LifespanMaxYears)
 {
-    // Resulting demographic timeline (4 game-days per age-year):
-    //   gestation 3 days · trainable at 52 days · fertile 72–180 days ·
-    //   lifespan 200–320 days (avg ~260 ≈ one forest regrowth). A
-    //   generation ≈ a season; tps stays a pure pace dial.
+    // THE demographic clock knob — change it here and every age gate AND
+    // the gestation invariant follow.
+    private const long DefaultTicksPerYear = 3 * Time.Day;
+
+    // Resulting demographic timeline (2 game-days per age-year):
+    //   gestation 1.5 days · trainable at 26 days · fertile 36–90 days ·
+    //   lifespan 100–160 days. tps stays a pure pace dial.
     public PopulationConfig() : this(
-        TicksPerYear: 4 * Time.Day,
+        TicksPerYear: DefaultTicksPerYear,
         MinTrainAge: 13,
         MinFertileAge: 18,
         MaxFertileAge: 45,
-        GestationTicks: 3 * Time.Day,   // (9/12) × TicksPerYear
+        GestationTicks: 9 * DefaultTicksPerYear / 12,   // "nine months" — scales with the clock
         BirthFoodCost: 20,
-        LifespanMinYears: 50,
-        LifespanMaxYears: 80)
+        LifespanMinYears: 65,
+        LifespanMaxYears: 95)
     { }
 }

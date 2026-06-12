@@ -14,7 +14,7 @@ namespace Sim.Server.Ai;
 public sealed class AiPlayerDriver
 {
     public int PlayerId { get; }
-    public DecisionTrace Trace { get; } = new();
+    public DecisionTrace Trace { get; }
 
     private readonly AiConfig _cfg;
     private readonly HomesteaderBrain _brain;
@@ -26,6 +26,7 @@ public sealed class AiPlayerDriver
         PlayerId = playerId;
         _cfg = cfg;
         _brain = new HomesteaderBrain(cfg);
+        Trace = new DecisionTrace(cfg.TraceCapacity);
     }
 
     public void Think(Simulation sim, ViewProjector projector, long now)
