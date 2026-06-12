@@ -176,6 +176,7 @@ static void Print(string label, Simulation sim)
 var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
 var degradationDemo = args.Length > 0 && args[0] == "--degradation";
+var automationDemo = args.Length > 0 && args[0] == "--automation";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
 var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
@@ -190,6 +191,10 @@ else if (groupsDemo)
 else if (degradationDemo)
 {
     DegradationDemo.Run();
+}
+else if (automationDemo)
+{
+    AutomationDemo.Run();
 }
 else if (!generate)
 {
@@ -226,6 +231,111 @@ else
 sealed class NoOpEvent : ScheduledEvent
 {
     public override void Apply(Simulation sim) { }
+}
+
+// M18 â€” standing-order automation demo. A supply line keeps the castle
+// stocked from a pre-buffered lumber camp while a route unit laps a two-stop
+// circuit â€” the AutomationDriver (the same brain GameHost runs) evaluating
+// fog-filtered conditions and submitting ordinary intents. Ends with the
+// milestone's headline check: driverless replay of the intent log lands on
+// the identical hash.
+static class AutomationDemo
+{
+    public static void Run()
+    {
+        Simulation Build()
+        {
+            var grid = new TileGrid(24, 24, Biome.Grassland);
+            grid.SetBiome(new TileCoord(10, 5), Biome.Forest);
+            var world = new GameWorld(grid);
+            world.Players[0] = new Player(0);
+            var castle = world.AddStructure(new Castle(new TileCoord(5, 5)) { OwnerId = 0 });
+            castle.Deposit(Resource.Food, 50);
+            var camp = world.AddStructure(new Extractor(StructureKind.LumberCamp, new TileCoord(10, 5)) { OwnerId = 0 });
+            camp.Buffer = 60;
+            camp.TickArmed = false; // fixed stock â€” no workers in this demo
+            world.AddUnit(new Unit(1, new TileCoord(6, 5)) { Role = UnitRole.Hauler });
+            world.AddUnit(new Unit(2, new TileCoord(6, 8)) { Role = UnitRole.Scout });
+            return new Simulation(world, seed: 0xAB7);
+        }
+
+        var sim = Build();
+        Console.WriteLine("--- Automation Demo (M18) ---");
+        Console.WriteLine("Supply line: hauler 1 keeps the castle at >= 40 wood from the camp's stock.");
+        Console.WriteLine("Route: scout 2 laps (12,8) <-> (6,8) forever.");
+        Console.WriteLine();
+
+        // Supply line: while castle wood < 40, haul camp -> castle.
+        sim.SubmitIntent(0, new Sim.Core.Automation.SetStandingOrderIntent(
+            Sim.Core.Automation.OrderKind.SupplyLine, Sim.Core.Automation.LoopMode.Loop,
+            claimedUnits: new[] { 1 },
+            steps: new List<Sim.Core.Automation.OrderStep>
+            {
+                new()
+                {
+                    Conditions = new List<Sim.Core.Automation.ConditionSpec>
+                        { Sim.Core.Automation.ConditionSpec.StoreBelow(new TileCoord(5, 5), Resource.Wood, 40) },
+                    Action = Sim.Core.Automation.ActionSpec.HaulTrip(1, new TileCoord(10, 5), new TileCoord(5, 5), Resource.Wood),
+                },
+            }));
+        // Route: two stops, no wait conditions â€” a patrol-ish lap.
+        sim.SubmitIntent(0, new Sim.Core.Automation.SetStandingOrderIntent(
+            Sim.Core.Automation.OrderKind.Route, Sim.Core.Automation.LoopMode.Loop,
+            claimedUnits: new[] { 2 },
+            steps: new List<Sim.Core.Automation.OrderStep>
+            {
+                new() { Action = Sim.Core.Automation.ActionSpec.MoveTo(2, new TileCoord(12, 8)) },
+                new() { Action = Sim.Core.Automation.ActionSpec.MoveTo(2, new TileCoord(6, 8)) },
+            }));
+
+        var driver = new Sim.Server.Automation.AutomationDriver(
+            new Sim.Server.Automation.AutomationConfig { ThinkPeriodTicks = 30, MaxStepRetries = 4 });
+
+        var castleLive = (Castle)sim.World.Structures[new TileCoord(5, 5)];
+        long reportEvery = 5_000;
+        long nextReport = reportEvery;
+        for (long t = 0; t <= 40_000; t += 30)
+        {
+            sim.Run(until: t);
+            driver.Think(sim, t);
+            if (t >= nextReport)
+            {
+                var o1 = sim.World.StandingOrders[1];
+                var camp2 = (Extractor)sim.World.Structures[new TileCoord(10, 5)];
+                Console.WriteLine(
+                    $"t {t,6}: castle wood={castleLive.AmountOf(Resource.Wood),3}  camp buffer={camp2.Buffer,3}  " +
+                    $"supply[{(o1.Enabled ? "on " : "off")} step {o1.CurrentStep} retries {o1.StepRetryCount}]  " +
+                    $"scout 2 at {sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
+                nextReport += reportEvery;
+            }
+        }
+        sim.Run(until: 40_000);
+
+        Console.WriteLine();
+        Console.WriteLine($"Final castle wood:   {castleLive.AmountOf(Resource.Wood)} (target 40)");
+        Console.WriteLine($"Intents in log:      {sim.IntentLog.Count} " +
+            $"(cursor moves: {sim.IntentLog.Count(e => e.Intent is Sim.Core.Automation.AdvanceOrderCursorIntent)})");
+
+        // The headline, live: replay the log into a fresh world, NO driver.
+        var replay = Build();
+        foreach (var (at, intent) in sim.IntentLog)
+        {
+            replay.Run(until: at);
+            replay.SubmitIntent(at, intent);
+        }
+        replay.Run(until: sim.Now);
+
+        var liveHash = Snapshot.Hash(sim);
+        var replayHash = Snapshot.Hash(replay);
+        Console.WriteLine($"Live hash:           {liveHash}");
+        Console.WriteLine($"Driverless replay:   {replayHash}");
+        if (liveHash != replayHash)
+        {
+            Console.Error.WriteLine("HEADLINE FAILURE: driverless replay diverged from the live run.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: driverless replay reproduced the live world exactly.");
+    }
 }
 
 // M5 â€” Group lifecycle demo. Two scattered builders Form at a rendezvous,

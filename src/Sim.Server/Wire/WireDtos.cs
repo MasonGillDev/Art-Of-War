@@ -47,6 +47,50 @@ public sealed class ViewDto
     // player learns WHY a fire-and-forget intent did nothing. Each carries a monotonic
     // Id so the client can toast only the ones it hasn't seen.
     public NoticeDto[] Notices { get; set; } = [];
+
+    // M18 — the viewing player's OWN standing orders (other players' orders
+    // are never wire-visible; automation is private strategy). Definition +
+    // live cursor so the client can render "supply line: step 1/2, waiting".
+    public OrderDto[] Orders { get; set; } = [];
+}
+
+// M18 — one standing order, definition + cursor. Flat per the file rule.
+public sealed class OrderDto
+{
+    public int Id { get; set; }
+    public int Kind { get; set; }            // Sim.Core OrderKind byte
+    public int Loop { get; set; }            // Sim.Core LoopMode byte
+    public bool Enabled { get; set; }
+    public int CurrentStep { get; set; }
+    public bool Dispatched { get; set; }     // current step's action submitted
+    public int RetryCount { get; set; }
+    public long StepEnteredTick { get; set; }
+    public int[] ClaimedUnits { get; set; } = [];
+    public OrderStepDto[] Steps { get; set; } = [];
+}
+
+public sealed class OrderStepDto
+{
+    public ConditionDto[] Conditions { get; set; } = [];
+    // The action atom, flattened (mirrors Sim.Core ActionSpec).
+    public int ActionKind { get; set; }
+    public int ActionUnit { get; set; }
+    public int TargetX { get; set; }
+    public int TargetY { get; set; }
+    public int SecondX { get; set; }
+    public int SecondY { get; set; }
+    public int Resource { get; set; }
+    public int Role { get; set; }
+}
+
+public sealed class ConditionDto
+{
+    public int Kind { get; set; }            // Sim.Core ConditionKind byte
+    public int UnitId { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Resource { get; set; }
+    public long Threshold { get; set; }
 }
 
 public sealed class NoticeDto

@@ -650,3 +650,48 @@ how live submission ordered Seqs).
 
 No snapshot format change: bandit units/Player row serialize
 generically; `UnitRole.Bandit` is an append-only enum byte.
+
+## Update 2026-06-11 — M18 automation (standing orders)
+
+New durable state: `GameWorld.StandingOrders` (+ `NextOrderId`), snapshot
+FormatVersion 12. No new scheduled events, no new anchors —
+`RegenerateQueue` untouched; recovery-clean by construction.
+
+Mutation points (the full set — grep `StandingOrders` to verify):
+
+- `SetStandingOrderIntent.Resolve` — creates an order (allocates
+  `NextOrderId`, deep-copies steps so world state never aliases the
+  transient intent's lists). Fail-clean: every check precedes any
+  mutation, including the id allocation.
+- `ClearStandingOrderIntent.Resolve` — removes an order (claims release
+  implicitly; the exclusivity check scans orders).
+- `AdvanceOrderCursorIntent.Resolve` — the ONLY writer of the cursor
+  block (`Enabled` / `CurrentStep` / `StepEnteredTick` / `StepRetryCount`
+  / `ActionDispatched`). Server-internal (wire-rejected by type in
+  `GameHost.SubmitEnvelopeJson`), durable + replayed. Fenced on
+  `CurrentStep == ExpectedStep` (the §2.6 stale-token discipline applied
+  to a stale intent).
+
+Pure-read surfaces:
+
+- `Sim.Server.Automation.ConditionEvaluator.IsMet` — never writes;
+  pinned by `AutomationEvaluatorTests.Evaluator_IsPureRead_NoMutation`
+  (100× pattern). Reads only owner-visible state: structure-subject
+  conditions require the tile in the owner's `View.VisibleTiles` set
+  (fog contract).
+- `IntentFactory.Create` — pure construction; every `ActionKind` maps
+  1:1 onto an existing intent (no new sim semantics; the growth rule).
+
+NOT a mutation surface: `AutomationDriver` / `OrderRunner` (Sim.Server)
+— same contract as `BanditDriver`: pure reads in, ordinary durable
+intents out, ephemeral brain (in-flight intent references only; cold
+start resolves via a BumpRetry that re-gates on conditions). Canonical
+arbitration: orders ascending by id, no RNG. Closure gate:
+`AutomationHeadlineTests.Headline_ReplayFromIntentLog_HashesMatch`
+(live driver run vs. driverless chronological replay — hash-equal).
+
+No-global-iteration note: the driver walks `world.StandingOrders`
+per think — bounded by the per-player order cap
+(`AutomationConstants.MaxOrdersPerPlayer`), not by world size, and it
+runs server-side outside the sim's event stream. `View.VisibleTiles` is
+computed once per owner per think, not per condition.

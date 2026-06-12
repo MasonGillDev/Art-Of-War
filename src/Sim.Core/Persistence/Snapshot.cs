@@ -68,7 +68,10 @@ public static class Snapshot
     //  11 — famine-debt model (Castle.FoodDebt) — the snapshot bump the
     //       2026-06-09 trickle-deposit addendum deferred; paid 2026-06-11
     //       when the debt model shipped (docs/food-consumption.md).
-    public const int FormatVersion = 11;
+    //  12 — M18 automation (GameWorld.StandingOrders + NextOrderId). Pure
+    //       durable data + cursors — no new scheduled events, so
+    //       RegenerateQueue is untouched.
+    public const int FormatVersion = 12;
 
     public static string Hash(Simulation sim)
     {
@@ -97,6 +100,7 @@ public static class Snapshot
             WritePopulation(bw, sim.World);
             WriteBiomeDegradation(bw, sim.World);
             WriteRememberedBiome(bw, sim.World);
+            WriteStandingOrders(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -132,6 +136,7 @@ public static class Snapshot
         ReadPopulation(br, world);
         ReadBiomeDegradation(br, world);
         ReadRememberedBiome(br, world);
+        ReadStandingOrders(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -1055,6 +1060,107 @@ public static class Snapshot
             var dev = br.ReadInt32();
             var lastUpdate = br.ReadInt64();
             world.Fertility[new TileCoord(x, y)] = new Sim.Core.Biomes.Fertility(dev, lastUpdate);
+        }
+    }
+
+    // ----- standing orders (M18, id-sorted) ------------------------------
+
+    private static void WriteStandingOrders(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.NextOrderId);
+        bw.Write(world.StandingOrders.Count);
+        foreach (var (id, o) in world.StandingOrders) // SortedDictionary → id order
+        {
+            bw.Write(id);
+            bw.Write(o.OwnerId);
+            bw.Write((byte)o.Kind);
+            bw.Write((byte)o.Loop);
+            bw.Write(o.ClaimedUnits.Count);
+            foreach (var u in o.ClaimedUnits) bw.Write(u); // maintained ascending
+            bw.Write(o.Steps.Count);
+            foreach (var step in o.Steps)
+            {
+                bw.Write(step.Conditions.Count);
+                foreach (var c in step.Conditions)
+                {
+                    bw.Write((byte)c.Kind);
+                    bw.Write(c.SubjectUnitId);
+                    bw.Write(c.SubjectTile.X);
+                    bw.Write(c.SubjectTile.Y);
+                    bw.Write((byte)c.Resource);
+                    bw.Write(c.Threshold);
+                }
+                var a = step.Action;
+                bw.Write((byte)a.Kind);
+                bw.Write(a.UnitId);
+                bw.Write(a.TargetTile.X);
+                bw.Write(a.TargetTile.Y);
+                bw.Write(a.SecondTile.X);
+                bw.Write(a.SecondTile.Y);
+                bw.Write((byte)a.Resource);
+                bw.Write((byte)a.Role);
+            }
+            // Cursor block.
+            bw.Write(o.Enabled);
+            bw.Write(o.CurrentStep);
+            bw.Write(o.StepEnteredTick);
+            bw.Write(o.StepRetryCount);
+            bw.Write(o.ActionDispatched);
+        }
+    }
+
+    private static void ReadStandingOrders(BinaryReader br, GameWorld world)
+    {
+        world.NextOrderId = br.ReadInt32();
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var id = br.ReadInt32();
+            var ownerId = br.ReadInt32();
+            var kind = (Sim.Core.Automation.OrderKind)br.ReadByte();
+            var loop = (Sim.Core.Automation.LoopMode)br.ReadByte();
+            var order = new Sim.Core.Automation.StandingOrder
+            {
+                OrderId = id,
+                OwnerId = ownerId,
+                Kind = kind,
+                Loop = loop,
+            };
+            var claimCount = br.ReadInt32();
+            for (var c = 0; c < claimCount; c++) order.ClaimedUnits.Add(br.ReadInt32());
+            var stepCount = br.ReadInt32();
+            for (var s = 0; s < stepCount; s++)
+            {
+                var condCount = br.ReadInt32();
+                var conditions = new List<Sim.Core.Automation.ConditionSpec>(capacity: condCount);
+                for (var j = 0; j < condCount; j++)
+                {
+                    var ck = (Sim.Core.Automation.ConditionKind)br.ReadByte();
+                    var subjectUnit = br.ReadInt32();
+                    var subjectTile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                    var res = (Resource)br.ReadByte();
+                    var threshold = br.ReadInt64();
+                    conditions.Add(new Sim.Core.Automation.ConditionSpec(ck, subjectUnit, subjectTile, res, threshold));
+                }
+                var ak = (Sim.Core.Automation.ActionKind)br.ReadByte();
+                var unitId = br.ReadInt32();
+                var target = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                var second = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                var actionRes = (Resource)br.ReadByte();
+                var role = (UnitRole)br.ReadByte();
+                var step = new Sim.Core.Automation.OrderStep
+                {
+                    Action = new Sim.Core.Automation.ActionSpec(ak, unitId, target, second, actionRes, role),
+                };
+                step.Conditions.AddRange(conditions);
+                order.Steps.Add(step);
+            }
+            order.Enabled = br.ReadBoolean();
+            order.CurrentStep = br.ReadInt32();
+            order.StepEnteredTick = br.ReadInt64();
+            order.StepRetryCount = br.ReadInt32();
+            order.ActionDispatched = br.ReadBoolean();
+            world.StandingOrders.Add(id, order);
         }
     }
 

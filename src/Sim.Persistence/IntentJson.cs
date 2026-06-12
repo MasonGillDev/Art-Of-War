@@ -59,6 +59,12 @@ public static class IntentJson
         // bandit spawns/despawns from the log.
         [typeof(Sim.Core.Bandits.SpawnBanditPartyIntent)]   = "SpawnBanditPartyIntent",
         [typeof(Sim.Core.Bandits.DespawnBanditPartyIntent)] = "DespawnBanditPartyIntent",
+        // M18 — standing-order automation. AdvanceOrderCursorIntent is
+        // server-internal (wire-rejected, driver-submitted) but durable:
+        // replay reproduces cursor state without the driver.
+        [typeof(Sim.Core.Automation.SetStandingOrderIntent)]     = "SetStandingOrderIntent",
+        [typeof(Sim.Core.Automation.ClearStandingOrderIntent)]   = "ClearStandingOrderIntent",
+        [typeof(Sim.Core.Automation.AdvanceOrderCursorIntent)]   = "AdvanceOrderCursorIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -98,6 +104,9 @@ public static class IntentJson
             "EquipUnitIntent"              => JsonSerializer.Deserialize<EquipUnitIntent>(payload, Options),
             "SpawnBanditPartyIntent"       => JsonSerializer.Deserialize<Sim.Core.Bandits.SpawnBanditPartyIntent>(payload, Options),
             "DespawnBanditPartyIntent"     => JsonSerializer.Deserialize<Sim.Core.Bandits.DespawnBanditPartyIntent>(payload, Options),
+            "SetStandingOrderIntent"       => JsonSerializer.Deserialize<Sim.Core.Automation.SetStandingOrderIntent>(payload, Options),
+            "ClearStandingOrderIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.ClearStandingOrderIntent>(payload, Options),
+            "AdvanceOrderCursorIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.AdvanceOrderCursorIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

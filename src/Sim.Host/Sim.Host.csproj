@@ -3,6 +3,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Sim.Core\Sim.Core.csproj" />
     <ProjectReference Include="..\Sim.Persistence\Sim.Persistence.csproj" />
+    <!-- M18: the automation demo drives the server-side AutomationDriver
+         (the same brain GameHost hosts) against a hand-built scenario. -->
+    <ProjectReference Include="..\Sim.Server\Sim.Server.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -127,6 +127,23 @@ on the tile alive is combat's problem, not authorization's. The eventual
 trade/alliance milestone may add rules for *non-hostile* access
 etiquette; hostile access stays open by design.
 
+## Update 2026-06-11 — M18: the cursor intent joins the server-internal class
+
+`AdvanceOrderCursorIntent` (standing-order cursor moves) is the third
+server-internal intent: wire-rejected in `GameHost.SubmitEnvelopeJson`
+by TYPE (unlike the bandit pair it carries a real player's `PlayerId` —
+the `AutomationDriver` speaks AS the order's owner so notices and audit
+attribution stay per-player). Durable + replayed like the bandit pair.
+Defense in depth at resolve time: `order.OwnerId == PlayerId`, plus a
+`CurrentStep == ExpectedStep` fence so a stale driver decision (order
+cleared/re-set between think and resolution) no-ops cleanly.
+
+`SetStandingOrderIntent` / `ClearStandingOrderIntent` are ordinary
+player intents: single-target ownership semantics (`order.OwnerId ==
+PlayerId` reject), claim exclusivity validated against ALL orders, and
+every unit named by a step must be claimed by the order — so a player
+cannot route another player's units by proxy.
+
 ## References
 
 - `docs/intent-validation.md` — the "Resolve re-validates everything,

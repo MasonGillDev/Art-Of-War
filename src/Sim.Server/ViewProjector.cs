@@ -30,7 +30,54 @@ public sealed class ViewProjector
     {
         var dto = reveal ? ProjectRevealed(sim.World, now, playerId) : ProjectFogged(sim.World, now, playerId);
         FillFood(dto, sim, now, playerId);
+        FillOrders(dto, sim.World, playerId);
         return dto;
+    }
+
+    // M18 — the viewer's OWN standing orders, definition + live cursor.
+    // Owner-only by construction (we filter on OwnerId); reveal mode does
+    // not change this — automation plans are private strategy, not terrain.
+    private static void FillOrders(ViewDto dto, GameWorld world, int playerId)
+    {
+        if (world.StandingOrders.Count == 0) return;
+        var orders = new List<OrderDto>();
+        foreach (var (id, o) in world.StandingOrders) // ascending id
+        {
+            if (o.OwnerId != playerId) continue;
+            orders.Add(new OrderDto
+            {
+                Id = id,
+                Kind = (int)o.Kind,
+                Loop = (int)o.Loop,
+                Enabled = o.Enabled,
+                CurrentStep = o.CurrentStep,
+                Dispatched = o.ActionDispatched,
+                RetryCount = o.StepRetryCount,
+                StepEnteredTick = o.StepEnteredTick,
+                ClaimedUnits = o.ClaimedUnits.ToArray(),
+                Steps = o.Steps.Select(step => new OrderStepDto
+                {
+                    Conditions = step.Conditions.Select(c => new ConditionDto
+                    {
+                        Kind = (int)c.Kind,
+                        UnitId = c.SubjectUnitId,
+                        X = c.SubjectTile.X,
+                        Y = c.SubjectTile.Y,
+                        Resource = (int)c.Resource,
+                        Threshold = c.Threshold,
+                    }).ToArray(),
+                    ActionKind = (int)step.Action.Kind,
+                    ActionUnit = step.Action.UnitId,
+                    TargetX = step.Action.TargetTile.X,
+                    TargetY = step.Action.TargetTile.Y,
+                    SecondX = step.Action.SecondTile.X,
+                    SecondY = step.Action.SecondTile.Y,
+                    Resource = (int)step.Action.Resource,
+                    Role = (int)step.Action.Role,
+                }).ToArray(),
+            });
+        }
+        if (orders.Count > 0) dto.Orders = orders.ToArray();
     }
 
     // M13 food consumption — project the viewing player's population, live castle food

@@ -88,6 +88,18 @@ public sealed class GameWorld
     public Sim.Core.Biomes.BiomeDegradationConfig BiomeDegradationConfig { get; private set; }
     public Dictionary<TileCoord, Sim.Core.Biomes.Fertility> Fertility { get; } = new();
 
+    // M18 — standing orders (player automation programs). Sparse by order
+    // id; sorted so snapshot iteration is canonical. Mutated ONLY by
+    // SetStandingOrderIntent / ClearStandingOrderIntent (definition) and
+    // AdvanceOrderCursorIntent (cursor block) — see Automation/StandingOrder.cs
+    // and docs/automation-layers.md. Sim.Core never evaluates these; the
+    // server-side AutomationDriver does.
+    public SortedDictionary<int, Sim.Core.Automation.StandingOrder> StandingOrders { get; } = new();
+
+    // Monotonic order-id counter, same shape as NextUnitId. Ids start at 1
+    // so 0 means "no order".
+    public int NextOrderId { get; internal set; } = 1;
+
     public GameWorld(TileGrid grid)
         : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 

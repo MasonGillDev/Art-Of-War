@@ -18,6 +18,7 @@ public sealed class GameHost : IDisposable
     private readonly double _ticksPerSecond;
     private readonly Bandits.BanditDriver? _bandits;
     private readonly List<Ai.AiPlayerDriver> _ais = new();
+    private readonly Automation.AutomationDriver? _automation;
 
     private readonly object _gate = new();
     private long _virtualTick;        // current virtual tick; read/written only under _gate
@@ -32,7 +33,8 @@ public sealed class GameHost : IDisposable
     private readonly Dictionary<int, List<NoticeDto>> _notices = new();
 
     public GameHost(WorldBuild build, ulong seed, double ticksPerSecond,
-        Bandits.BanditConfig? banditConfig = null, Ai.AiConfig? aiConfig = null)
+        Bandits.BanditConfig? banditConfig = null, Ai.AiConfig? aiConfig = null,
+        Automation.AutomationConfig? automationConfig = null)
     {
         // Spec-aware ctor: builds the world via Genesis AND rolls each genesis unit's
         // lifespan (death-by-age). The plain (GameWorld, seed) ctor would skip that and
@@ -50,6 +52,12 @@ public sealed class GameHost : IDisposable
             foreach (var fs in build.Spec.FactionStarts)
                 if (fs.OwnerId != 0)
                     _ais.Add(new Ai.AiPlayerDriver(fs.OwnerId, aiConfig));
+        // M18 — player standing orders. Always constructed (null config →
+        // defaults): a world with no orders makes Think a cheap no-op, and
+        // orders can arrive at any time over the wire.
+        var autoCfg = automationConfig ?? new Automation.AutomationConfig();
+        if (autoCfg.Enabled)
+            _automation = new Automation.AutomationDriver(autoCfg);
     }
 
     public void Start()
@@ -82,6 +90,9 @@ public sealed class GameHost : IDisposable
                 // thread, under the lock: their pure reads can never race the sim.
                 _bandits?.Think(_sim, _virtualTick);
                 foreach (var ai in _ais) ai.Think(_sim, _projector, _virtualTick);
+                // M18 — player standing orders: same contract as the NPC
+                // brains (pure reads + ordinary intents, under the lock).
+                _automation?.Think(_sim, _virtualTick);
                 HarvestRejections();
             }
             Thread.Sleep(20);
@@ -108,6 +119,12 @@ public sealed class GameHost : IDisposable
                 || intent is Sim.Core.Bandits.SpawnBanditPartyIntent
                 || intent is Sim.Core.Bandits.DespawnBanditPartyIntent)
                 return Ack(false, "bandit-faction intents are server-internal");
+            // M18 — cursor moves are the AutomationDriver's voice, not the
+            // client's: a wire client could otherwise skip its own order's
+            // steps (or, with a spoofed PlayerId, wedge another player's
+            // order). Set/Clear remain ordinary player intents.
+            if (intent is Sim.Core.Automation.AdvanceOrderCursorIntent)
+                return Ack(false, "order-cursor intents are server-internal");
             lock (_gate)
             {
                 var at = Math.Max(_sim.Now, _virtualTick);
@@ -140,21 +157,33 @@ public sealed class GameHost : IDisposable
         var log = _sim.ResolvedLog;
         for (; _resolvedCursor < log.Count; _resolvedCursor++)
         {
-            if (log[_resolvedCursor] is not IntentEvent ie || !ie.Outcome.IsRejected) continue;
-            var pid = ie.Intent.PlayerId;
-            if (!_notices.TryGetValue(pid, out var list))
+            if (log[_resolvedCursor] is not IntentEvent ie) continue;
+            // M18 — an APPLIED auto-disable is news the player must see:
+            // their standing order stopped (retry budget exhausted). The
+            // failing action's rejections were already noticed above this
+            // in the log; this line says "and the engine gave up."
+            if (!ie.Outcome.IsRejected
+                && ie.Intent is Sim.Core.Automation.AdvanceOrderCursorIntent
+                    { Op: Sim.Core.Automation.CursorOp.Disable } disable)
             {
-                list = new List<NoticeDto>();
-                _notices[pid] = list;
+                AddNotice(disable.PlayerId, ie.At,
+                    $"standing order {disable.OrderId} auto-disabled after repeated failures");
+                continue;
             }
-            list.Add(new NoticeDto
-            {
-                Id = _nextNoticeId++,
-                Tick = ie.At,
-                Text = $"{ie.Intent.Describe()} — {ie.Outcome.Reason}",
-            });
-            if (list.Count > MaxNoticesPerPlayer) list.RemoveRange(0, list.Count - MaxNoticesPerPlayer);
+            if (!ie.Outcome.IsRejected) continue;
+            AddNotice(ie.Intent.PlayerId, ie.At, $"{ie.Intent.Describe()} — {ie.Outcome.Reason}");
         }
+    }
+
+    private void AddNotice(int playerId, long tick, string text)
+    {
+        if (!_notices.TryGetValue(playerId, out var list))
+        {
+            list = new List<NoticeDto>();
+            _notices[playerId] = list;
+        }
+        list.Add(new NoticeDto { Id = _nextNoticeId++, Tick = tick, Text = text });
+        if (list.Count > MaxNoticesPerPlayer) list.RemoveRange(0, list.Count - MaxNoticesPerPlayer);
     }
 
     private static string Ack(bool accepted, string reason) =>
