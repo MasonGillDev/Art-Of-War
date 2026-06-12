@@ -91,12 +91,26 @@ public class AiPlayerTests
         // The brain may never receive the world or the sim — fairness is
         // structural. (The DRIVER shell holds the sim for view-building
         // and submission; the brain's inputs are the view + clock + its
-        // own droppable memory.)
+        // own droppable memory.) Since the Phase-0 decomposition the
+        // brain is a NAMESPACE, not a class — the sweep covers every Ai
+        // type (rungs, ThinkContext, memory), public and private alike;
+        // only the driver shell legitimately holds the sim.
         var forbidden = new[] { typeof(GameWorld), typeof(Simulation) };
-        foreach (var m in typeof(HomesteaderBrain).GetMethods(
-                     BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-            foreach (var p in m.GetParameters())
-                Assert.DoesNotContain(p.ParameterType, forbidden);
+        var brainTypes = typeof(HomesteaderBrain).Assembly.GetTypes()
+            .Where(t => t.Namespace?.StartsWith("Sim.Server.Ai") == true
+                && t != typeof(AiPlayerDriver)
+                && !t.Name.Contains('<'))   // compiler-generated closures
+            .ToList();
+        Assert.Contains(typeof(HomesteaderBrain), brainTypes);
+        Assert.Contains(typeof(ThinkContext), brainTypes);
+        foreach (var type in brainTypes)
+            foreach (var m in type.GetMethods(
+                         BindingFlags.Public | BindingFlags.NonPublic
+                         | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                foreach (var p in m.GetParameters())
+                    Assert.True(!forbidden.Contains(p.ParameterType),
+                        $"{type.Name}.{m.Name} takes {p.ParameterType.Name} — " +
+                        "brain code may only see the view");
     }
 
     // ---- the arbitration debugger ------------------------------------------
