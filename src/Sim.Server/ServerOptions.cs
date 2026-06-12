@@ -16,7 +16,7 @@ public sealed record ServerOptions
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 1151, mapWidth = 128, mapHeight = 128;
+        int port = 8080, mapSeed = 1351, mapWidth = 128, mapHeight = 128;
         var tps = 20.0;
         var bandits = 1;
         int ai = 1, aiTrace = 0;

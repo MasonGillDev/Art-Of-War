@@ -77,11 +77,12 @@ public sealed record AiConfig
     // demand (below).
     public int ScoutLegBudget { get; init; } = 16;
 
-    // Keep at least this many known, free, claimable grassland tiles in
-    // inventory; below it, scouts go back out (spiraling wider) BEFORE
-    // anything is wrong. ~4 farms' worth of land. Crisis-triggered
-    // exploration rescued ~6 days too late against a 3-day famine grace.
-    public int LandBankFloorTiles { get; init; } = 64;
+    // Keep at least this many known farm POCKETS (tiles the brain's own
+    // map says can host a farm's full claim) in inventory; below it,
+    // scouts go back out BEFORE anything is wrong. Counting raw tiles
+    // was the rugged-map killer: 40 scattered slope-grass tiles is zero
+    // farms.
+    public int LandBankFloorPockets { get; init; } = 12;
 
     // Farm mortality accounting. A farm's claims exhaust after a KNOWN
     // working lifetime (Grassland fertility headroom 2500 ÷ 1/hour burn ≈

@@ -45,7 +45,7 @@ public static class StructureCatalog
             // M15 — the loss lands on the camp's 6 CLAIMED forest tiles
             // (docs/extraction-claims.md), not a radius.
             DegradeAmount = 2,
-            ClaimCount = 15,
+            ClaimCount = 8,
             ClaimRange = 2,
         },
         [StructureKind.Quarry] = new StructureSpec

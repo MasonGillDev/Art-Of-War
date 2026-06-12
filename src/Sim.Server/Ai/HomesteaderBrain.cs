@@ -302,16 +302,26 @@ public sealed class HomesteaderBrain
         // Scout rung runs past its budget, spiraling wider — while the
         // granary is still full.
         mem.LandStarved =
-            d.CountFreeTiles(Biome.Grassland, _cfg.SiteSearchRange, _cfg.LandBankFloorTiles)
-                < _cfg.LandBankFloorTiles
+            d.CountPocketTiles(Biome.Grassland, _cfg.SiteSearchRange,
+                    spec.ClaimCount, spec.ClaimRange, _cfg.LandBankFloorPockets)
+                < _cfg.LandBankFloorPockets
             || mem.ForestStarved;   // Build's distress flag — don't clobber it
 
         if (wantAnother)
         {
-            if (d.NearestFreeTile(Biome.Grassland, _cfg.SiteSearchRange) is { } t)
+            // Certified pocket first (fast, never rejected); else an
+            // optimistic attempt on the nearest free grass tile — the
+            // brain's pocket model is CONSERVATIVE (fog-edge neighbors
+            // count as nothing), so when it certifies no site the server,
+            // which sees the real map, gets the final word. Rejections
+            // blacklist and move on.
+            var t = d.NearestPocketTile(Biome.Grassland, _cfg.SiteSearchRange,
+                        spec.ClaimCount, spec.ClaimRange)
+                ?? d.NearestFreeTile(Biome.Grassland, _cfg.SiteSearchRange);
+            if (t is { } tile)
                 return new Decision("eat",
                     $"live farms {liveFarms.Count}+{sites.Count} of {farmsNeeded} needed — placing one",
-                    new List<Intent> { new PlaceSiteIntent(t, StructureKind.Farm) { PlayerId = d.PlayerId } });
+                    new List<Intent> { new PlaceSiteIntent(tile, StructureKind.Farm) { PlayerId = d.PlayerId } });
             if (liveFarms.Count == 0 && sites.Count == 0) return null;
         }
         foreach (var site in sites)
@@ -351,11 +361,15 @@ public sealed class HomesteaderBrain
 
         if (liveCamps.Count + sites.Count < 1)
         {
-            if (d.NearestFreeTile(Biome.Forest, _cfg.SiteSearchRange) is { } t)
+            var campSpec = StructureCatalog.Spec(StructureKind.LumberCamp);
+            var t = d.NearestPocketTile(Biome.Forest, _cfg.SiteSearchRange,
+                        campSpec.ClaimCount, campSpec.ClaimRange)
+                ?? d.NearestFreeTile(Biome.Forest, _cfg.SiteSearchRange);
+            if (t is { } tile)
             {
                 mem.ForestStarved = false;
                 return new Decision("build", "no live lumber camp — placing one",
-                    new List<Intent> { new PlaceSiteIntent(t, StructureKind.LumberCamp) { PlayerId = d.PlayerId } });
+                    new List<Intent> { new PlaceSiteIntent(tile, StructureKind.LumberCamp) { PlayerId = d.PlayerId } });
             }
             // No known forest: starve the scouts back out (they reveal
             // everything, grassland and forest alike).
@@ -595,12 +609,20 @@ public sealed class HomesteaderBrain
         if (scout is null) return null;
         d.Reserve(scout);
 
-        // Rotate through 8 compass legs, each full sweep reaching farther
-        // (leg length grows every 8 legs) — droppable memory; a restart
-        // just restarts the sweep.
-        var dirs = new (int X, int Y)[] { (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1) };
+        // Rotate through 16 headings, each full sweep reaching farther —
+        // droppable memory; a restart just restarts the sweep. (8 compass
+        // rays were needles through a haystack on rugged maps: a meadow
+        // off the compass lines was never seen.) Half-step headings use
+        // 2:1 integer vectors, scaled to roughly matching reach.
+        var dirs = new (int X, int Y, int Scale)[]
+        {
+            (2, 0, 1), (2, 1, 1), (1, 1, 1), (1, 2, 1),
+            (0, 2, 1), (-1, 2, 1), (-1, 1, 1), (-2, 1, 1),
+            (-2, 0, 1), (-2, -1, 1), (-1, -1, 1), (-1, -2, 1),
+            (0, -2, 1), (1, -2, 1), (1, -1, 1), (2, -1, 1),
+        };
         var dir = dirs[mem.ScoutLeg % dirs.Length];
-        var reach = _cfg.ScoutRange * (1 + mem.ScoutLeg / dirs.Length);
+        var reach = Math.Max(1, _cfg.ScoutRange * (1 + mem.ScoutLeg / dirs.Length) / 2);
         mem.ScoutLeg++;
         var dest = new TileCoord(
             Math.Clamp(d.CastleTile.X + dir.X * reach, 0, d.MapWidth - 1),
@@ -760,6 +782,63 @@ public sealed class HomesteaderBrain
                 if (b != (int)biome) continue;
                 if (Math.Max(Math.Abs(key.X - CastleTile.X), Math.Abs(key.Y - CastleTile.Y)) > range) continue;
                 if (_blocked.Contains(key)) continue;
+                if (++count >= cap) return count;
+            }
+            return count;
+        }
+
+        // Does the brain's OWN map knowledge say `key` could host an
+        // extractor of this spec — i.e., are there >= claimCount free
+        // same-biome tiles within claimRange? Mirrors the server's M15
+        // claim rule over REMEMBERED tiles (unknown counts as no). The
+        // lab's rugged-map colonies died churning one rejected placement
+        // per think through slope-scatter — the server knew these tiles
+        // were worthless; now the brain does too.
+        private bool IsPocket((int X, int Y) key, Biome biome, int claimCount, int claimRange)
+        {
+            var found = 0;
+            for (var dy = -claimRange; dy <= claimRange; dy++)
+            for (var dx = -claimRange; dx <= claimRange; dx++)
+            {
+                if (dx == 0 && dy == 0) continue;
+                var q = (key.X + dx, key.Y + dy);
+                if (!_biome.TryGetValue(q, out var b) || b != (int)biome) continue;
+                if (_blocked.Contains(q)) continue;
+                if (++found >= claimCount) return true;
+            }
+            return false;
+        }
+
+        // Nearest known tile that the brain BELIEVES can host the spec:
+        // right biome, free, and a valid claim pocket around it.
+        public TileCoord? NearestPocketTile(Biome biome, int range, int claimCount, int claimRange)
+        {
+            for (var r = 1; r <= range; r++)
+            for (var dy = -r; dy <= r; dy++)
+            for (var dx = -r; dx <= r; dx++)
+            {
+                if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+                var key = (CastleTile.X + dx, CastleTile.Y + dy);
+                if (!_biome.TryGetValue(key, out var b) || b != (int)biome) continue;
+                if (_blocked.Contains(key)) continue;
+                if (!IsPocket(key, biome, claimCount, claimRange)) continue;
+                return new TileCoord(key.Item1, key.Item2);
+            }
+            return null;
+        }
+
+        // Pocket-aware land inventory — the bank should count BUILDABLE
+        // sites, not stray tiles (40 scattered slope-grass tiles is zero
+        // farms).
+        public int CountPocketTiles(Biome biome, int range, int claimCount, int claimRange, int cap)
+        {
+            var count = 0;
+            foreach (var (key, b) in _biome)
+            {
+                if (b != (int)biome) continue;
+                if (Math.Max(Math.Abs(key.X - CastleTile.X), Math.Abs(key.Y - CastleTile.Y)) > range) continue;
+                if (_blocked.Contains(key)) continue;
+                if (!IsPocket(key, biome, claimCount, claimRange)) continue;
                 if (++count >= cap) return count;
             }
             return count;

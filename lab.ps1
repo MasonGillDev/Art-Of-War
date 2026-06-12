@@ -5,7 +5,8 @@
 # this repo — see docs/architecture.md tooling notes).
 param(
     [switch]$All,
-    [int]$Seed = 0
+    [int]$Seed = 0,
+    [int]$Size = 0   # map size override (e.g. -Size 128 to mirror the live server)
 )
 
 $dotnet = Join-Path $env:USERPROFILE ".dotnet\dotnet.exe"
@@ -16,6 +17,7 @@ if ($Seed -ne 0) {
     # for ad-hoc seed sweeps set this env var the test harness reads.
     $env:LAB_MAPSEED = $Seed
 }
+if ($Size -ne 0) { $env:LAB_MAPSIZE = $Size }
 try {
     & $dotnet test "$PSScriptRoot\tests\Sim.Tests" `
         /p:BaseOutputPath="$env:TEMP\artofwar-lab\" `
@@ -24,4 +26,5 @@ try {
 }
 finally {
     if ($Seed -ne 0) { Remove-Item Env:\LAB_MAPSEED -ErrorAction SilentlyContinue }
+    if ($Size -ne 0) { Remove-Item Env:\LAB_MAPSIZE -ErrorAction SilentlyContinue }
 }

@@ -29,6 +29,9 @@ public class AiPlayerTests
         if (int.TryParse(Environment.GetEnvironmentVariable("LAB_MAPSEED"), out var envSeed)
             && envSeed != 0)
             mapSeed = envSeed;
+        if (int.TryParse(Environment.GetEnvironmentVariable("LAB_MAPSIZE"), out var envSize)
+            && envSize > 0)
+            size = envSize;
         var opts = new ServerOptions
         {
             MapWidth = size, MapHeight = size, MapSeed = mapSeed, AiPlayers = aiPlayers,
