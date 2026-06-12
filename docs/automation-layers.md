@@ -166,6 +166,38 @@ this doc's first draft:
   wire-guard precedent) — a player's mid-route caravan resumes exactly after
   a restart, unlike bandit parties where forgetting is flavorful.
 
+## Update 2026-06-12 — Layer D shipped (Unity client)
+
+The last unbuilt layer. The client (Unity repo) gained:
+
+- **Wire mirrors** (`Net/Wire.cs`): `WireOrder` / `WireOrderStep` /
+  `WireOrderCondition` + the automation enums; `WirePlayerView.orders`.
+  Verified field-for-field against the live server's projection.
+- **Intent payloads + template builders** (`Net/Intents.cs`):
+  `SetStandingOrderIntentPayload` (PascalCase, mirrors the Core intent's
+  property names exactly) and `IntentFactory.SetSupplyLine` / `SetRoute` /
+  `SetStandingCraft` / `ClearOrder` — the client-side twins of the test-side
+  `AutomationTemplates` reference implementations, as planned in M18 Phase E.
+- **`OrderMode` (hotkey O, `Game/Input/OrderMode.cs`)**: a dashboard panel
+  listing own orders with live cursor status (step k/n, run/wait, done vs
+  STOPPED — distinguished by `retryCount`, which Once-completion resets and
+  auto-disable leaves exhausted) and per-order Clear; plus three guided
+  click-flows: Supply Line (hauler → source → dest, resource palette +
+  keep-below threshold stepper), Route (unit → stops, each with an
+  Always/CargoFull/CargoEmpty departure gate), Standing Craft (item →
+  barracks, gated `StoreAtLeast` on the catalog costs so an under-stocked
+  barracks waits instead of burning its retry budget). Caps (16/16) are
+  client-side mirrors of `AutomationConstants` — craft-cost-label convention.
+
+No server change was needed: Phase F's wire + the notice pipeline (rejection
+toasts, auto-disable notices) already carry everything the UI consumes.
+End-to-end verified against the running host with byte-identical
+JsonUtility-shaped payloads: install → project → resolution-reject → clear.
+
+Still open from Future expansion: in-place order editing (today: Clear +
+re-create), per-order progress/last-rejection enrichment in `ViewDto`,
+unlock gating, military atoms, pooled haulers.
+
 ## References
 
 - `docs/architecture.md` §2.4 (re-arm), §3.3 (resolution-time validation)
