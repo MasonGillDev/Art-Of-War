@@ -213,8 +213,16 @@ stocking would have DOUBLED the haul distance). Lab: pop 79 at d160
 (vs 63 placement-less, vs the old 151-then-extinct), food 2,877
 (double), zero starvation deaths through d300.
 
-**Remaining:** Phase 4 — Unity client (house food HUD, local-famine
-toast; LocalFood/Residents/LocalFamine are already on the wire).
+**Phase 4 shipped (same day, Unity repo — not in git):** Wire.cs
+mirrors (localFood/residents/localFamine), the House inspector in the
+HUD (residents/beds + signed live food with the "haul N to recover!"
+line and a red famine header — the castle famine alarm's contract,
+per house), and a local-famine toast in GameClient (edge-detect on
+the count of own famined houses, naming the hungriest one — the
+bandit-sighting pattern). MILESTONE COMPLETE; the per-house world is
+fully playable. Deferred onward: doctrine re-examination (above),
+stockpiles as regional buffers, frontier forts (garrison re-homing),
+the settlement/second-castle milestone this unlocks.
 
 ## References
 
