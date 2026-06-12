@@ -81,6 +81,25 @@ public static class WorldFactory
                         OwnerId: ownerId, StartingAgeYears: age));
                     slot++;
                 }
+            // The genesis School (the circular-lock fix — see
+            // FactionStartSpec.SchoolPosition): the first walkable tile
+            // ringing the castle. Deterministic (dist, y, x) scan, the
+            // same shape as every other placement search here.
+            TileCoord? FindSchoolTile()
+            {
+                for (var r = 1; r <= 3; r++)
+                for (var dy = -r; dy <= r; dy++)
+                for (var dx = -r; dx <= r; dx++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+                    int x = castleAt.X + dx, y = castleAt.Y + dy;
+                    if (x < 0 || x >= map.Width || y < 0 || y >= map.Height) continue;
+                    if (map.Grid[x, y] is Biome.Water or Biome.None) continue;
+                    return new TileCoord(x, y);
+                }
+                return null;
+            }
+
             return new FactionStartSpec
             {
                 OwnerId = ownerId,
@@ -92,6 +111,7 @@ public static class WorldFactory
                     [Resource.Food] = 200,
                 },
                 UnitSpawns = spawns.ToArray(),
+                SchoolPosition = FindSchoolTile(),
             };
         }
 

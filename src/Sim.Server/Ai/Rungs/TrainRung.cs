@@ -3,6 +3,7 @@ using Sim.Core.Logistics;
 using Sim.Core.Movement;
 using Sim.Core.Population;
 using Sim.Core.World;
+using Sim.Server.Wire;
 
 namespace Sim.Server.Ai.Rungs;
 
@@ -59,15 +60,40 @@ public sealed class TrainRung : IRung
         // the garrison.
         if (ctx.Mem.DesignatedTrainee is null)
         {
-            var cand = ctx.OwnUnits.Where(u => ctx.IsIdleStill(u) && ctx.IsFree(u)
-                    && u.CargoAmount == 0 && u.Age >= ctx.Cfg.MinAdultAgeYears
-                    && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
-                        or UnitRole.Scout or UnitRole.Farmer
-                        or UnitRole.Soldier or UnitRole.Archer))
+            bool Trainable(UnitDto u) => ctx.IsFree(u)
+                && u.CargoAmount == 0 && u.Age >= ctx.Cfg.MinAdultAgeYears
+                && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
+                    or UnitRole.Scout or UnitRole.Farmer
+                    or UnitRole.Soldier or UnitRole.Archer);
+            var cand = ctx.OwnUnits.Where(u => ctx.IsIdleStill(u) && Trainable(u))
                 .OrderBy(u => (UnitRole)u.Role == UnitRole.None ? 0 : 1).ThenBy(u => u.Id)
                 .FirstOrDefault();
-            if (cand is null) return null;
-            ctx.Mem.DesignatedTrainee = (cand.Id, target.Value);
+            if (cand is not null)
+            {
+                ctx.Mem.DesignatedTrainee = (cand.Id, target.Value);
+            }
+            else if (target is UnitRole.Builder or UnitRole.Hauler or UnitRole.Scout)
+            {
+                // FLOORS conscript (the Muster precedent — a fully-
+                // employed colony never has idlers, and a missing organ
+                // is an emergency: the genesis-School lab watched a
+                // builder-less colony wait 15 days for an idle apprentice
+                // that never came). Routine Farmer COVERAGE still waits
+                // for idlers — pulling working hands for an optimization
+                // isn't worth the thrash.
+                var worker = ctx.OwnUnits.Where(u =>
+                        u.Activity == (int)Activity.Working && Trainable(u))
+                    .OrderBy(u => u.Id).FirstOrDefault();
+                if (worker is null) return null;
+                var post = ctx.Own.FirstOrDefault(s => s.X == worker.X && s.Y == worker.Y);
+                if (post is null) return null;
+                ctx.Mem.DesignatedTrainee = (worker.Id, target.Value);
+                return new Decision("train", $"conscripting for the {target} floor",
+                    new List<Intent> { new UnassignWorkersIntent(
+                        new TileCoord(post.X, post.Y), new[] { ctx.Reserve(worker).Id })
+                        { PlayerId = ctx.PlayerId } });
+            }
+            else return null;
         }
         var who = ctx.Mem.DesignatedTrainee.Value;
         var trainee = ctx.OwnUnits.First(u => u.Id == who.Id);

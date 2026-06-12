@@ -146,14 +146,14 @@ economy the parameter created, and the arbitration ledger grew:
    colony under default bandit pressure ended day 50 at pop 21 —
    double the trapped baseline.
 
-Open GAME finding from the same autopsy (the new-player simulator at
-its bleakest): **builder extinction before a School stands is
-UNRECOVERABLE for any player, human or AI** — the School is
-builder-built and the Builder is School-trained, so a colony with
-people, materials, and sites can be permanently locked out of
-construction. Candidate core fixes (user's call): the Castle doubles
-as a basic-role trainer, a genesis School, or relaxing the
-builder-only gate on AssignBuildersIntent.
+GAME finding from the same autopsy, RESOLVED same day (user decision):
+**builder extinction before a School stands was UNRECOVERABLE for any
+player** — School is builder-built, Builder is School-trained. Fixed
+at genesis: every faction is born with a School
+(`FactionStartSpec.SchoolPosition`; the human too — fairness includes
+the opening). Knock-on: the tighter early economy employs everyone
+faster, so FLOOR training conscripts off the fields like Muster does
+(routine Farmer coverage still waits for idle apprentices).
 
 Systemic game finds along the way (the new-player simulator earning
 its keep): **storage pressure is real** (an AI hoarded 4,600 wood and

@@ -76,6 +76,10 @@ public class AiPlayerTests
             Assert.Equal(human.CastleHoldings, ai.CastleHoldings);
             Assert.Equal(human.UnitSpawns.Count, ai.UnitSpawns.Count);
         }
+        // The circular-lock fix (user decision 2026-06-12): every faction
+        // is BORN with its trainer — losing the last Builder can never
+        // again lock a colony out of construction forever.
+        Assert.All(starts, f => Assert.NotNull(f.SchoolPosition));
         // Castles pairwise separated.
         var castles = starts.Select(f => f.CastlePosition).ToList();
         for (var i = 0; i < castles.Count; i++)

@@ -54,6 +54,15 @@ public sealed record FactionStartSpec
         new SortedDictionary<Resource, int>();
     public IReadOnlyList<UnitSpawn> UnitSpawns { get; init; } = Array.Empty<UnitSpawn>();
 
+    // M17 Phase 2 follow-up — the circular-lock fix (user decision
+    // 2026-06-12, docs/m17-defender-spec.md): only Builders may raise a
+    // site and only a School trains Builders, so a faction that loses
+    // its last Builder before its first School stands is PERMANENTLY
+    // locked out of construction — for humans and AI alike. Born with
+    // the trainer, the lock is unreachable. Null = no school (test
+    // scenarios keep their minimal worlds).
+    public TileCoord? SchoolPosition { get; init; }
+
     // M8: per-faction default starting age (years) for spawned units that
     // don't override via UnitSpawn.StartingAgeYears. 30 = productive adult.
     public int StartingAgeYears { get; init; } = 30;
@@ -114,6 +123,16 @@ public static class Genesis
             }
             // M3 Phase B: the castle is a vision source; reveal its area.
             Sight.Reveal(world, castle.OwnerId, castle.At, Sight.RadiusFor(StructureKind.Castle), now: 0);
+
+            // The genesis School (see SchoolPosition's doc) — a structure
+            // like any other: snapshot round-trips it by kind, training
+            // resolves on it from tick 0.
+            if (fs.SchoolPosition is { } schoolAt)
+            {
+                var school = world.AddStructure(new School(schoolAt) { OwnerId = fs.OwnerId });
+                Sight.Reveal(world, school.OwnerId, school.At,
+                    Sight.RadiusFor(StructureKind.School), now: 0);
+            }
 
             foreach (var u in fs.UnitSpawns)
             {

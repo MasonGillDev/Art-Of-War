@@ -248,13 +248,21 @@ the pursuit-leash pin sampled every think.
   (the garrison holds instead of trickling into losing fights). The
   recoverable colony under default pressure now ends day 50 at pop 21
   — double the trapped baseline.
-- **The circular lock (open GAME finding, user's call):** builder
-  extinction BEFORE a School stands is unrecoverable for any player,
-  human or AI — the School is builder-built and the Builder is
-  School-trained. Faction 0 on the lab seed sits in exactly this state
-  and no brain change can free it. Candidate core fixes: the Castle
-  doubles as a basic-role trainer, a genesis School, or relaxing the
-  builder-only gate on AssignBuildersIntent.
+- **The circular lock — CLOSED same day (user decision: genesis
+  School).** Builder extinction before a School stands was
+  unrecoverable for any player, human or AI — the School is
+  builder-built and the Builder is School-trained. Every faction is
+  now BORN with a School (`FactionStartSpec.SchoolPosition`, placed by
+  WorldFactory on the first walkable tile ringing the castle; fairness
+  includes the opening, so the human gets one too). The lock is
+  unreachable: role floors can always retrain. Two knock-on findings
+  from the genesis-School lab runs: the tighter early economy (80
+  wood saved) employs everyone faster, which starved the Train rung of
+  idle apprentices — so FLOOR training now conscripts off the fields
+  (the Muster precedent; routine Farmer coverage still waits for
+  idlers); and the once-locked faction 0 now garrisons itself and
+  holds pop 10 against eight prowling bandits where it used to freeze
+  helpless.
 
 **Deferred beyond the spec's original list:**
 
