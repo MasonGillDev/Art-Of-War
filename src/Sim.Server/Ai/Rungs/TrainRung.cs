@@ -54,7 +54,8 @@ public sealed class TrainRung : IRung
             var cand = ctx.OwnUnits.Where(u => ctx.IsIdleStill(u) && ctx.IsFree(u)
                     && u.CargoAmount == 0 && u.Age >= ctx.Cfg.MinAdultAgeYears
                     && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
-                        or UnitRole.Scout or UnitRole.Farmer))
+                        or UnitRole.Scout or UnitRole.Farmer
+                        or UnitRole.Soldier or UnitRole.Archer))
                 .OrderBy(u => (UnitRole)u.Role == UnitRole.None ? 0 : 1).ThenBy(u => u.Id)
                 .FirstOrDefault();
             if (cand is null) return null;

@@ -28,7 +28,8 @@ public sealed class GrowRung : IRung
         var houseSites = ctx.Own.Where(s => (StructureKind)s.Kind == StructureKind.ConstructionSite
             && (StructureKind)s.TargetKind == StructureKind.House).ToList();
         var fertileAdults = ctx.OwnUnits.Count(u => Fertile(u)
-            && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler));
+            && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
+                or UnitRole.Soldier or UnitRole.Archer));
         var housesNeeded = Math.Max(1, fertileAdults / Math.Max(1, ctx.Cfg.FertileAdultsPerHouse));
 
         if (houses.Count + houseSites.Count < housesNeeded
@@ -74,8 +75,12 @@ public sealed class GrowRung : IRung
                     && houses.Any(h => h.X == u.X && h.Y == u.Y));   // breeding started — job done
         });
 
+        // The garrison doesn't breed (M17 Phase 2): a soldier pulled
+        // into a house is a soldier off the wall, and the quota would
+        // just retrain a replacement — a silent two-mouth tax per birth.
         bool Eligible(UnitDto u) => Fertile(u) && ctx.IsFree(u)
-            && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler)
+            && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
+                or UnitRole.Soldier or UnitRole.Archer)
             && !ctx.Mem.DesignatedParents.Contains(u.Id);
         if (ctx.Mem.DesignatedParents.Count < 2)
         {

@@ -192,6 +192,51 @@ public class AiPlayerTests
         // bandit pressure for 50 game-days; population may dip, never zero.
     }
 
+    // ---- M17 Phase 2: the standing army --------------------------------------
+
+    [Fact]
+    public void Muster_ReachesQuota_StandingArmyWithoutFamine()
+    {
+        // The Muster rung fills the soldier quota in peacetime (no
+        // bandits here — this is the defense-budget test, not the war
+        // test): a Barracks goes up once the larder clears the growth
+        // floor, recruits walk in and swear in, and the colony pays the
+        // standing-army food tax WITHOUT slipping into famine. 60 days
+        // is generous — the larder clears the floor around day 8-12 and
+        // each recruit is a designate-walk-train cycle of a few hours.
+        var (sim, projector, _) = MakeMatch();
+        var cfg = new AiConfig();
+        var drivers = new[] { new AiPlayerDriver(0, cfg), new AiPlayerDriver(1, cfg) };
+        RunMatch(sim, projector, drivers, until: 60 * Time.Day, step: cfg.ThinkPeriodTicks);
+
+        foreach (var id in new[] { 0, 1 })
+        {
+            var trace = drivers.Single(d => d.PlayerId == id).Trace;
+            var soldiers = sim.World.Units.Values.Count(u =>
+                u.OwnerId == id && u.Role == UnitRole.Soldier);
+            // Config-derived: recompute the brain's own quota formula
+            // from the END state (population/structures move during the
+            // run; the target moves with them). One recruit of slack —
+            // a freshly-risen quota may have a designee mid-walk.
+            var structures = sim.World.Structures.Values.Count(s => s.OwnerId == id);
+            var pop = sim.World.Players[id].PopulationCount;
+            var quota = Math.Min(
+                cfg.SoldierQuotaFloor + structures / Math.Max(1, cfg.SoldiersPerStructures),
+                pop / Math.Max(1, cfg.PopulationPerSoldier));
+            Assert.True(soldiers >= 1 && soldiers + 1 >= quota,
+                $"faction {id} mustered {soldiers} of quota {quota} " +
+                $"(pop {pop}, {structures} structures) — trace tail:\n{trace.Dump()}");
+            var barracks = sim.World.Structures.Values
+                .Count(s => s.OwnerId == id && s.Kind == StructureKind.Barracks);
+            Assert.True(barracks >= 1, $"faction {id} built no barracks");
+            // The army is a tax the economy must carry, not a famine.
+            var castle = CastleOf(sim, id);
+            Assert.True(castle.FoodDebt == 0 && castle.FamineStartTick is null,
+                $"faction {id} in famine at day 60 carrying {soldiers} soldiers " +
+                $"(debt={castle.FoodDebt}) — trace tail:\n{trace.Dump()}");
+        }
+    }
+
     // ---- THE BALANCE LAB REPORT: the long-match curve ------------------------
 
     // The lab's match length — tune freely (runtime is roughly linear,

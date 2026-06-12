@@ -106,6 +106,27 @@ public sealed record AiConfig
     public int MaxFertileAgeYears { get; init; } = 45;
     public int BirthFoodCost { get; init; } = 20;
 
+    // M17 Phase 2 (docs/m17-defender-spec.md) — the STANDING ARMY.
+    // Quota = min(floor + ownStructures / perStructures,
+    //             population / populationPerSoldier).
+    // The floor is sized so one bare squad beats the biggest default
+    // bandit party on health (4 Soldiers: 12pw/120hp vs 4 Bandits:
+    // 12pw/100hp); the structures term mirrors the SHAPE of bandit
+    // pressure (one party per N structures) without reading
+    // BanditConfig — the AI learns the wolf the way a player does.
+    // The POPULATION CAP is the lab's lesson re-learned (the slack
+    // must scale with the society it protects): a flat floor of 4
+    // against a 14-person genesis was a ~30% defense budget — Sparta
+    // starved at pop 17 while the unarmed control grew to 151. One
+    // soldier per 8 mouths caps the budget at ~12%, and the threat
+    // curve agrees: a young colony is too small to draw a party at
+    // all. Soldiers are a separate labor class (no hauling, farming,
+    // or breeding) and eat without producing — the quota IS the
+    // defense budget, tuned against the famine line.
+    public int SoldierQuotaFloor { get; init; } = 4;
+    public int SoldiersPerStructures { get; init; } = 8;
+    public int PopulationPerSoldier { get; init; } = 8;
+
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
 

@@ -57,6 +57,7 @@ public sealed class ThinkContext
         };
         d._designated = new HashSet<int>(mem.DesignatedParents);
         if (mem.DesignatedTrainee is { } trainee) d._designated.Add(trainee);
+        if (mem.DesignatedRecruit is { } recruit) d._designated.Add(recruit);
         foreach (var t in view.Visible) d._biome[(t.X, t.Y)] = t.Biome;
         foreach (var t in view.Remembered) d._biome.TryAdd((t.X, t.Y), t.Biome);
         foreach (var b in mem.BlacklistedTiles) d._blocked.Add(b);
@@ -97,13 +98,16 @@ public sealed class ThinkContext
 
     // Allocate a haul carrier for THIS think: idle, still, empty-handed,
     // never a Builder (conscripting builders as food mules is how the
-    // camp site starved — they're needed on sites). Children may haul
-    // (only role-tied assignments are age-gated); Haulers first for
-    // the capacity.
+    // camp site starved — they're needed on sites), never the garrison
+    // (a soldier hauling turnips isn't standing guard — M17 Phase 2).
+    // Children may haul (only role-tied assignments are age-gated);
+    // Haulers first for the capacity.
     public UnitDto? TakeIdleCarrier()
     {
         var pick = OwnUnits.Where(u => IsIdleStill(u) && u.CargoAmount == 0
-                && (UnitRole)u.Role != UnitRole.Builder && IsFree(u))
+                && (UnitRole)u.Role is not (UnitRole.Builder
+                    or UnitRole.Soldier or UnitRole.Archer)
+                && IsFree(u))
             .OrderBy(u => (UnitRole)u.Role == UnitRole.Hauler ? 0 : 1)
             .ThenBy(u => u.Id)
             .FirstOrDefault();
@@ -243,9 +247,12 @@ public sealed class ThinkContext
         // colony's labor in the census sense (counting them as missing
         // deadlocked the gate). Scouts COUNT — exploration has a budget
         // (ScoutLegBudget), then they work. Builders/Haulers keep their
-        // fixed jobs.
+        // fixed jobs. Soldiers/Archers are NOT labor at all (M17 Phase
+        // 2): the standing army eats without producing — that's the
+        // defense budget, and the ledger must price it honestly.
         bool InPool(UnitDto u) => u.Age >= Cfg.MinAdultAgeYears
-            && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler)
+            && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
+                or UnitRole.Soldier or UnitRole.Archer)
             && IsFreeOrDesignated(u);
         var farmers = OwnUnits.Count(u => InPool(u) && (UnitRole)u.Role == UnitRole.Farmer);
         var pool = OwnUnits.Count(InPool);
@@ -289,20 +296,37 @@ public sealed class ThinkContext
 
     // Get the site its builders: assign the ones standing on it, march the
     // ones that aren't. (Materials are logistics' job.)
+    //
+    // ASSIGN ONLY WHEN PROVISIONED (arbitration lesson #10): an assigned
+    // builder is LOCKED (Activity=Building — invisible to every selector)
+    // while site deliveries run in (y,x) TILE order, not rung order, so a
+    // site can starve forever behind bigger demands it doesn't outrank.
+    // The lab watched both builders lock onto a 10-wood farm that sat
+    // LAST in the delivery queue: the fully-provisioned lumber camp never
+    // got a builder, wood income died at zero, and four sites wedged for
+    // 20 days (faction 1's long-standing bootstrap collapse). Builders
+    // may MARCH early (a walk is re-targetable; arrival leaves them
+    // idle-still and free), but they only swing hammers once every
+    // material is on site — sites that can't start don't hoard hands.
     public List<Intent> EnsureBuilders(StructDto site)
     {
         var intents = new List<Intent>();
         if (site.BuildersPresent >= site.BuildersRequired) return intents;
         var siteTile = TileOf(site);
+        var provisioned = site.Needed.All(n =>
+            AmountOf(site.Holdings, (Resource)n.Resource) >= n.Amount);
         var builders = OwnUnits.Where(u =>
                 (UnitRole)u.Role == UnitRole.Builder && IsIdleStill(u) && IsFree(u)
                 && u.CargoAmount == 0 && u.Age >= Cfg.MinAdultAgeYears)
             .OrderBy(u => u.Id).ToList();
-        var onTile = builders.Where(u => u.X == siteTile.X && u.Y == siteTile.Y)
-            .Select(u => Reserve(u).Id).ToList();
-        if (onTile.Count > 0)
-            intents.Add(new AssignBuildersIntent(siteTile, onTile) { PlayerId = PlayerId });
-        else
+        // Reserve only on EMISSION — reserving the waiting builders while
+        // emitting nothing would hide them from every lower rung and
+        // recreate the very wedge this gate exists to break.
+        var onTile = builders.Where(u => u.X == siteTile.X && u.Y == siteTile.Y).ToList();
+        if (onTile.Count > 0 && provisioned)
+            intents.Add(new AssignBuildersIntent(siteTile,
+                onTile.Select(u => Reserve(u).Id).ToList()) { PlayerId = PlayerId });
+        else if (onTile.Count == 0)
             foreach (var b in builders.Take(site.BuildersRequired - site.BuildersPresent))
                 intents.Add(new MoveIntent(Reserve(b).Id, siteTile) { PlayerId = PlayerId });
         return intents;
@@ -321,12 +345,14 @@ public sealed class ThinkContext
         var tile = TileOf(ex);
         // Builders belong on sites, Haulers on the road (their 25-capacity
         // is the logistics backbone — assigning one as a farmhand starves
-        // the haul loop). Everyone else can work — including scouts past
-        // their exploration budget. Matching role first, scouts last.
+        // the haul loop), the garrison on guard (M17 Phase 2). Everyone
+        // else can work — including scouts past their exploration
+        // budget. Matching role first, scouts last.
         var candidates = OwnUnits.Where(u =>
                 IsIdleStill(u) && IsFree(u) && u.CargoAmount == 0
                 && u.Age >= Cfg.MinAdultAgeYears
-                && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler))
+                && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
+                    or UnitRole.Soldier or UnitRole.Archer))
             .OrderBy(u => (UnitRole)u.Role == prefer ? 0
                 : (UnitRole)u.Role == UnitRole.Scout ? 2 : 1)
             .ThenBy(u => u.Id)

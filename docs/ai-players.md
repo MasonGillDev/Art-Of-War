@@ -104,6 +104,33 @@ economy the parameter created, and the arbitration ledger grew:
    the urgent farm-backstop once built six farms in ten days; staffing
    to cap conscripted the village. Every standing job now has a bound
    (ScoutLegBudget, +1 insurance farm, worker budgets).
+10. **Don't break ground you can't cover** (M17 Phase 2, the Muster
+   rung's first lab run) — placing a site is free, but deliveries run
+   in (y,x) TILE order, not rung order, and an ASSIGNED builder is
+   locked (Activity=Building, invisible to every selector) on a site
+   whose delivery queue it doesn't control. A 100-wood Barracks placed
+   against a day-5 economy wedged the whole queue: the third farm (10
+   wood, last in tile order) starved with both builders locked on it,
+   the fully-provisioned camp never got a builder, wood income died,
+   five sites sat for 20 days. TWO fixes, both the player's own rules:
+   Muster waits until the castle HOLDS the full build cost, and
+   EnsureBuilders assigns only once every material is on site (march
+   early — a walking builder is re-targetable; a hammering one isn't).
+   The second fix HEALED the long-standing faction-1 bootstrap
+   collapse (`Survives100GameDays` red since the demographic campaign
+   — same wedge, smaller demands).
+11. **Sparta starves** — the first standing-army quota (flat floor of
+   4) was a ~30% defense budget against a 14-person genesis: the labor
+   pool shrank, the carrying-capacity brake (correctly) blocked
+   breeding, the colony froze at pop 17 and died with the founders
+   (control without an army: pop 151). Same lesson as the
+   proportional growth brake, re-learned for the military: THE BUDGET
+   MUST SCALE WITH THE SOCIETY THAT PAYS IT. Quota is now capped at
+   one soldier per PopulationPerSoldier mouths (~12%); the threat
+   curve agrees — bandit parties scale with structures, so a colony
+   too small to afford a garrison is also too small to draw a raid.
+   With the cap: pop 98 at day 220 carrying its garrison the whole
+   way.
 
 Systemic game finds along the way (the new-player simulator earning
 its keep): **storage pressure is real** (an AI hoarded 4,600 wood and

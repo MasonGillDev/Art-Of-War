@@ -26,6 +26,9 @@ public sealed class AiMemory
     // The apprentice en route to the School — same ownership rule as
     // parents (cleared when they graduate to Farmer or die).
     public int? DesignatedTrainee;
+    // The recruit en route to the Barracks (Muster rung) — same
+    // ownership rule (cleared on graduation to Soldier or death).
+    public int? DesignatedRecruit;
     // Cross-think OWNERSHIP of breeding candidates (arbitration lesson #6):
     // per-think reservations can't stop Eat from re-staffing a freed parent
     // the think after Grow freed them. Designation persists until the
