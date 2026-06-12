@@ -202,10 +202,19 @@ throughput gap. Candidates when re-examined: per-post recall radius,
 refugee re-homing (evacuees' mouths follow them to the castle — a
 world-rule question, not just a brain one), or accepting the tax.
 
-**Remaining:** Phase 3b — Grow places houses near the work cluster
-they'll feed (today they hug the castle); Phase 4 — Unity client
-(house food HUD, local-famine toast; LocalFood/Residents/LocalFamine
-are already on the wire).
+**Phase 3b shipped (same day): neighborhoods that feed themselves.**
+Grow anchors each new house at the busiest worked post lacking housing
+within HomeAssignRadius (castle district as fallback), and the
+stocking loop sources from the NEAREST own food buffer in reach before
+the castle — running BEFORE the buffers-go-home loop with a per-think
+claims ledger, so the farm next door feeds the house on a 3-tile
+shuttle and only genuine surplus ships castle-ward (castle-routed
+stocking would have DOUBLED the haul distance). Lab: pop 79 at d160
+(vs 63 placement-less, vs the old 151-then-extinct), food 2,877
+(double), zero starvation deaths through d300.
+
+**Remaining:** Phase 4 — Unity client (house food HUD, local-famine
+toast; LocalFood/Residents/LocalFamine are already on the wire).
 
 ## References
 

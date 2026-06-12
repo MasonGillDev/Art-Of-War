@@ -198,14 +198,19 @@ public sealed class ThinkContext
     // Nearest known tile to the castle matching the biome requirement,
     // unoccupied and unclaimed — ring scan in (dist, y, x) order so the
     // choice is deterministic. requiredBiome null = any walkable land.
-    public TileCoord? NearestFreeTile(Biome? requiredBiome, int range)
+    public TileCoord? NearestFreeTile(Biome? requiredBiome, int range) =>
+        NearestFreeTileNear(CastleTile, requiredBiome, range);
+
+    // Same scan from an ARBITRARY origin (M19 Phase 3b: houses are
+    // placed by the work cluster they feed, not by the keep).
+    public TileCoord? NearestFreeTileNear(TileCoord origin, Biome? requiredBiome, int range)
     {
         for (var r = 1; r <= range; r++)
         for (var dy = -r; dy <= r; dy++)
         for (var dx = -r; dx <= r; dx++)
         {
             if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
-            var key = (CastleTile.X + dx, CastleTile.Y + dy);
+            var key = (origin.X + dx, origin.Y + dy);
             if (!_biome.TryGetValue(key, out var biome)) continue;
             if (requiredBiome is { } req ? biome != (int)req
                 : biome is (int)Biome.Water or (int)Biome.None) continue;

@@ -32,11 +32,37 @@ public sealed class GrowRung : IRung
                 or UnitRole.Soldier or UnitRole.Archer));
         var housesNeeded = Math.Max(1, fertileAdults / Math.Max(1, ctx.Cfg.FertileAdultsPerHouse));
 
-        if (houses.Count + houseSites.Count < housesNeeded
-            && ctx.NearestFreeTile(requiredBiome: null, ctx.Cfg.SiteSearchRange) is { } t)
-            return new Decision("grow",
-                $"houses {houses.Count}+{houseSites.Count} of {housesNeeded} — placing one",
-                new List<Intent> { new PlaceSiteIntent(t, StructureKind.House) { PlayerId = ctx.PlayerId } });
+        if (houses.Count + houseSites.Count < housesNeeded)
+        {
+            // M19 Phase 3b — a house is a NEIGHBORHOOD: place it by the
+            // work cluster it will feed, not by the keep. Pick the
+            // busiest worked post with no house (or house site) within
+            // HomeAssignRadius — the completion move-in and
+            // home-follows-work triggers then populate it, and its
+            // residents eat 3-tile hauls instead of marching the whole
+            // realm's food to one castle (the Malthus wall this
+            // milestone removed). Every post covered → the castle
+            // district takes the overflow (the old behavior).
+            var radius = Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius;
+            int Cheb(StructDto a, StructDto b) =>
+                Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
+            var uncovered = ctx.OwnExtractors()
+                .Where(e => e.Workers > 0)
+                .Where(e => !houses.Any(h => Cheb(h, e) <= radius)
+                    && !houseSites.Any(hs => Cheb(hs, e) <= radius))
+                .OrderByDescending(e => e.Workers).ThenBy(e => e.Y).ThenBy(e => e.X)
+                .FirstOrDefault();
+            var t = (uncovered is not null
+                    ? ctx.NearestFreeTileNear(ThinkContext.TileOf(uncovered),
+                        requiredBiome: null, radius)
+                    : null)
+                ?? ctx.NearestFreeTile(requiredBiome: null, ctx.Cfg.SiteSearchRange);
+            if (t is { } tile)
+                return new Decision("grow",
+                    $"houses {houses.Count}+{houseSites.Count} of {housesNeeded} — placing one"
+                        + (uncovered is not null ? $" by the post at {uncovered.X},{uncovered.Y}" : ""),
+                    new List<Intent> { new PlaceSiteIntent(tile, StructureKind.House) { PlayerId = ctx.PlayerId } });
+        }
         foreach (var hs in houseSites)
             if (ctx.EnsureBuilders(hs) is { Count: > 0 } b)
                 return new Decision("grow", "building a house", b);
