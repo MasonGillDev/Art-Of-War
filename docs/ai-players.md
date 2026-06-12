@@ -189,11 +189,16 @@ at this scale runs ~2 minutes per 300-day match (pop ~140, two brains).
 
 ## Future expansion
 
-- **Defender** (phase 2) — react to raids: recall workers, train
-  soldiers, recover dropped loot. Re-enables the skipped
-  `AiVsBandits_EconomySurvivesRaids` test. This is where weighted
-  arbitration (behaviors competing for the same units under threat)
-  actually starts — budgeted as real tuning work.
+- **Defender** (phase 2) — SHIPPED 2026-06-12
+  (docs/m17-defender-spec.md): the brain decomposed file-per-rung,
+  Muster (standing army, population-capped quota), Defend (threat
+  memory, leash-bounded pursuit, recall doctrine — pinned ON by the
+  A/B after OFF got a faction wiped), gate test un-skipped and green.
+  Open: the SIEGE POVERTY TRAP (bandits arrive before the army is
+  affordable; a parked ambusher freezes the recall-paused economy at
+  pop 10 — war-footing quota / pressure retune / equipment are the
+  priced candidates), loot recovery (cargo piles aren't on the wire
+  for anyone — core/wire work item), group sorties.
 - **Rival** (phase 3) — scouting pressure, diplomacy through the normal
   intents, supply-line raids. Conquest waits on win conditions.
 - **Training** — the Homesteader lives with its genesis roster; a School

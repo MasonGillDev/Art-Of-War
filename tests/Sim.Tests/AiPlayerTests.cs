@@ -184,12 +184,101 @@ public class AiPlayerTests
         }
     }
 
-    [Fact(Skip = "expected to fail until Defender (M17 phase 2) — the Homesteader " +
-                 "doesn't fight back; tracked in docs/m17-ai-players-spec.md")]
+    // THE PHASE-2 GATE, un-skipped (docs/m17-defender-spec.md): two
+    // Homesteaders + default bandit pressure for 50 game-days. The
+    // population may dip; it never hits zero. Doubles as the PURSUIT
+    // LEASH pin: militia positions are sampled every think and must
+    // stay inside PursuitLeashTiles of their own castle — Defend only
+    // ever orders moves to in-leash tiles, so an excursion means the
+    // leash filter broke.
+    [Fact]
     public void AiVsBandits_EconomySurvivesRaids()
     {
-        // Re-enable when the Defender rung lands: Homesteader + default
-        // bandit pressure for 50 game-days; population may dip, never zero.
+        var (sim, projector, _) = MakeMatch();
+        var aiCfg = new AiConfig();
+        var bandits = new Sim.Server.Bandits.BanditDriver(new Sim.Server.Bandits.BanditConfig());
+        var drivers = new[] { new AiPlayerDriver(0, aiCfg), new AiPlayerDriver(1, aiCfg) };
+        var castles = new Dictionary<int, TileCoord>
+        {
+            [0] = CastleOf(sim, 0).At, [1] = CastleOf(sim, 1).At,
+        };
+        var maxExcursion = 0;
+        for (var t = sim.Now; t <= 50 * Time.Day; t += aiCfg.ThinkPeriodTicks)
+        {
+            sim.Run(until: t);
+            bandits.Think(sim, t);
+            foreach (var dr in drivers) dr.Think(sim, projector, t);
+            foreach (var u in sim.World.Units.Values)
+                if (u.Role == UnitRole.Soldier && castles.TryGetValue(u.OwnerId, out var home))
+                    maxExcursion = Math.Max(maxExcursion, Math.Max(
+                        Math.Abs(u.Position.X - home.X), Math.Abs(u.Position.Y - home.Y)));
+        }
+        sim.Run(until: 50 * Time.Day + aiCfg.ThinkPeriodTicks);
+
+        foreach (var id in new[] { 0, 1 })
+        {
+            var pop = sim.World.Players[id].PopulationCount;
+            var trace = drivers.Single(d => d.PlayerId == id).Trace;
+            Assert.True(pop > 0,
+                $"faction {id} wiped out under default bandit pressure — " +
+                $"trace tail:\n{trace.Dump()}");
+        }
+        Assert.True(maxExcursion <= aiCfg.PursuitLeashTiles,
+            $"militia ranged {maxExcursion} tiles from home — leash is {aiCfg.PursuitLeashTiles}");
+    }
+
+    // THE DOCTRINE A/B (docs/m17-defender-spec.md, user-locked: run
+    // both, let the data pin the default): same world, same bandit
+    // seed, recall ON vs OFF. The first run of this report PICKED the
+    // default — recall OFF got faction 1 wiped by day 50 (bandits
+    // steal from worked posts and blades fall on field hands); recall
+    // ON kept both colonies alive. The asserts now PIN that decision:
+    // the shipped doctrine keeps everyone alive AND does at least as
+    // well as the alternative — if OFF ever beats ON under future
+    // tuning, this fails and the default deserves re-examination.
+    [Fact]
+    public void Doctrine_RecallVsWorkThrough_LabReport()
+    {
+        var endPops = new Dictionary<bool, int[]>();
+        foreach (var recall in new[] { true, false })
+        {
+            var (sim, projector, _) = MakeMatch();
+            var aiCfg = new AiConfig { RecallCiviliansUnderRaid = recall };
+            var bandits = new Sim.Server.Bandits.BanditDriver(new Sim.Server.Bandits.BanditConfig());
+            var drivers = new[] { new AiPlayerDriver(0, aiCfg), new AiPlayerDriver(1, aiCfg) };
+            _output.WriteLine($"--- RecallCiviliansUnderRaid = {recall} ---");
+            for (var t = sim.Now; t <= 50 * Time.Day; t += aiCfg.ThinkPeriodTicks)
+            {
+                sim.Run(until: t);
+                bandits.Think(sim, t);
+                foreach (var dr in drivers) dr.Think(sim, projector, t);
+                if (t % (10 * Time.Day) == 0)
+                {
+                    var c = CastleOf(sim, 0);
+                    var soldiers = sim.World.Units.Values.Count(u =>
+                        u.OwnerId == 0 && u.Role == UnitRole.Soldier);
+                    var banditCount = sim.World.Units.Values.Count(u =>
+                        u.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId);
+                    _output.WriteLine(
+                        $"d{t / Time.Day,3}: pop={sim.World.Players[0].PopulationCount,3} " +
+                        $"food={Sim.Core.Food.FoodConsumption.CurrentLevel(c, sim, t),5} " +
+                        $"soldiers={soldiers} banditsLive={banditCount}");
+                }
+            }
+            sim.Run(until: 50 * Time.Day + aiCfg.ThinkPeriodTicks);
+            endPops[recall] = new[] { 0, 1 }
+                .Select(id => sim.World.Players[id].PopulationCount).ToArray();
+            _output.WriteLine($"end: faction0={endPops[recall][0]} faction1={endPops[recall][1]}");
+        }
+        // The pinned doctrine (the AiConfig default) keeps every colony alive…
+        Assert.True(new AiConfig().RecallCiviliansUnderRaid,
+            "default doctrine changed — re-run this A/B and re-pin");
+        Assert.All(endPops[true], pop => Assert.True(pop > 0,
+            "a colony died under the PINNED doctrine (recall=true)"));
+        // …and does at least as well as the alternative.
+        Assert.True(endPops[true].Sum() >= endPops[false].Sum(),
+            $"recall=false outperformed the pinned default " +
+            $"({endPops[false].Sum()} vs {endPops[true].Sum()} total pop) — re-examine");
     }
 
     // ---- M17 Phase 2: the standing army --------------------------------------

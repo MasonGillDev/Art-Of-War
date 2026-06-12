@@ -127,6 +127,25 @@ public sealed record AiConfig
     public int SoldiersPerStructures { get; init; } = 8;
     public int PopulationPerSoldier { get; init; } = 8;
 
+    // M17 Phase 2 — the Defend rung (top of the ladder; fires only
+    // while the threat memory is hot).
+    // How long a bandit sighting stays actionable: bandits move at
+    // march pace, so half a day of staleness is already a cold trail.
+    public long ThreatMemoryTicks { get; init; } = 12 * Time.Hour;
+    // Pursuit leash, Chebyshev from the castle (user-locked: PURSUE —
+    // but every open-ended job needs a budget, lesson #9; an unleashed
+    // chase is scout-creep with swords).
+    public int PursuitLeashTiles { get; init; } = 24;
+    // CIVILIAN DOCTRINE under raid — the knob the balance lab A/Bs
+    // (user-locked: measure both, let the data pin the default).
+    // ON: workers within the danger radius of a live sighting are
+    // recalled and staffing/building inside it pauses until the threat
+    // cools (Eat re-staffs automatically — recall costs production).
+    // OFF: civilians work through the raid and the militia handles it
+    // (the famine clock doesn't pause, but neither do bandit blades).
+    public bool RecallCiviliansUnderRaid { get; init; } = true;
+    public int CivilianDangerRadius { get; init; } = 5;
+
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
 

@@ -29,6 +29,12 @@ public sealed class AiMemory
     // The recruit en route to the Barracks (Muster rung) — same
     // ownership rule (cleared on graduation to Soldier or death).
     public int? DesignatedRecruit;
+    // THREAT MEMORY (Defend rung): last-known hostile sightings —
+    // tile → (tick seen, headcount). Refreshed on sight, cleared when
+    // the tile is re-observed empty, expired after ThreatMemoryTicks.
+    // Droppable like the rest: a restart re-spots anything still
+    // prowling the moment it enters sight.
+    public Dictionary<(int X, int Y), (long Tick, int Count)> SightedHostiles { get; } = new();
     // Cross-think OWNERSHIP of breeding candidates (arbitration lesson #6):
     // per-think reservations can't stop Eat from re-staffing a freed parent
     // the think after Grow freed them. Designation persists until the

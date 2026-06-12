@@ -214,6 +214,51 @@ Per the M17 spec: behaviors are small, THIS list is the milestone.
 - **Inter-faction war** — Rival (phase 3); conquest waits on win
   conditions.
 
+## Update 2026-06-12 — shipped (Phases 0–2 in one day of lab time)
+
+**What shipped:** the Phase-0 decomposition (move-only, curve replayed
+digit-for-digit), the Muster rung (standing army to a
+population-capped quota; bare soldiers), the Defend rung (threat
+memory, sortie, leash-bounded pursuit, civilian recall doctrine), and
+the un-skipped `AiVsBandits_EconomySurvivesRaids` gate — green, with
+the pursuit-leash pin sampled every think.
+
+**What the lab decided:**
+
+- **Doctrine pinned: recall = ON.** The A/B's first run forced it —
+  recall OFF got faction 1 WIPED by day 50 (bandits steal from worked
+  posts; blades fall on field hands); recall ON kept both colonies
+  alive. `Doctrine_RecallVsWorkThrough_LabReport` now pins the
+  decision comparatively (ON must keep everyone alive and do at least
+  as well as OFF) so future tuning re-opens it automatically.
+- **Sparta starves** (ledger #11): the flat 4-soldier floor was a
+  ~30% defense budget against a 14-person genesis — colony froze at
+  pop 17 and died with its founders. Quota is now population-capped
+  (one soldier per `PopulationPerSoldier` mouths).
+- **The siege poverty trap** (open finding, priced for next phase):
+  default bandit pressure arrives ~day 6 — before the larder can fund
+  a Barracks. The surviving colony freezes: a parked ambusher keeps
+  the threat memory hot, recall keeps the nearby post paused, wood
+  never reaches the Barracks cost, no army ever forms, and a pop-10
+  colony's quota cap is 1 soldier — which loses to a 2-bandit party
+  anyway. ALIVE per the contract, but frozen at pop 10 for 40 days.
+  Candidate answers, none chosen yet: a WAR-FOOTING quota override
+  (field what the threat memory counts, demobilize after — Soldier →
+  Farmer retraining already works), bandit pressure retuning (the
+  user's knobs), or equipment so a smaller squad punches up.
+
+**Deferred beyond the spec's original list:**
+
+- **Loot recovery** — dropped cargo piles are not on the wire AT ALL
+  (no DTO): neither the brain nor the human client can see them, so
+  recovery can't be played fairly by anyone. Found by this phase's
+  design pass — a real game gap, not a view gap. Pile visibility is a
+  core/wire work item that benefits humans equally; `LoadCargoIntent`
+  already loads from piles once they're findable.
+- **Group sorties** — soldiers converge individually and it survives
+  the gate; `FormGroupIntent` concentration waits until the lab shows
+  trickle-in deaths.
+
 ## References
 
 - `docs/m17-ai-players-spec.md` — the fairness contract and the

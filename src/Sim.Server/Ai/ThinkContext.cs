@@ -31,6 +31,9 @@ public sealed class ThinkContext
     public TileCoord CastleTile;
     public List<StructDto> Own = new();
     public List<UnitDto> OwnUnits = new();
+    // Tiles in LIVE sight this think (vs merely remembered) — the
+    // Defend rung clears threat memory for tiles it can re-observe.
+    public readonly HashSet<(int X, int Y)> VisibleTiles = new();
     private readonly Dictionary<(int X, int Y), int> _biome = new();
     private readonly HashSet<(int X, int Y)> _blocked = new();   // structures + claims + blacklist
 
@@ -58,7 +61,11 @@ public sealed class ThinkContext
         d._designated = new HashSet<int>(mem.DesignatedParents);
         if (mem.DesignatedTrainee is { } trainee) d._designated.Add(trainee);
         if (mem.DesignatedRecruit is { } recruit) d._designated.Add(recruit);
-        foreach (var t in view.Visible) d._biome[(t.X, t.Y)] = t.Biome;
+        foreach (var t in view.Visible)
+        {
+            d._biome[(t.X, t.Y)] = t.Biome;
+            d.VisibleTiles.Add((t.X, t.Y));
+        }
         foreach (var t in view.Remembered) d._biome.TryAdd((t.X, t.Y), t.Biome);
         foreach (var b in mem.BlacklistedTiles) d._blocked.Add(b);
         foreach (var s in view.Structures)
@@ -212,6 +219,16 @@ public sealed class ThinkContext
 
     public static TileCoord TileOf(StructDto s) => new(s.X, s.Y);
 
+    // Doctrine helper (M17 Phase 2): is this tile inside the civilian
+    // danger radius of any live sighting? The Defend rung (ladder top)
+    // prunes the memory every think, so entries here are fresh; the
+    // expiry re-check is belt-and-braces.
+    public bool UnderThreat(TileCoord t) =>
+        Mem.SightedHostiles.Any(kv =>
+            Now - kv.Value.Tick <= Cfg.ThreatMemoryTicks
+            && Math.Max(Math.Abs(kv.Key.X - t.X), Math.Abs(kv.Key.Y - t.Y))
+                <= Cfg.CivilianDangerRadius);
+
     // ---- shared plays: used by more than one rung ---------------------------
 
     // THE LABOR LEDGER, shared by Eat (how many hands can the colony
@@ -313,6 +330,9 @@ public sealed class ThinkContext
         var intents = new List<Intent>();
         if (site.BuildersPresent >= site.BuildersRequired) return intents;
         var siteTile = TileOf(site);
+        // Recall doctrine (M17 Phase 2): builders are civilians — don't
+        // march them into a live raid; the site waits for the militia.
+        if (Cfg.RecallCiviliansUnderRaid && UnderThreat(siteTile)) return intents;
         var provisioned = site.Needed.All(n =>
             AmountOf(site.Holdings, (Resource)n.Resource) >= n.Amount);
         var builders = OwnUnits.Where(u =>
@@ -343,6 +363,12 @@ public sealed class ThinkContext
         if (ex.Workers >= Math.Max(1, target)) return intents;
 
         var tile = TileOf(ex);
+        // Recall doctrine (M17 Phase 2): don't staff a post the Defend
+        // rung just evacuated — Eat would otherwise march replacements
+        // into the raid one think behind the recall, forever (the
+        // recruit-thrash bug with blades). Re-staffing resumes the
+        // think the threat cools.
+        if (Cfg.RecallCiviliansUnderRaid && UnderThreat(tile)) return intents;
         // Builders belong on sites, Haulers on the road (their 25-capacity
         // is the logistics backbone — assigning one as a farmhand starves
         // the haul loop), the garrison on guard (M17 Phase 2). Everyone

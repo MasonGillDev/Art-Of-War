@@ -20,10 +20,11 @@ namespace Sim.Server.Ai;
 // plays) lives in ThinkContext. Two layers per think:
 //
 //   * THE STRATEGIC LADDER — strict priority, first rung that emits
-//     claims the think: Eat → Build → Train → Muster → Grow → Scout.
-//     Rungs with nothing to DO fall through, so an in-progress goal
-//     never starves the rungs below. The thresholds that decide when a
-//     rung fires live in AiConfig — they ARE the arbitration.
+//     claims the think: Defend → Eat → Build → Train → Muster → Grow
+//     → Scout. Rungs with nothing to DO fall through, so an
+//     in-progress goal never starves the rungs below. The thresholds
+//     that decide when a rung fires live in AiConfig — they ARE the
+//     arbitration.
 //   * LOGISTICS — hauls are BACKGROUND, not decisions (the first
 //     arbitration lesson: the trace showed the AI hauling food while
 //     its camp site sat at zero builders). Runs AFTER the ladder so
@@ -43,10 +44,13 @@ public sealed class HomesteaderBrain
     {
         _cfg = cfg;
         // The ladder as DATA — order is the whole arbitration policy.
-        // Muster between Train and Grow: feed the army before raising
-        // it, garrison before breeding (docs/m17-defender-spec.md).
+        // Defend on top (dead farmers don't farm; it also runs the
+        // threat perception every think), Muster between Train and
+        // Grow: feed the army before raising it, garrison before
+        // breeding (docs/m17-defender-spec.md).
         _ladder = new IRung[]
         {
+            new DefendRung(),
             new EatRung(),
             new BuildRung(),
             new TrainRung(),
