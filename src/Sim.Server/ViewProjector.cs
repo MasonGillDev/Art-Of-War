@@ -335,6 +335,14 @@ public sealed class ViewProjector
                 dto.WorkerCap = ex.Spec.WorkerCap;
                 if (ex.Buffer > 0 && ex.Spec.OutputResource != Resource.None)
                     dto.Holdings = new[] { new ResAmtDto { Resource = (int)ex.Spec.OutputResource, Amount = ex.Buffer } };
+                // Soil visibility (own-only): live fertility per claim
+                // tile, parallel to the ClaimX/ClaimY arrays FillClaims
+                // emits (same source list, same order). Pure read.
+                if (ex.ClaimTiles.Count > 0)
+                    dto.ClaimFertility = ex.ClaimTiles
+                        .Select(t => Sim.Core.Biomes.BiomeDegradation.FertilityAt(
+                            world, t, now, world.BiomeDegradationConfig))
+                        .ToArray();
                 break;
 
             // M19 — a house is a FOOD HOME: expose its live SIGNED local

@@ -168,6 +168,22 @@ public sealed record AiConfig
     public bool RecallCiviliansUnderRaid { get; init; } = true;
     public int CivilianDangerRadius { get; init; } = 5;
 
+    // CROP ROTATION (soil-aware farming): with own-claim fertility on
+    // the wire (StructDto.ClaimFertility) the brain can rest a tiring
+    // farm BEFORE the permanent desert latch and return it when the
+    // soil recovers. The catalog's rates encode a three-field system —
+    // recovery runs at HALF the degrade rate, so ~2 fields rest per 1
+    // worked. The thresholds are the rotation's hysteresis: a STAFFED
+    // farm works until its worst claim tile falls below RestSoilBelow;
+    // an UNSTAFFED farm only (re)enters service above ResumeSoilAbove
+    // (staffing state is the memory, so the boundary can't oscillate).
+    // RestSoilBelow sits ~700 over the 2500 latch — a month of margin
+    // at the farm's 1/hour burn. Default pinned by the lab A/B
+    // (CropRotation_VsSlashAndBurn_LabReport).
+    public bool RotateFarms { get; init; } = true;
+    public int RestSoilBelow { get; init; } = 3200;
+    public int ResumeSoilAbove { get; init; } = 4500;
+
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
 

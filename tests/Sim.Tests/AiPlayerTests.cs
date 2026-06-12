@@ -466,6 +466,66 @@ public class AiPlayerTests
         }
     }
 
+    // THE CROP-ROTATION A/B: same world, RotateFarms on vs off, LabDays
+    // game-days. Slash-and-burn farms land to the permanent desert
+    // latch and marches on; rotation rests a farm before the cliff
+    // (soil < RestSoilBelow) and returns it once recovered (soil >
+    // ResumeSoilAbove) — the catalog's 2:1 recovery ratio makes that a
+    // three-field system. The pins: rotation must never starve anyone,
+    // and it must burn NO MORE land than slash-and-burn (desert tiles
+    // at the horizon — both runs share the seed, so worldgen desert
+    // cancels out). Population and farm counts print as the report.
+    [Fact]
+    public void CropRotation_VsSlashAndBurn_LabReport()
+    {
+        var results = new Dictionary<bool, (int Pop, int Farms, int Desert)>();
+        foreach (var rotate in new[] { true, false })
+        {
+            var (sim, projector, _) = MakeMatch();
+            var cfg = new AiConfig { RotateFarms = rotate };
+            var drivers = new[] { new AiPlayerDriver(0, cfg), new AiPlayerDriver(1, cfg) };
+            for (long t = sim.Now; t <= LabDays * Time.Day; t += cfg.ThinkPeriodTicks)
+            {
+                sim.Run(until: t);
+                foreach (var dr in drivers) dr.Think(sim, projector, t);
+            }
+            sim.Run(until: LabDays * Time.Day + cfg.ThinkPeriodTicks);
+
+            var pop = sim.World.Players[0].PopulationCount
+                + sim.World.Players[1].PopulationCount;
+            var farms = sim.World.Structures.Values.OfType<Extractor>()
+                .Count(e => e.Kind == StructureKind.Farm);
+            var desert = CountDesert(sim);
+            results[rotate] = (pop, farms, desert);
+            _output.WriteLine($"rotate={rotate}: totalPop={pop} farmsStanding={farms} " +
+                $"desertTiles={desert}");
+            foreach (var id in new[] { 0, 1 })
+            {
+                var castle = CastleOf(sim, id);
+                Assert.True(castle.FoodDebt == 0 && castle.FamineStartTick is null,
+                    $"faction {id} (rotate={rotate}) ends in famine — trace tail:\n" +
+                    drivers.Single(d => d.PlayerId == id).Trace.Dump());
+                Assert.True(sim.World.Players[id].PopulationCount > 14,
+                    $"faction {id} (rotate={rotate}) no demographic takeoff");
+            }
+        }
+        Assert.True(results[true].Desert <= results[false].Desert,
+            $"rotation burned MORE land than slash-and-burn " +
+            $"({results[true].Desert} vs {results[false].Desert} desert tiles)");
+    }
+
+    private static int CountDesert(Simulation sim)
+    {
+        var n = 0;
+        var cfg = sim.World.BiomeDegradationConfig;
+        for (var y = 0; y < sim.World.Grid.Height; y++)
+        for (var x = 0; x < sim.World.Grid.Width; x++)
+            if (Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                    sim.World, new TileCoord(x, y), sim.Now, cfg) == Biome.Desert)
+                n++;
+        return n;
+    }
+
     // ---- determinism: same proof as M16, for this driver --------------------
 
     [Fact]

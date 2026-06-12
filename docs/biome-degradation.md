@@ -385,3 +385,29 @@ The lazy catch-up math, the snap penalty, the implicit latch, the
 carry/anchor discipline, and the off-ladder rules are all unchanged —
 claims only re-target WHICH tiles the existing machinery applies to.
 Quarry/Mine (DegradeAmount 0) keep the M9 model verbatim.
+
+## Update 2026-06-12 - soil visibility + crop rotation (M19 follow-on)
+
+**Decision:** per-claim live fertility is now ON THE WIRE for OWN
+extractors (StructDto.ClaimFertility, parallel to ClaimX/ClaimY) - you
+can walk your own fields; enemy soil stays private. This makes crop
+rotation a PLAYABLE strategy instead of a hidden cliff: the permanent
+desert latch sits at DesertThreshold and nobody could see a field
+approaching it - not the player, not the brain (which inferred soil
+death from farm age and dead buffers).
+
+**The rotation the knobs already encode:** recovery (1 per 2h) runs at
+half the farm's degrade rate (1 per 1h worked), so sustainable farming
+is one field worked per two resting - the medieval three-field system.
+The Homesteader now plays it (AiConfig.RotateFarms, default ON): a
+staffed farm rests its crew when its WORST claim tile drops below
+RestSoilBelow (3200 - a month of margin over the latch), an empty farm
+re-enters service above ResumeSoilAbove (4500); staffing state is the
+hysteresis memory.
+
+**Lab A/B (300 days, both factions, same seed):** rotation pop 140 /
+desert 595 vs slash-and-burn pop 146 / desert 655. Rotation pays ~4%
+population for 60 fewer tiles of PERMANENT desert - a gap that
+compounds forever while the pop difference does not. Pinned by
+CropRotation_VsSlashAndBurn_LabReport: rotation must never starve
+anyone and must burn no more land than slash-and-burn.

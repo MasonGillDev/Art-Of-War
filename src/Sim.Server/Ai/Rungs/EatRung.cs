@@ -24,13 +24,44 @@ public sealed class EatRung : IRung
         // within ReplaceAhead of its working lifetime is DYING — still
         // staffed and producing, but no longer counted as future supply,
         // so its replacement starts before the cliff instead of after.
+        // (Slash-and-burn bookkeeping — under ROTATION farms never age
+        // out, so soil replaces age as the supply signal below.)
         foreach (var farm in farms)
             ctx.Mem.FirstSeen.TryAdd((farm.X, farm.Y), ctx.Now);
         bool Dying(StructDto f) =>
             ctx.Now >= ctx.Mem.FirstSeen.GetValueOrDefault((f.X, f.Y), ctx.Now)
                 + ctx.Cfg.FarmLifetimeTicks - ctx.Cfg.FarmReplaceAheadTicks;
         var liveFarms = farms.Where(f => !ctx.Mem.DeadExtractors.Contains((f.X, f.Y))).ToList();
-        var countedFarms = liveFarms.Count(f => !Dying(f));
+
+        // CROP ROTATION (soil-aware; ClaimFertility is own-only on the
+        // wire — the brain sees exactly what a player walking their own
+        // fields sees). Worst claim tile is the metric: the desert latch
+        // is per-tile and permanent. Hysteresis lives in the STAFFING
+        // state: a working farm keeps its crew until soil < RestSoilBelow,
+        // an empty farm re-enters service only above ResumeSoilAbove —
+        // so the boundary can't oscillate.
+        int Soil(StructDto f) =>
+            f.ClaimFertility is { Length: > 0 } cf ? cf.Min() : int.MaxValue;
+        bool InService(StructDto f) => !ctx.Cfg.RotateFarms
+            || (f.Workers > 0 ? Soil(f) >= ctx.Cfg.RestSoilBelow
+                              : Soil(f) >= ctx.Cfg.ResumeSoilAbove);
+        if (ctx.Cfg.RotateFarms)
+            foreach (var farm in liveFarms)
+            {
+                if (farm.Workers == 0 || Soil(farm) >= ctx.Cfg.RestSoilBelow) continue;
+                var crew = ctx.OwnUnits.Where(u =>
+                        u.X == farm.X && u.Y == farm.Y && u.Activity == (int)Activity.Working)
+                    .Select(u => u.Id).ToList();
+                if (crew.Count == 0) continue;
+                return new Decision("eat",
+                    $"resting a tired farm at {farm.X},{farm.Y} (soil {Soil(farm)}) — rotation",
+                    new List<Intent> { new UnassignWorkersIntent(
+                        ThinkContext.TileOf(farm), crew) { PlayerId = ctx.PlayerId } });
+            }
+
+        var countedFarms = ctx.Cfg.RotateFarms
+            ? liveFarms.Count(InService)
+            : liveFarms.Count(f => !Dying(f));
 
         // CAPACITY PLANNING — the sprawl driver, in WORKERS not farms:
         // the ledger says how many farmhands the colony needs AND can
@@ -85,8 +116,14 @@ public sealed class EatRung : IRung
 
         // Staff against the budget: fill farms in order until the hands
         // run out — the LAST farm is usually partial, and that's correct.
+        // Under rotation, freshest soil works first and resting farms
+        // are skipped (they re-enter via InService once recovered).
+        var staffable = ctx.Cfg.RotateFarms
+            ? liveFarms.Where(InService)
+                .OrderByDescending(Soil).ThenBy(f => f.Y).ThenBy(f => f.X).ToList()
+            : liveFarms;
         var hands = handsNeeded - liveFarms.Sum(f => f.Workers);
-        foreach (var farm in liveFarms)
+        foreach (var farm in staffable)
         {
             if (hands <= 0) break;
             var target = Math.Min(farm.WorkerCap, farm.Workers + hands);

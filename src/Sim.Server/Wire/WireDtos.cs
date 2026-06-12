@@ -178,4 +178,11 @@ public sealed class StructDto
     public int LocalFood { get; set; }
     public int Residents { get; set; }
     public bool LocalFamine { get; set; }
+    // Soil visibility — live fertility per claimed tile, parallel to
+    // ClaimX/ClaimY. OWN extractors only (unlike the claim coords, soil
+    // readings are private — you walk your own fields). This is what
+    // makes crop rotation a PLAYABLE strategy instead of a hidden
+    // cliff: the permanent desert latch sits at the catalog's
+    // DesertThreshold, and now you can see a field approaching it.
+    public int[] ClaimFertility { get; set; } = [];
 }
