@@ -2,6 +2,8 @@ using System.Reflection;
 using Sim.Core;
 using Sim.Core.Engine;
 using Sim.Core.Intents;
+using Sim.Core.Movement;
+using Sim.Core.Population;
 using Sim.Core.World;
 using Sim.Server;
 using Sim.Server.Ai;
@@ -281,6 +283,79 @@ public class AiPlayerTests
             $"({endPops[false].Sum()} vs {endPops[true].Sum()} total pop) — re-examine");
     }
 
+    // ---- M17 Phase 2: role floors (the builder-extinction fix) ---------------
+
+    [Fact]
+    public void Train_RestoresBuilderFloor_AfterRoleLoss()
+    {
+        // The siege lab found the colony's hard dependency: only
+        // Builder-role hands may raise a site (engine rule), so losing
+        // every Builder freezes construction FOREVER unless the brain
+        // restores the role. Stage the loss LEGALLY: once the School
+        // stands, walk both of faction 1's Builders onto it and retrain
+        // them to Farmer (intents any player could send) — then assert
+        // the Train rung's role floor brings Builders back.
+        var (sim, projector, _) = MakeMatch();
+        var cfg = new AiConfig { TraceCapacity = 8192 };   // keep the whole match for the causation pin
+        var drivers = new[] { new AiPlayerDriver(0, cfg), new AiPlayerDriver(1, cfg) };
+        RunMatch(sim, projector, drivers, until: 12 * Time.Day, step: cfg.ThinkPeriodTicks);
+
+        var school = sim.World.Structures.Values
+            .First(s => s.OwnerId == 1 && s.Kind == StructureKind.School);
+        var builders = sim.World.Units.Values
+            .Where(u => u.OwnerId == 1 && u.Role == UnitRole.Builder)
+            .Select(u => u.Id).ToList();
+        Assert.True(builders.Count > 0, "test premise: faction 1 has builders at day 12");
+
+        // March each builder to the school and retrain — re-issuing the
+        // move every step until they arrive (the brain may re-task them
+        // between our steps; submitting AFTER its think wins the tick).
+        // The drivers keep thinking throughout: an un-driven colony
+        // famines in days, and dead builders prove nothing.
+        foreach (var id in builders)
+        {
+            var deadline = sim.Now + 4 * Time.Day;
+            while (sim.Now < deadline)
+            {
+                var t = sim.Now + cfg.ThinkPeriodTicks;
+                sim.Run(until: t);
+                foreach (var dr in drivers) dr.Think(sim, projector, t);
+                if (!sim.World.Units.TryGetValue(id, out var u)) break;   // died — also extinction
+                if (u.Position == school.At && u.Activity == Activity.Idle)
+                {
+                    sim.SubmitIntent(t, new TrainUnitIntent(id, UnitRole.Farmer) { PlayerId = 1 });
+                    sim.Run(until: t + 1);
+                    break;
+                }
+                if (u.Position != school.At)
+                    sim.SubmitIntent(t, new MoveIntent(id, school.At) { PlayerId = 1 });
+            }
+        }
+        // No "count == 0" assert here, deliberately: the drivers keep
+        // thinking through the dance, so the floor often graduates a
+        // REPLACEMENT before we finish retraining the second original —
+        // the homeostat racing the extinction-stager is the feature
+        // working. Causation is pinned via the trace below instead.
+
+        // Builder-less colony + a standing School: the floor must refill.
+        var resume = sim.Now;
+        for (var t = resume; t <= resume + 15 * Time.Day; t += cfg.ThinkPeriodTicks)
+        {
+            sim.Run(until: t);
+            foreach (var dr in drivers) dr.Think(sim, projector, t);
+        }
+        sim.Run(until: resume + 15 * Time.Day + cfg.ThinkPeriodTicks);
+
+        var rebuilt = sim.World.Units.Values.Count(u =>
+            u.OwnerId == 1 && u.Role == UnitRole.Builder);
+        Assert.True(rebuilt >= Math.Min(cfg.BuilderFloor, 2),
+            $"builder floor not restored: {rebuilt} of {cfg.BuilderFloor} after 15 days — " +
+            $"trace tail:\n{drivers[1].Trace.Dump()}");
+        // Causation: the Train rung itself graduated a Builder.
+        Assert.Contains(drivers[1].Trace.Entries(),
+            e => e.Rung == "train" && e.Why.Contains("graduating a Builder"));
+    }
+
     // ---- M17 Phase 2: the standing army --------------------------------------
 
     [Fact]
@@ -333,7 +408,7 @@ public class AiPlayerTests
     // assertions below encode "thriving at the end" and will rightly fail
     // when a world's land or labor genuinely runs out (that's a finding,
     // not a bug), and the LAB_MAPSEED env var (lab.ps1 -Seed) still works.
-    private const long LabDays = 300;
+    private const long LabDays = 160;
 
     [Fact]
     public void BalanceLab_160Days_SprawlsUnderPressure_AndRecovers()

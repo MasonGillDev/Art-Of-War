@@ -71,13 +71,27 @@ public sealed class DefendRung : IRung
         var target = actionable[0].Key;
         var intents = new List<Intent>();
 
-        // Sortie: converge. Only still soldiers take new orders — a
-        // marching soldier finishes its leg and re-targets on arrival
-        // (the Idle-while-moving lesson: don't spam orders at anchors).
-        foreach (var s in soldiers.Where(u => ctx.IsIdleStill(u) && ctx.IsFree(u)
-                     && (u.X != target.X || u.Y != target.Y)))
-            intents.Add(new MoveIntent(ctx.Reserve(s).Id, new TileCoord(target.X, target.Y))
-                { PlayerId = ctx.PlayerId });
+        // FORCE PARITY before the sortie (rules read: the combat
+        // catalog prices both sides; own units' effective Power is in
+        // the view). Trickling two soldiers into a four-bandit party
+        // is a gift of swords — outmatched, the garrison HOLDS (and
+        // the war-footing quota in Muster is meanwhile raising the
+        // roster toward the counted headcount). Civilian recalls below
+        // still run either way.
+        var hostilePower = actionable.Sum(kv => kv.Value.Count)
+            * Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Bandit).BasePower;
+        var ownPower = soldiers.Sum(u => u.Power >= 0 ? u.Power
+            : Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower);
+        if (ownPower >= hostilePower)
+        {
+            // Sortie: converge. Only still soldiers take new orders — a
+            // marching soldier finishes its leg and re-targets on arrival
+            // (the Idle-while-moving lesson: don't spam orders at anchors).
+            foreach (var s in soldiers.Where(u => ctx.IsIdleStill(u) && ctx.IsFree(u)
+                         && (u.X != target.X || u.Y != target.Y)))
+                intents.Add(new MoveIntent(ctx.Reserve(s).Id, new TileCoord(target.X, target.Y))
+                    { PlayerId = ctx.PlayerId });
+        }
 
         // Doctrine ON: evacuate working crews inside the danger radius
         // (the matching staffing pause lives in ThinkContext's shared
@@ -105,7 +119,9 @@ public sealed class DefendRung : IRung
 
         if (intents.Count == 0) return null;   // everyone already tasked/mid-march
         return new Decision("defend",
-            $"hostiles last seen at {target.X},{target.Y} — sortie ({soldiers.Count} soldiers)",
+            ownPower >= hostilePower
+                ? $"hostiles last seen at {target.X},{target.Y} — sortie ({soldiers.Count} soldiers)"
+                : $"outmatched ({ownPower}pw vs {hostilePower}pw) — holding, civilians recalled",
             intents);
     }
 

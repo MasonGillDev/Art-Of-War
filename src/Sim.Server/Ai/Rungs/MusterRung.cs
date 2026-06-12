@@ -20,31 +20,56 @@ namespace Sim.Server.Ai.Rungs;
 // (100 wood + 20 stone; genesis stone covers it). Equipment (shields,
 // then the sword/ore chain) waits until the lab shows bare squads
 // losing — docs/m17-defender-spec.md.
+//
+// TWO BUDGETS, one roster (the siege-trap fix):
+//   * PEACETIME: min(floor + structures/per, pop/PopulationPerSoldier)
+//     — scales with what bandits punish (prosperity), capped by what
+//     the colony can carry (the Sparta-starved lesson, ledger #11).
+//   * WAR FOOTING: while the threat memory counts hostiles inside the
+//     leash, the quota rises to headcount + 1, capped by the WARTIME
+//     population share (a levy may hurt; it may not starve). The
+//     larder gate is waived — arming during a raid beats saving for
+//     a house. When the memory goes fully cold, veterans DEMOBILIZE
+//     one at a time (Soldier → Farmer at the School), so the levy
+//     unwinds instead of becoming a permanent Sparta.
 public sealed class MusterRung : IRung
 {
     public Decision? TryClaim(ThinkContext ctx)
     {
-        // Same larder gate as Grow — the bootstrap never sees this rung.
-        if (ctx.View.CastleFood <= ctx.Cfg.GrowthFoodFloor) return null;
-
-        // Prune: recruit graduated, died, or vanished.
+        // Prune: recruit graduated/died; veteran demobilized/died.
         if (ctx.Mem.DesignatedRecruit is { } rid)
         {
             var r = ctx.OwnUnits.FirstOrDefault(u => u.Id == rid);
             if (r is null || (UnitRole)r.Role == UnitRole.Soldier)
                 ctx.Mem.DesignatedRecruit = null;
         }
+        if (ctx.Mem.DesignatedVeteran is { } vid)
+        {
+            var v = ctx.OwnUnits.FirstOrDefault(u => u.Id == vid);
+            if (v is null || (UnitRole)v.Role != UnitRole.Soldier)
+                ctx.Mem.DesignatedVeteran = null;
+        }
 
-        // The quota scales with what bandits punish (prosperity: one
-        // party per N structures) and is CAPPED by what the colony can
-        // carry (one soldier per N mouths) — see AiConfig for the
-        // Sparta-starved lab run that forced the cap.
         var soldiers = ctx.OwnUnits.Count(u => (UnitRole)u.Role == UnitRole.Soldier);
-        var quota = Math.Min(
+        var peacetime = Math.Min(
             ctx.Cfg.SoldierQuotaFloor
                 + ctx.Own.Count / Math.Max(1, ctx.Cfg.SoldiersPerStructures),
             ctx.View.Population / Math.Max(1, ctx.Cfg.PopulationPerSoldier));
-        if (soldiers >= quota) return null;
+        var hostiles = ctx.Mem.SightedHostiles
+            .Where(kv => ctx.Now - kv.Value.Tick <= ctx.Cfg.ThreatMemoryTicks
+                && Math.Max(Math.Abs(kv.Key.X - ctx.CastleTile.X),
+                       Math.Abs(kv.Key.Y - ctx.CastleTile.Y)) <= ctx.Cfg.PursuitLeashTiles)
+            .Sum(kv => kv.Value.Count);
+        var war = hostiles == 0 ? 0
+            : Math.Min(hostiles + 1,
+                ctx.View.Population / Math.Max(1, ctx.Cfg.WarPopulationPerSoldier));
+        var quota = Math.Max(peacetime, war);
+
+        // The larder gate is PEACETIME discipline only — under attack,
+        // a free instant retrain beats a comfortable granary.
+        if (war == 0 && ctx.View.CastleFood <= ctx.Cfg.GrowthFoodFloor) return null;
+
+        if (soldiers >= quota) return Demobilize(ctx, soldiers, peacetime);
 
         var barracks = ctx.OwnStructure(StructureKind.Barracks);
         var site = ctx.OwnSite(StructureKind.Barracks);
@@ -123,6 +148,35 @@ public sealed class MusterRung : IRung
         if (ctx.IsIdleStill(recruit))
             return new Decision("muster", "recruit walking to barracks",
                 new List<Intent> { new MoveIntent(recruit.Id, barracksTile) { PlayerId = ctx.PlayerId } });
+        return null;   // mid-march
+    }
+
+    // The war levy unwinds: threat memory fully cold (ANY sighting —
+    // even outside the leash — pauses the drawdown; that's the
+    // hysteresis) and the roster above the peacetime budget → one
+    // veteran walks to the School and goes back to the fields.
+    private static Decision? Demobilize(ThinkContext ctx, int soldiers, int peacetime)
+    {
+        if (ctx.Mem.SightedHostiles.Count > 0 || soldiers <= peacetime) return null;
+        var school = ctx.OwnStructure(StructureKind.School);
+        if (school is null) return null;
+        var schoolTile = ThinkContext.TileOf(school);
+
+        if (ctx.Mem.DesignatedVeteran is null)
+        {
+            var vet = ctx.OwnUnits.Where(u => (UnitRole)u.Role == UnitRole.Soldier
+                    && ctx.IsIdleStill(u) && ctx.IsFree(u) && u.CargoAmount == 0)
+                .OrderBy(u => u.Id).FirstOrDefault();
+            if (vet is null) return null;
+            ctx.Mem.DesignatedVeteran = vet.Id;
+        }
+        var veteran = ctx.OwnUnits.First(u => u.Id == ctx.Mem.DesignatedVeteran);
+        if (veteran.X == schoolTile.X && veteran.Y == schoolTile.Y && ctx.IsIdleStill(veteran))
+            return new Decision("muster", $"demobilizing a veteran ({soldiers} > {peacetime} peacetime)",
+                new List<Intent> { new TrainUnitIntent(veteran.Id, UnitRole.Farmer) { PlayerId = ctx.PlayerId } });
+        if (ctx.IsIdleStill(veteran))
+            return new Decision("muster", "veteran walking to the school",
+                new List<Intent> { new MoveIntent(veteran.Id, schoolTile) { PlayerId = ctx.PlayerId } });
         return null;   // mid-march
     }
 }

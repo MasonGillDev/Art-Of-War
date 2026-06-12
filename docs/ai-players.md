@@ -131,6 +131,29 @@ economy the parameter created, and the arbitration ledger grew:
    too small to afford a garrison is also too small to draw a raid.
    With the cap: pop 98 at day 220 carrying its garrison the whole
    way.
+12. **Colonies need ORGAN FLOORS** — the siege lab's autopsy: a day-1
+   raid killed both Builders and both Haulers, and the colony froze
+   FOREVER on 315 banked wood, because only Builder-role hands may
+   raise a site (engine rule) and the Train rung only knew how to
+   make Farmers. The rung now restores critical organs before food
+   coverage — Builders (the hands), Haulers (the backbone), Scouts
+   (the eyes), floors matching the genesis shape — and the war
+   footing joined it: under a counted threat the soldier quota rises
+   to headcount + 1 (capped by a wartime population share), the
+   garrison holds instead of trickling into losing fights (force
+   parity from the combat catalog), and veterans demobilize back to
+   the fields when the trail goes fully cold. Result: the recoverable
+   colony under default bandit pressure ended day 50 at pop 21 —
+   double the trapped baseline.
+
+Open GAME finding from the same autopsy (the new-player simulator at
+its bleakest): **builder extinction before a School stands is
+UNRECOVERABLE for any player, human or AI** — the School is
+builder-built and the Builder is School-trained, so a colony with
+people, materials, and sites can be permanently locked out of
+construction. Candidate core fixes (user's call): the Castle doubles
+as a basic-role trainer, a genesis School, or relaxing the
+builder-only gate on AssignBuildersIntent.
 
 Systemic game finds along the way (the new-player simulator earning
 its keep): **storage pressure is real** (an AI hoarded 4,600 wood and

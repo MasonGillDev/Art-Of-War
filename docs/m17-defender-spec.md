@@ -235,17 +235,26 @@ the pursuit-leash pin sampled every think.
   ~30% defense budget against a 14-person genesis — colony froze at
   pop 17 and died with its founders. Quota is now population-capped
   (one soldier per `PopulationPerSoldier` mouths).
-- **The siege poverty trap** (open finding, priced for next phase):
-  default bandit pressure arrives ~day 6 — before the larder can fund
-  a Barracks. The surviving colony freezes: a parked ambusher keeps
-  the threat memory hot, recall keeps the nearby post paused, wood
-  never reaches the Barracks cost, no army ever forms, and a pop-10
-  colony's quota cap is 1 soldier — which loses to a 2-bandit party
-  anyway. ALIVE per the contract, but frozen at pop 10 for 40 days.
-  Candidate answers, none chosen yet: a WAR-FOOTING quota override
-  (field what the threat memory counts, demobilize after — Soldier →
-  Farmer retraining already works), bandit pressure retuning (the
-  user's knobs), or equipment so a smaller squad punches up.
+- **The siege poverty trap** — ANSWERED same-day (second lab pass; the
+  autopsy overturned the first diagnosis). The freeze wasn't economic:
+  the day-1 raid had killed both BUILDERS (and both Haulers), and only
+  Builder-role hands may raise a site — four provisioned-or-fundable
+  sites sat frozen over 315 banked wood for 40 days. Three fixes
+  shipped (ledger #12): ROLE FLOORS in the Train rung (Builders →
+  Haulers → Scouts before Farmer coverage), the WAR-FOOTING quota in
+  Muster (headcount + 1 under a counted threat, capped by a wartime
+  population share, larder gate waived, veterans demobilized at the
+  School when the trail goes fully cold), and FORCE PARITY in Defend
+  (the garrison holds instead of trickling into losing fights). The
+  recoverable colony under default pressure now ends day 50 at pop 21
+  — double the trapped baseline.
+- **The circular lock (open GAME finding, user's call):** builder
+  extinction BEFORE a School stands is unrecoverable for any player,
+  human or AI — the School is builder-built and the Builder is
+  School-trained. Faction 0 on the lab seed sits in exactly this state
+  and no brain change can free it. Candidate core fixes: the Castle
+  doubles as a basic-role trainer, a genesis School, or relaxing the
+  builder-only gate on AssignBuildersIntent.
 
 **Deferred beyond the spec's original list:**
 

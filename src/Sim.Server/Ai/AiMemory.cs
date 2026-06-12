@@ -23,12 +23,16 @@ public sealed class AiMemory
     // First think each extractor was observed — farm mortality accounting
     // (age ≈ working life; replacements pre-build before the cliff).
     public Dictionary<(int X, int Y), long> FirstSeen { get; } = new();
-    // The apprentice en route to the School — same ownership rule as
-    // parents (cleared when they graduate to Farmer or die).
-    public int? DesignatedTrainee;
+    // The apprentice en route to the School, with the role they're
+    // walking toward (role floors made the target variable) — same
+    // ownership rule as parents (cleared on graduation or death).
+    public (int Id, Sim.Core.World.UnitRole Target)? DesignatedTrainee;
     // The recruit en route to the Barracks (Muster rung) — same
     // ownership rule (cleared on graduation to Soldier or death).
     public int? DesignatedRecruit;
+    // The veteran en route to the School to DEMOBILIZE (war footing
+    // unwinding; cleared when they stop being a Soldier or die).
+    public int? DesignatedVeteran;
     // THREAT MEMORY (Defend rung): last-known hostile sightings —
     // tile → (tick seen, headcount). Refreshed on sight, cleared when
     // the tile is re-observed empty, expired after ThreatMemoryTicks.

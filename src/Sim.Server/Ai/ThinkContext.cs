@@ -59,8 +59,9 @@ public sealed class ThinkContext
             PlayerId = view.PlayerId, MapWidth = view.Width, MapHeight = view.Height,
         };
         d._designated = new HashSet<int>(mem.DesignatedParents);
-        if (mem.DesignatedTrainee is { } trainee) d._designated.Add(trainee);
+        if (mem.DesignatedTrainee is { } trainee) d._designated.Add(trainee.Id);
         if (mem.DesignatedRecruit is { } recruit) d._designated.Add(recruit);
+        if (mem.DesignatedVeteran is { } veteran) d._designated.Add(veteran);
         foreach (var t in view.Visible)
         {
             d._biome[(t.X, t.Y)] = t.Biome;

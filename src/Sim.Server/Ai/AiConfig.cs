@@ -127,6 +127,28 @@ public sealed record AiConfig
     public int SoldiersPerStructures { get; init; } = 8;
     public int PopulationPerSoldier { get; init; } = 8;
 
+    // WAR FOOTING (the siege-trap fix, docs/m17-defender-spec.md):
+    // while the threat memory counts hostiles inside the leash, the
+    // quota rises to known headcount + 1 — capped by a WARTIME
+    // population share (1 per 4 mouths vs peacetime's 1 per 8; a levy
+    // is allowed to hurt, not to starve). When the memory goes fully
+    // cold, veterans demobilize back to the fields one at a time
+    // (Soldier → Farmer at the School), so the levy is a war tax, not
+    // a permanent Sparta.
+    public int WarPopulationPerSoldier { get; init; } = 4;
+
+    // ROLE FLOORS (the builder-extinction fix): the bandit lab watched
+    // a raid kill both Builders and both Haulers — and the colony
+    // freeze forever, because only Builders may raise a site (engine
+    // rule) and the Train rung only knew how to make Farmers. The
+    // Train rung now restores critical organs FIRST: Builders (the
+    // hands), Haulers (the 25-capacity logistics backbone), Scouts
+    // (the eyes), then Farmer coverage as before. Floors match the
+    // genesis roster's shape.
+    public int BuilderFloor { get; init; } = 2;
+    public int HaulerFloor { get; init; } = 1;
+    public int ScoutFloor { get; init; } = 1;
+
     // M17 Phase 2 — the Defend rung (top of the ladder; fires only
     // while the threat memory is hot).
     // How long a bandit sighting stays actionable: bandits move at
