@@ -29,6 +29,7 @@ public sealed class ViewProjector
     public ViewDto Project(Simulation sim, long now, int playerId, bool reveal)
     {
         var dto = reveal ? ProjectRevealed(sim.World, now, playerId) : ProjectFogged(sim.World, now, playerId);
+        dto.Tick = now;   // world age in ticks (= game-minutes); the client's clock reads from this
         FillFood(dto, sim, now, playerId);
         FillOrders(dto, sim.World, playerId);
         return dto;

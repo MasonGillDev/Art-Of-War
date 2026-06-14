@@ -11,15 +11,15 @@ public sealed record ServerOptions
     public int MapHeight { get; init; } = 128;
     public ulong Seed { get; init; } = 0xC0FFEE;          // sim RNG seed
     public bool Bandits { get; init; } = true;            // M16 — --bandits 0 to disable the driver
-    public int AiPlayers { get; init; } = 1;              // M17 — --ai N full AI factions (0 = none)
+    public int AiPlayers { get; init; } = 7;              // M17 — --ai N full AI factions (0 = none)
     public bool AiTrace { get; init; } = false;           // M17 — --ai-trace 1 prints each brain decision
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 1351, mapWidth = 128, mapHeight = 128;
+        int port = 8080, mapSeed = 19183351, mapWidth = 258, mapHeight = 258;
         var tps = 20.0;
         var bandits = 1;
-        int ai = 1, aiTrace = 0;
+        int ai = 2, aiTrace = 0;
         for (var i = 0; i + 1 < args.Length; i++)
         {
             switch (args[i])
