@@ -190,6 +190,22 @@ public static class StructureCatalog
             BuildDurationTicks = 100 * Time.Minute,
             RequiredBuilderCount = 1,
         },
+        // M20 — Lodge. The intelligence structure: a placeable seam (like the
+        // School) whose completed presence gates DispatchScoutIntent. No
+        // production, no storage. Mid-cost — reconnaissance is a capital
+        // investment that unlocks a whole automation surface.
+        [StructureKind.Lodge] = new StructureSpec
+        {
+            Kind = StructureKind.Lodge,
+            IsPlayerBuildable = true,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 60,
+                [Resource.Stone] = 20,
+            },
+            BuildDurationTicks = 50 * Time.Minute,
+            RequiredBuilderCount = 1,
+        },
         // M12 — Dock. Expensive: a long write-down up front that pays
         // off forever in fast water travel (the design contract from
         // docs/boats.md). Phase C wires boat production from this

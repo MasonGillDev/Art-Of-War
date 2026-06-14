@@ -100,6 +100,15 @@ public sealed class GameWorld
     // so 0 means "no order".
     public int NextOrderId { get; internal set; } = 1;
 
+    // M20 — scouting missions, keyed by the scout's own unit id (one slot
+    // per scout). Sorted so snapshot iteration is canonical. The observation
+    // log inside each mission is appended ONLY by ScoutObservation.Capture
+    // (called from MoveArrivalEvent.Apply — the one write site, like Explored
+    // / Sight.Reveal above). Sim.Core never reads the log to drive the sim;
+    // the server-side claims compiler reads it on the presentation side. See
+    // Scouting/ScoutMission.cs and docs/m20-scouting-reports-spec.md.
+    public SortedDictionary<int, Sim.Core.Scouting.ScoutMission> ScoutMissions { get; } = new();
+
     public GameWorld(TileGrid grid)
         : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 

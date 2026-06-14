@@ -385,6 +385,15 @@ public sealed class School : Structure
     public School(TileCoord at) : base(at) { }
 }
 
+// M20 — Lodge. The intelligence structure. No production, no storage; like
+// School it is a placeable seam — its presence (completed, owned) is what
+// gates DispatchScoutIntent. See docs/m20-scouting-reports-spec.md.
+public sealed class Lodge : Structure
+{
+    public override StructureKind Kind => StructureKind.Lodge;
+    public Lodge(TileCoord at) : base(at) { }
+}
+
 // M12 — Dock. Built on a land tile 4-adjacent to at least one Water
 // tile. The Water tile chosen at build-time is the dock's "slip": new
 // boats spawn there (Phase C production-job) and embarking units must

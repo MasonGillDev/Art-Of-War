@@ -15,4 +15,5 @@ public enum StructureKind : byte
     Dock = 10, // M12 — boat shipyard + embark/disembark seam
     School = 11, // training — flips a unit's UnitRole
     Barracks = 12, // military training + equipment crafting (storage)
+    Lodge = 13, // M20 — intelligence structure; gates DispatchScoutIntent
 }

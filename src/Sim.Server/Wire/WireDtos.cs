@@ -27,6 +27,11 @@ public sealed class ViewDto
     public int Width { get; set; }
     public int Height { get; set; }
     public int WaterLevel { get; set; }
+    // The world's current tick (Sim.Now). 1 tick = 1 game-minute (Sim.Core/Time.cs,
+    // the canonical clock), so this doubles as "minutes since the world began" — the
+    // client derives the running calendar/clock from it. Distinct from the wall-clock
+    // pace dial (--tps) and the demographic aging clock, both of which leave it alone.
+    public long Tick { get; set; }
     public TileDto[] Visible { get; set; } = [];
     public TileDto[] Remembered { get; set; } = [];
     public UnitDto[] Units { get; set; } = [];
@@ -52,6 +57,41 @@ public sealed class ViewDto
     // are never wire-visible; automation is private strategy). Definition +
     // live cursor so the client can render "supply line: step 1/2, waiting".
     public OrderDto[] Orders { get; set; } = [];
+
+    // M20 — scout reports that have come in for this player (own-only; a
+    // rolling window). Each carries the narrated prose (or raw-claims fallback)
+    // plus the structured claims for sketch-map pins. Id is monotonic so the
+    // client toasts each once; Prose updates in place when the async narration
+    // lands a moment after the raw report appears.
+    public ScoutReportDto[] ScoutReports { get; set; } = [];
+}
+
+// M20 — one returned scout's report: the narrated prose to read plus the
+// canonical claims the prose is a view of (the sketch-map / fallback source).
+public sealed class ScoutReportDto
+{
+    public long Id { get; set; }
+    public int ScoutUnitId { get; set; }
+    public string ScoutName { get; set; } = "";
+    public long DispatchTick { get; set; }
+    public long ReturnTick { get; set; }
+    public string Prose { get; set; } = "";
+    public int Status { get; set; }   // Sim.Server.Scouting.ReportStatus byte (0=Narrated, 1=RawFallback)
+    public ScoutClaimDto[] Claims { get; set; } = [];
+}
+
+// One claim: a canonical sentence plus its map pin and epistemic tags, so the
+// client can render the sketch map and let the player weigh saw-vs-guess.
+public sealed class ScoutClaimDto
+{
+    public int Sequence { get; set; }
+    public int Kind { get; set; }       // Sim.Server.Scouting.ClaimKind byte
+    public int Certainty { get; set; }  // Sim.Server.Scouting.ClaimCertainty byte
+    public string Text { get; set; } = "";
+    public bool HasAnchor { get; set; }
+    public int AnchorX { get; set; }
+    public int AnchorY { get; set; }
+    public bool Novel { get; set; }
 }
 
 // M18 — one standing order, definition + cursor. Flat per the file rule.

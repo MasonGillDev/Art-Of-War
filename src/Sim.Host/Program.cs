@@ -177,6 +177,7 @@ var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
 var degradationDemo = args.Length > 0 && args[0] == "--degradation";
 var automationDemo = args.Length > 0 && args[0] == "--automation";
+var scoutingDemo = args.Length > 0 && args[0] == "--scouting";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
 var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
@@ -195,6 +196,10 @@ else if (degradationDemo)
 else if (automationDemo)
 {
     AutomationDemo.Run();
+}
+else if (scoutingDemo)
+{
+    ScoutingDemo.Run();
 }
 else if (!generate)
 {
@@ -231,6 +236,95 @@ else
 sealed class NoOpEvent : ScheduledEvent
 {
     public override void Apply(Simulation sim) { }
+}
+
+// M20 — scouting reports demo. Dispatch a scout from a Lodge on a sortie past
+// a foreign camp; it observes a fog-honest log along the way, returns home,
+// and the server-side claims compiler turns the log into an honest report.
+// Ends with the determinism checks (twin run + snapshot round-trip): the log
+// is canonical sim state, the prose is a presentation-only VIEW of it.
+static class ScoutingDemo
+{
+    static Sim.Core.Engine.Simulation Build()
+    {
+        var grid = new TileGrid(40, 40, Biome.Grassland);
+        var world = new GameWorld(grid);
+        world.Players[0] = new Player(0);
+        var castle = world.AddStructure(new Castle(new TileCoord(5, 20)) { OwnerId = 0 });
+        castle.Deposit(Resource.Food, 200); // keep the scout fed through the ride
+        world.AddStructure(new Lodge(new TileCoord(6, 20)) { OwnerId = 0 });
+        world.AddUnit(new Unit(1, new TileCoord(5, 20)) { Role = UnitRole.Scout });
+
+        // Out east: House Ashford (owner 1) raising a dwelling, nine soldiers
+        // idle beside it — a camp the scout will glimpse from its waypoints.
+        world.AddStructure(new ConstructionSite(new TileCoord(30, 24), StructureKind.House) { OwnerId = 1 })
+             .ProgressTicks = 720; // ~40% of the House's 1800-tick build
+        for (var i = 0; i < 9; i++)
+            world.AddUnit(new Unit(100 + i, new TileCoord(30, 24)) { OwnerId = 1, Role = UnitRole.Soldier });
+
+        return new Sim.Core.Engine.Simulation(world, seed: 0x5C07);
+    }
+
+    static Sim.Core.Engine.Simulation RunOnce()
+    {
+        var sim = Build();
+        sim.SubmitIntent(0, new Sim.Core.Scouting.DispatchScoutIntent(
+            scoutUnitId: 1,
+            waypoints: new List<TileCoord> { new(28, 22), new(28, 26) },
+            returnRule: Sim.Core.Scouting.ScoutReturnRule.WaypointsExhausted));
+        sim.Run();
+        return sim;
+    }
+
+    public static void Run()
+    {
+        var sim = RunOnce();
+        var mission = sim.World.ScoutMissions[1];
+
+        Console.WriteLine("--- Scouting Demo (M20) ---");
+        Console.WriteLine($"Scout dispatched from (5,20) past two waypoints; recall rule: WaypointsExhausted.");
+        Console.WriteLine($"Final mission state: {mission.State}; observation legs: {mission.Legs.Count}; " +
+                          $"scout home at ({sim.World.Units[1].Position.X},{sim.World.Units[1].Position.Y}).");
+        Console.WriteLine();
+
+        // Phase 4: narrate via Claude when ANTHROPIC_API_KEY is set; otherwise
+        // the service falls back to the raw claims sheet. Either way the report
+        // is honest — the prose is a view of the same canonical claims.
+        var opts = Sim.Server.Scouting.ScoutNarrationOptions.FromEnvironment();
+        Sim.Server.Scouting.IReportNarrator? narrator =
+            opts.Enabled ? new Sim.Server.Scouting.ClaudeReportNarrator(opts) : null;
+        var service = new Sim.Server.Scouting.ScoutReportNarrationService(narrator);
+        var narrated = service.NarrateAsync(sim.World, mission, scoutName: "Maddox").GetAwaiter().GetResult();
+
+        Console.WriteLine(opts.Enabled
+            ? $"MADDOX'S REPORT — narrated by {opts.Model} (status: {narrated.Status}):"
+            : "MADDOX'S REPORT — raw claims (put your key in anthropic-key.txt, or set ANTHROPIC_API_KEY, to narrate via Claude):");
+        Console.WriteLine();
+        Console.WriteLine(narrated.Prose);
+        Console.WriteLine();
+        if (narrated.Status == Sim.Server.Scouting.ReportStatus.Narrated)
+        {
+            Console.WriteLine("--- the canonical claims the prose is a view of (sketch-map source) ---");
+            foreach (var c in narrated.Report.Claims)
+                Console.WriteLine($"  [{c.Kind}] {c.Text}");
+            Console.WriteLine();
+        }
+
+        // The log is deterministic sim state; the prose is a pure view of it.
+        var twin = RunOnce();
+        if (Snapshot.Hash(sim) != Snapshot.Hash(twin))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE: twin scouting runs diverged.");
+            Environment.Exit(1);
+        }
+        var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 0x5C07);
+        if (Snapshot.Hash(sim) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE: restored scouting snapshot diverged.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: twin run identical; observation log round-trips through snapshot.");
+    }
 }
 
 // M18 â€” standing-order automation demo. A supply line keeps the castle

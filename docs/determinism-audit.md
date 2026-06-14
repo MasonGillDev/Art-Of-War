@@ -32,6 +32,7 @@ grep -rn "Units\.Values\|Units\.Keys\|foreach.*world\.Units\|foreach.*World\.Uni
 | `Persistence/Snapshot.cs:119` | Canonical serialization in id order | Allowed — same reason |
 | `World/Structure.cs:208` (`ConstructionSite.BuildersPresent`) | Count builders on a specific tile | Allowed — bounded *per call*; called only from `BuildCompleteEvent` and `AssignBuildersIntent` (event-driven, not time-driven) |
 | `Logistics/BuildCompleteEvent.cs:49` | Free builders on the completing site's tile | Allowed — same shape; called once per build completion |
+| `Scouting/ScoutObservation.cs:Capture` | Bucket units inside the scout's vision disc by tile | Allowed — bounded *per call*; called only from `MoveArrivalEvent.Apply` (event-driven), and only for a unit with an active mission. Same O(units)-per-call scaling flag as `BuildersPresent`; a per-tile unit index is the shared fix |
 
 **Neither iteration is on a global timer.** Every call site is inside an
 event's `Apply` or an intent's `Resolve` — both fire only as the sim
@@ -172,6 +173,53 @@ grep -rn "world\.Explored\|Sight\.Reveal" src/Sim.Core/
 
 `Sight.Reveal` has exactly three production callers, all event-driven.
 No view path writes explored. The inverted pure-read wall holds.
+
+### `ScoutObservation.Capture` is the one write site for the observation log (M20)
+
+A scout's observation log (`GameWorld.ScoutMissions[id].Legs`) is durable,
+hashed sim state of the inverted-pure-read shape: written only by a
+deterministic event, read only on the presentation side (the server-side
+claims compiler — never by Sim.Core to drive the sim).
+
+**Audit command:**
+
+```bash
+grep -rn "ScoutObservation.Capture\|\.Legs\.Add\|ScoutMissions" src/Sim.Core/
+```
+
+| File | Site | Verdict |
+|---|---|---|
+| `Scouting/ScoutObservation.cs:Capture` | The mutation method itself | — |
+| `Movement/MoveArrivalEvent.cs` | Per-hop arrival capture, right after `Sight.Reveal` | Allowed — event-driven, the one write site |
+| `Persistence/Snapshot.cs` | Serialize iteration + restore reconstruction | Allowed — canonical I/O |
+
+`Capture` records only the scout's own live vision disc (the disc
+`Sight.Reveal` just revealed), so the log is fog-honest by construction —
+no `Explored`/`RememberedBiome` is consulted. It early-returns (one dict
+lookup) for any unit with no active mission, so it is not a global sweep
+and non-scouts pay nothing. Build progress is read via the pure
+`EffectiveProgress` helper (mirrors `ConstructionSite.Pause`'s formula
+without writing). Pinned by `ScoutObservationTests` (twin-run hash,
+snapshot round-trip v14, fog-honesty).
+
+**M20 Phase 3 — mission lifecycle writers.** Beyond the log, a `ScoutMission`
+has identity/plan fields (init-only) and two mutable cursor fields
+(`State`, `WaypointCursor`). Their write sites:
+
+| Field | Writer | Verdict |
+|---|---|---|
+| Mission creation (in `GameWorld.ScoutMissions`) | `DispatchScoutIntent.Resolve` | Allowed — intent-driven, validated at resolution time |
+| `State` / `WaypointCursor` | `ScoutMissionRunner.Drive` (called from `DispatchScoutIntent.Resolve` and `MoveArrivalEvent.DispatchOnFinalArrival`) | Allowed — both are intent/event-driven, like the `HaulPlan` continuation it mirrors |
+| `Legs` | `ScoutObservation.Capture` | Allowed — above |
+
+The runner is IN-SIM (not a server driver), so replay-from-intent-log and
+mid-mission snapshot/restore are correct for free: the plan + cursor + state
+snapshot, and the in-flight move regenerates from the unit's anchors. No new
+scheduled-event types (it reuses `MoveArrivalEvent`), so `RegenerateQueue` is
+untouched. `RecallRuleFired`/`LastLegSawHostile` are pure reads (the mission's
+own log + `Diplomacy.AreHostile`, public knowledge). Pinned by
+`ScoutDispatchTests` (twin-run hash, snapshot round-trip mid-mission, recall
+rules, Lodge-gated validation).
 
 ### Live visibility never mutates
 

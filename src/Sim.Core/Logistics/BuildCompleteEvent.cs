@@ -130,6 +130,7 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         StructureKind.House      => new House(at) { OwnerId = ownerId },
         StructureKind.School     => new School(at) { OwnerId = ownerId },
         StructureKind.Barracks   => new Barracks(at) { OwnerId = ownerId },
+        StructureKind.Lodge      => new Lodge(at) { OwnerId = ownerId },
         StructureKind.Dock       => new Dock(at, dockSlip
             ?? throw new InvalidOperationException(
                 $"Dock at {at.X},{at.Y} has no DockSlip recorded on its ConstructionSite."))

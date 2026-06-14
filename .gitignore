@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 # Local-only workspace items not tracked in this repo
 client/
 run.sh
+
+# M20 — local Anthropic API key for scout-report narration (never commit secrets)
+anthropic-key.txt

@@ -74,7 +74,11 @@ public static class Snapshot
     //  13 — M19 per-house food, Phase 1 (Unit.Home + House.ResidentCount).
     //       Both serialized (and therefore hashed) so restore can never
     //       drift the resident ledger from the units' Home fields.
-    public const int FormatVersion = 13;
+    //  14 — M20 scouting reports, Phase 1 (GameWorld.ScoutMissions + the
+    //       observation log). Pure durable data — the log is appended only
+    //       by ScoutObservation.Capture (no new scheduled events), so
+    //       RegenerateQueue is untouched.
+    public const int FormatVersion = 14;
 
     public static string Hash(Simulation sim)
     {
@@ -104,6 +108,7 @@ public static class Snapshot
             WriteBiomeDegradation(bw, sim.World);
             WriteRememberedBiome(bw, sim.World);
             WriteStandingOrders(bw, sim.World);
+            WriteScoutMissions(bw, sim.World);
         }
         return ms.ToArray();
     }
@@ -140,6 +145,7 @@ public static class Snapshot
         ReadBiomeDegradation(br, world);
         ReadRememberedBiome(br, world);
         ReadStandingOrders(br, world);
+        ReadScoutMissions(br, world);
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -443,6 +449,7 @@ public static class Snapshot
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
                 case Tower:               /* no fields */ break;
                 case School:              /* no fields */ break;
+                case Lodge:               /* no fields */ break;
                 // M12 — Dock carries slip + production state.
                 case Dock d:
                     bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
@@ -476,6 +483,7 @@ public static class Snapshot
                 StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
                 StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
                 StructureKind.School           => new School(at) { OwnerId = ownerId },
+                StructureKind.Lodge            => new Lodge(at) { OwnerId = ownerId },
                 StructureKind.Barracks         => ReadStorage(br, new Barracks(at) { OwnerId = ownerId }),
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
@@ -1181,6 +1189,136 @@ public static class Snapshot
             order.StepRetryCount = br.ReadInt32();
             order.ActionDispatched = br.ReadBoolean();
             world.StandingOrders.Add(id, order);
+        }
+    }
+
+    // ----- scout missions (M20; keyed by scout unit id) -----------------
+
+    private static void WriteScoutMissions(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.ScoutMissions.Count);
+        foreach (var (scoutId, m) in world.ScoutMissions) // SortedDictionary → id order
+        {
+            bw.Write(scoutId);
+            bw.Write(m.OwnerId);
+            bw.Write(m.DispatchTick);
+            bw.Write((byte)m.State);
+            // Dispatch plan + recall rule (M20 Phase 3).
+            bw.Write(m.HomeTile.X);
+            bw.Write(m.HomeTile.Y);
+            bw.Write((byte)m.ReturnRule);
+            bw.Write(m.ElapsedLimitTicks);
+            bw.Write(m.WaypointCursor);
+            bw.Write(m.Waypoints.Count);
+            foreach (var wp in m.Waypoints) { bw.Write(wp.X); bw.Write(wp.Y); }
+            bw.Write(m.Legs.Count);
+            foreach (var leg in m.Legs)
+            {
+                bw.Write(leg.Tick);
+                bw.Write(leg.Center.X);
+                bw.Write(leg.Center.Y);
+                bw.Write(leg.Radius);
+                bw.Write(leg.Sightings.Count);
+                foreach (var s in leg.Sightings)
+                {
+                    bw.Write(s.Tile.X);
+                    bw.Write(s.Tile.Y);
+                    bw.Write((byte)s.Biome);
+                    bw.Write(s.Units.Count);
+                    foreach (var su in s.Units)
+                    {
+                        bw.Write(su.UnitId);
+                        bw.Write(su.OwnerId);
+                        bw.Write((byte)su.Role);
+                        bw.Write((byte)su.Activity);
+                    }
+                    if (s.Structure is null)
+                    {
+                        bw.Write(false);
+                    }
+                    else
+                    {
+                        bw.Write(true);
+                        bw.Write((byte)s.Structure.Kind);
+                        bw.Write((byte)s.Structure.TargetKind);
+                        bw.Write(s.Structure.OwnerId);
+                        bw.Write(s.Structure.ProgressTicks);
+                        bw.Write(s.Structure.BuildDurationTicks);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void ReadScoutMissions(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var scoutId = br.ReadInt32();
+            var ownerId = br.ReadInt32();
+            var dispatchTick = br.ReadInt64();
+            var state = (Sim.Core.Scouting.ScoutMissionState)br.ReadByte();
+            var homeTile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var returnRule = (Sim.Core.Scouting.ScoutReturnRule)br.ReadByte();
+            var elapsedLimit = br.ReadInt64();
+            var waypointCursor = br.ReadInt32();
+            var waypointCount = br.ReadInt32();
+            var waypoints = new List<TileCoord>(capacity: waypointCount);
+            for (var w = 0; w < waypointCount; w++)
+                waypoints.Add(new TileCoord(br.ReadInt32(), br.ReadInt32()));
+            var mission = new Sim.Core.Scouting.ScoutMission
+            {
+                ScoutUnitId = scoutId,
+                OwnerId = ownerId,
+                DispatchTick = dispatchTick,
+                State = state,
+                HomeTile = homeTile,
+                ReturnRule = returnRule,
+                ElapsedLimitTicks = elapsedLimit,
+                WaypointCursor = waypointCursor,
+            };
+            mission.Waypoints.AddRange(waypoints);
+            var legCount = br.ReadInt32();
+            for (var l = 0; l < legCount; l++)
+            {
+                var leg = new Sim.Core.Scouting.ObservationLeg
+                {
+                    Tick = br.ReadInt64(),
+                    Center = new TileCoord(br.ReadInt32(), br.ReadInt32()),
+                    Radius = br.ReadInt32(),
+                };
+                var sightCount = br.ReadInt32();
+                for (var s = 0; s < sightCount; s++)
+                {
+                    var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                    var biome = (Biome)br.ReadByte();
+                    var unitCount = br.ReadInt32();
+                    var units = new List<Sim.Core.Scouting.SightedUnit>(capacity: unitCount);
+                    for (var u = 0; u < unitCount; u++)
+                        units.Add(new Sim.Core.Scouting.SightedUnit(
+                            br.ReadInt32(), br.ReadInt32(), (UnitRole)br.ReadByte(), (Activity)br.ReadByte()));
+                    Sim.Core.Scouting.SightedStructure? structure = null;
+                    if (br.ReadBoolean())
+                        structure = new Sim.Core.Scouting.SightedStructure
+                        {
+                            Kind = (StructureKind)br.ReadByte(),
+                            TargetKind = (StructureKind)br.ReadByte(),
+                            OwnerId = br.ReadInt32(),
+                            ProgressTicks = br.ReadInt64(),
+                            BuildDurationTicks = br.ReadInt64(),
+                        };
+                    leg.Sightings.Add(new Sim.Core.Scouting.Sighting
+                    {
+                        Tile = tile,
+                        Biome = biome,
+                        Units = units,
+                        Structure = structure,
+                    });
+                }
+                mission.Legs.Add(leg);
+            }
+            world.ScoutMissions.Add(scoutId, mission);
         }
     }
 

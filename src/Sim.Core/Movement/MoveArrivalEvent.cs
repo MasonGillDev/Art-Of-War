@@ -69,6 +69,12 @@ public sealed class MoveArrivalEvent : ScheduledEvent
         // M3 Phase B: the arrival also reveals the unit's vision radius for
         // its owner. See Vision/Sight.cs.
         Sight.Reveal(sim.World, unit.OwnerId, To, Sight.RadiusFor(unit.Role), sim.Now);
+        // M20: if this unit is scouting, append what its fresh vision touched
+        // to the observation log. THE one write site for the log (mirrors
+        // Sight.Reveal above; records the very disc it just revealed). No-op —
+        // a single dict lookup — for any unit without an active mission. See
+        // Scouting/ScoutObservation.cs.
+        ScoutObservation.Capture(sim, unit);
         // M7: presence-gated combat trigger. Hostile-owner co-location on
         // an arrived-at tile starts a fight; benign co-occupancy is a
         // no-op. Already-contested tile fences inside the trigger.
@@ -109,6 +115,18 @@ public sealed class MoveArrivalEvent : ScheduledEvent
     // be in a group). Group-rendezvous second.
     private static void DispatchOnFinalArrival(Simulation sim, Unit unit)
     {
+        // M20 — a scout on an active/returning mission advances to its next
+        // waypoint (or home) here, the same way a HaulPlan continues below.
+        // A Returned (or absent) mission falls through to ordinary handling so
+        // an ex-scout can still haul/group. The capture for this arrival has
+        // already run earlier in Apply, so the recall rules see a fresh log.
+        if (sim.World.ScoutMissions.TryGetValue(unit.Id, out var mission)
+            && mission.State != Sim.Core.Scouting.ScoutMissionState.Returned)
+        {
+            Sim.Core.Scouting.ScoutMissionRunner.Advance(sim, unit);
+            return;
+        }
+
         if (unit.HaulPlan is { } plan)
         {
             switch (plan.Phase)

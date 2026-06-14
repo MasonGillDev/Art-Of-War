@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Sim.Core.Engine;
 using Sim.Core.Intents;
 using Sim.Persistence;
@@ -32,6 +34,16 @@ public sealed class GameHost : IDisposable
     private long _nextNoticeId = 1;
     private readonly Dictionary<int, List<NoticeDto>> _notices = new();
 
+    // M20 — scout reports. When a mission returns, claims are compiled under
+    // the lock (a fast pure read) and a raw report is deposited immediately;
+    // narration (the slow Claude call) runs off the lock and updates the prose
+    // in place when it lands. Off-sim, presentation-only — never hashed.
+    private const int MaxReportsPerPlayer = 20;
+    private long _nextReportId = 1;
+    private readonly Scouting.ScoutReportNarrationService? _narration;
+    private readonly Dictionary<int, List<ScoutReportDto>> _scoutReports = new();
+    private readonly HashSet<(int scoutId, long dispatchTick)> _handledMissions = new();
+
     public GameHost(WorldBuild build, ulong seed, double ticksPerSecond,
         Bandits.BanditConfig? banditConfig = null, Ai.AiConfig? aiConfig = null,
         Automation.AutomationConfig? automationConfig = null)
@@ -58,6 +70,13 @@ public sealed class GameHost : IDisposable
         var autoCfg = automationConfig ?? new Automation.AutomationConfig();
         if (autoCfg.Enabled)
             _automation = new Automation.AutomationDriver(autoCfg);
+        // M20 — narrate returned scouts via Claude when a key is configured
+        // (ANTHROPIC_API_KEY or the gitignored anthropic-key.txt); otherwise
+        // reports ship as the raw claims sheet. Either way they reach the wire.
+        var narrationOpts = Scouting.ScoutNarrationOptions.FromEnvironment();
+        if (narrationOpts.Enabled)
+            _narration = new Scouting.ScoutReportNarrationService(
+                new Scouting.ClaudeReportNarrator(narrationOpts));
     }
 
     public void Start()
@@ -94,6 +113,7 @@ public sealed class GameHost : IDisposable
                 // brains (pure reads + ordinary intents, under the lock).
                 _automation?.Think(_sim, _virtualTick);
                 HarvestRejections();
+                HarvestScoutReturns();
             }
             Thread.Sleep(20);
         }
@@ -144,6 +164,7 @@ public sealed class GameHost : IDisposable
         {
             dto = _projector.Project(_sim, _sim.Now, playerId, reveal);
             if (_notices.TryGetValue(playerId, out var list)) dto.Notices = list.ToArray();
+            if (_scoutReports.TryGetValue(playerId, out var reps)) dto.ScoutReports = reps.ToArray();
         }
         return JsonSerializer.Serialize(dto, ServerJson.Options);
     }
@@ -173,6 +194,85 @@ public sealed class GameHost : IDisposable
             if (!ie.Outcome.IsRejected) continue;
             AddNotice(ie.Intent.PlayerId, ie.At, $"{ie.Intent.Describe()} — {ie.Outcome.Reason}");
         }
+    }
+
+    // M20 — detect missions that have just reached Returned (each handled once
+    // by (scout id, dispatch tick)). Compile claims under the lock, deposit a
+    // raw report + a "scout returned" notice immediately, then kick the slow
+    // Claude narration off the lock; when it lands it swaps the prose in place.
+    // Called under _gate, right after the drivers think.
+    private void HarvestScoutReturns()
+    {
+        foreach (var (scoutId, m) in _sim.World.ScoutMissions)
+        {
+            if (m.State != Sim.Core.Scouting.ScoutMissionState.Returned) continue;
+            if (!_handledMissions.Add((scoutId, m.DispatchTick))) continue;
+
+            var name = ScoutName(scoutId);
+            var report = Scouting.ClaimsCompiler.Compile(_sim.World, m);
+            var dto = ToReportDto(report, _nextReportId++, name);
+            AddReport(m.OwnerId, dto);
+            AddNotice(m.OwnerId, _sim.Now, $"{name} has returned with a report.");
+
+            if (_narration is null) continue;
+            // Fire-and-forget: narrate off the lock, then update the prose.
+            var owner = m.OwnerId;
+            var reportId = dto.Id;
+            _ = Task.Run(async () =>
+            {
+                var narrated = await _narration.NarrateReportAsync(report, name).ConfigureAwait(false);
+                lock (_gate)
+                {
+                    if (_scoutReports.TryGetValue(owner, out var list))
+                    {
+                        var d = list.Find(r => r.Id == reportId);
+                        if (d is not null) { d.Prose = narrated.Prose; d.Status = (int)narrated.Status; }
+                    }
+                }
+            });
+        }
+    }
+
+    private void AddReport(int playerId, ScoutReportDto dto)
+    {
+        if (!_scoutReports.TryGetValue(playerId, out var list))
+        {
+            list = new List<ScoutReportDto>();
+            _scoutReports[playerId] = list;
+        }
+        list.Add(dto);
+        if (list.Count > MaxReportsPerPlayer) list.RemoveRange(0, list.Count - MaxReportsPerPlayer);
+    }
+
+    private static ScoutReportDto ToReportDto(Scouting.ScoutReport report, long id, string name) => new()
+    {
+        Id = id,
+        ScoutUnitId = report.ScoutUnitId,
+        ScoutName = name,
+        DispatchTick = report.DispatchTick,
+        ReturnTick = report.ReturnTick,
+        // Starts as the raw claims sheet (shown instantly); narration swaps it.
+        Prose = Scouting.ReportText.RawFallback(report),
+        Status = (int)Scouting.ReportStatus.RawFallback,
+        Claims = report.Claims.Select(c => new ScoutClaimDto
+        {
+            Sequence = c.Sequence,
+            Kind = (int)c.Kind,
+            Certainty = (int)c.Certainty,
+            Text = c.Text,
+            HasAnchor = c.Anchor.HasValue,
+            AnchorX = c.Anchor?.X ?? 0,
+            AnchorY = c.Anchor?.Y ?? 0,
+            Novel = c.Novel,
+        }).ToArray(),
+    };
+
+    // A stable persona name per scout id — Maddox who survived three missions
+    // reads differently than a green recruit. Deterministic, presentation-only.
+    private static string ScoutName(int scoutId)
+    {
+        var names = new[] { "Maddox", "Ren", "Coll", "Brannon", "Hew", "Garrick", "Tam", "Osric", "Wat", "Joss" };
+        return names[((scoutId % names.Length) + names.Length) % names.Length];
     }
 
     private void AddNotice(int playerId, long tick, string text)

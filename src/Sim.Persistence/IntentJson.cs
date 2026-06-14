@@ -65,6 +65,8 @@ public static class IntentJson
         [typeof(Sim.Core.Automation.SetStandingOrderIntent)]     = "SetStandingOrderIntent",
         [typeof(Sim.Core.Automation.ClearStandingOrderIntent)]   = "ClearStandingOrderIntent",
         [typeof(Sim.Core.Automation.AdvanceOrderCursorIntent)]   = "AdvanceOrderCursorIntent",
+        // M20 — scouting dispatch.
+        [typeof(Sim.Core.Scouting.DispatchScoutIntent)]          = "DispatchScoutIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -107,6 +109,7 @@ public static class IntentJson
             "SetStandingOrderIntent"       => JsonSerializer.Deserialize<Sim.Core.Automation.SetStandingOrderIntent>(payload, Options),
             "ClearStandingOrderIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.ClearStandingOrderIntent>(payload, Options),
             "AdvanceOrderCursorIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.AdvanceOrderCursorIntent>(payload, Options),
+            "DispatchScoutIntent"          => JsonSerializer.Deserialize<Sim.Core.Scouting.DispatchScoutIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +
