@@ -148,7 +148,19 @@ public sealed class MoveIntent : Intent
         // crowding (whichever is more crowded), regardless of fog. The
         // unit pays the real cost of this hop even if it differs from
         // what the plan assumed. See MovementCost.ExecutionCost.
-        var arrival = sim.Now + MovementCost.ExecutionCost(world, unit.Position, next, sim.Now, unit.Traversal);
+        var hopCost = MovementCost.ExecutionCost(world, unit.Position, next, sim.Now, unit.Traversal);
+        // M-cart — per-unit move-cost buffs (a cart trades speed for cargo).
+        // Applied to the EXECUTION cost only — the slowdown is real travel
+        // time, not a route change, so the planned path is unaffected. Summed
+        // across buffs; guarded so an Impassable cost never overflows; long
+        // intermediate so the *(100+slow) can't wrap. docs/cart.md.
+        if (hopCost < Sim.Core.World.Biomes.Impassable)
+        {
+            var slow = 0;
+            foreach (var b in unit.Buffs) slow += b.MoveCostPercent;
+            if (slow != 0) hopCost = (int)((long)hopCost * (100 + slow) / 100);
+        }
+        var arrival = sim.Now + hopCost;
         unit.NextArrivalTick = arrival;
         unit.NextArrivalSeq  = sim.Schedule(arrival,
             new MoveArrivalEvent(unit.Id, next, unit.PathFinalDest.Value, unit.AssignmentEpoch));

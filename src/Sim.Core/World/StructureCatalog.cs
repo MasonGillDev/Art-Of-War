@@ -251,6 +251,17 @@ public static class StructureCatalog
             BuildDurationTicks = 1 * Time.Day,
             RequiredBuilderCount = 3,
         },
+        // M23 — Cache. An unowned loot container scattered in the fog at
+        // genesis (CacheScatter); never player-buildable. StorageCapacity is a
+        // stable ceiling for any rolled loot bundle (the snapshot drift check
+        // pins it), not a gameplay number — keep it comfortably above the
+        // max loot a CacheConfig can roll.
+        [StructureKind.Cache] = new StructureSpec
+        {
+            Kind = StructureKind.Cache,
+            IsPlayerBuildable = false,
+            StorageCapacity = 1000,
+        },
     };
 
     public static StructureSpec Spec(StructureKind kind) =>

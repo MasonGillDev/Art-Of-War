@@ -69,6 +69,8 @@ public static class IntentJson
         [typeof(Sim.Core.Scouting.DispatchScoutIntent)]          = "DispatchScoutIntent",
         // M21 — canal digging (whole-path terrain-mutation build).
         [typeof(Sim.Core.Canals.PlaceCanalIntent)]               = "PlaceCanalIntent",
+        // M23 — loot a discovered cache.
+        [typeof(Sim.Core.Caches.LootCacheIntent)]                = "LootCacheIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -113,6 +115,7 @@ public static class IntentJson
             "AdvanceOrderCursorIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.AdvanceOrderCursorIntent>(payload, Options),
             "DispatchScoutIntent"          => JsonSerializer.Deserialize<Sim.Core.Scouting.DispatchScoutIntent>(payload, Options),
             "PlaceCanalIntent"             => JsonSerializer.Deserialize<Sim.Core.Canals.PlaceCanalIntent>(payload, Options),
+            "LootCacheIntent"              => JsonSerializer.Deserialize<Sim.Core.Caches.LootCacheIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

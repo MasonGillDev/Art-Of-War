@@ -14,8 +14,20 @@ namespace Sim.Core.Combat;
 // ExpiresAt       — sim tick when the buff lapses; null = permanent.
 //                   Today there's no expiry-tick sweep; future buff
 //                   processing reads this.
+// CargoModifier   — flat add to Unit.CargoCapacity (rolled up live in the
+//                   getter, summed across buffs). A cart's +carry; a future
+//                   "wounded: drop half" would go negative. (M-cart)
+// MoveCostPercent — % ADDED to each hop's ground-truth move cost (the unit
+//                   moves slower). Summed across buffs, applied in
+//                   MoveIntent.ScheduleNextHop. 0 = no effect; +50 = 1.5x
+//                   slower. A cart's tradeoff for the extra cargo. (M-cart)
+//
+// A buff is a bag of stat modifiers; only the relevant fields are non-zero
+// per kind (sword → power; shield → health; cart → cargo + movecost).
 public sealed record Buff(
     string Kind,
     int PowerModifier,
     int HealthModifier,
-    long? ExpiresAt);
+    long? ExpiresAt,
+    int CargoModifier = 0,
+    int MoveCostPercent = 0);

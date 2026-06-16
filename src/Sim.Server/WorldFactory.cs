@@ -33,11 +33,11 @@ public static class WorldFactory
         // public — no core changes) so the client can build a smooth heightmap whose
         // slopes line up with the biome bands.
         var elevation = QuantizeElevation(NoiseField.Generate(cfg.Seed + cfg.ElevationSeedOffset, cfg));
-        var spec = BuildSpec(map, opts.AiPlayers);
+        var spec = BuildSpec(map, opts.AiPlayers, opts.CacheCount);
         return new WorldBuild(spec, map, elevation, cfg);
     }
 
-    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers)
+    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers, int cacheCount)
     {
         var start = map.Start;
         var nextId = 1;
@@ -139,10 +139,13 @@ public static class WorldFactory
             Height = map.Height,
             Biomes = MapGenerator.ToBiomeOverrides(map),
             FactionStarts = factions,
+            // M23 — scatter loot caches into the fog (never on a tile any
+            // faction's starting vision has revealed). docs/loot-caches.md.
+            Caches = new Sim.Core.Caches.CacheConfig(Count: cacheCount),
         };
 
         Console.WriteLine($"Generated {map.Width}x{map.Height} continent (seed {map.Seed}); " +
-            $"castle start at ({start.X},{start.Y}); factions: {factions.Count}.");
+            $"castle start at ({start.X},{start.Y}); factions: {factions.Count}; caches: {cacheCount}.");
         return spec;
     }
 

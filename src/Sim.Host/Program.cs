@@ -177,6 +177,7 @@ var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
 var degradationDemo = args.Length > 0 && args[0] == "--degradation";
 var canalDemo = args.Length > 0 && args[0] == "--canal";
+var cachesDemo = args.Length > 0 && args[0] == "--caches";
 var automationDemo = args.Length > 0 && args[0] == "--automation";
 var scoutingDemo = args.Length > 0 && args[0] == "--scouting";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
@@ -197,6 +198,10 @@ else if (degradationDemo)
 else if (canalDemo)
 {
     CanalDemo.Run();
+}
+else if (cachesDemo)
+{
+    CacheDemo.Run();
 }
 else if (automationDemo)
 {
@@ -741,6 +746,89 @@ static class PersistentDemo
             new HaulIntent(2, new TileCoord(15, 0), new TileCoord(0, 0), Resource.Wood));
 
         return sim;
+    }
+}
+
+// M23 — loot caches smoke. Genesis scatters unowned treasure into the fog,
+// only ever on tiles no player has seen. Prints the scatter (location + loot),
+// confirms the spawn-in-fog invariant, marches a hauler to the nearest find and
+// loots it cargo-capped, then runs the milestone determinism checks (twin
+// genesis scatters identically + the looted world round-trips).
+static class CacheDemo
+{
+    static GenesisSpec MakeSpec() => new()
+    {
+        Width = 24, Height = 24,
+        Caches = new Sim.Core.Caches.CacheConfig(Count: 12),
+        FactionStarts = new[]
+        {
+            new FactionStartSpec
+            {
+                OwnerId = 0,
+                CastlePosition = new TileCoord(2, 2),
+                CastleHoldings = new SortedDictionary<Resource, int> { [Resource.Food] = 500 },
+                UnitSpawns = new[] { new UnitSpawn(1, new TileCoord(2, 2), UnitRole.Hauler) },
+            },
+        },
+    };
+
+    static Simulation Build() => new(MakeSpec(), seed: 0xCAC4E);
+
+    public static void Run()
+    {
+        var sim = Build();
+        var caches = sim.World.Structures.Values.OfType<Cache>()
+            .OrderBy(c => c.At.Y).ThenBy(c => c.At.X).ToList();
+
+        Console.WriteLine("--- Loot Caches Demo (M23) ---");
+        Console.WriteLine($"{caches.Count} caches scattered into the genesis fog (seed 0xCAC4E).");
+
+        var seen = new HashSet<TileCoord>();
+        foreach (var set in sim.World.Explored.Values) seen.UnionWith(set);
+        var leak = caches.FirstOrDefault(c => seen.Contains(c.At));
+        Console.WriteLine(leak is null
+            ? "Every cache is on a tile NO player has seen at genesis. OK."
+            : $"INVARIANT VIOLATION: cache at {leak.At.X},{leak.At.Y} is already seen!");
+        Console.WriteLine();
+        Console.WriteLine("Caches (location — loot):");
+        foreach (var c in caches)
+            Console.WriteLine($"  ({c.At.X,2},{c.At.Y,2}) — " +
+                string.Join(", ", c.Holdings.Select(kv => $"{kv.Value} {kv.Key}")));
+        Console.WriteLine();
+
+        // March the hauler to the first cache and loot one resource cargo-capped.
+        var target = caches[0];
+        var resource = target.Holdings.Keys.First();
+        var have = target.AmountOf(resource);
+        new MoveIntent(1, target.At) { PlayerId = 0 }.Resolve(sim);
+        // Bounded run: enough to finish the march (which also REVEALS the cache
+        // as the hauler closes in), well before any far-future lifespan event.
+        sim.Run(until: 20_000);
+        var hauler = sim.World.Units[1];
+        new Sim.Core.Caches.LootCacheIntent(1, resource) { PlayerId = 0 }.Resolve(sim);
+        Console.WriteLine(
+            $"Hauler marched to ({target.At.X},{target.At.Y}) and looted {resource}: " +
+            $"carries {hauler.CargoAmount}/{hauler.CargoCapacity} {hauler.CargoResource}.");
+        Console.WriteLine(
+            sim.World.Structures.TryGetValue(target.At, out var s) && s is Cache left
+                ? $"  Cache persists with {left.AmountOf(resource)} {resource} left (re-lootable)."
+                : $"  Cache emptied ({have} {resource}) and removed.");
+        Console.WriteLine();
+
+        // Determinism: two fresh genesis builds scatter identically.
+        if (Snapshot.Hash(Build()) != Snapshot.Hash(Build()))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE: twin cache scatter diverged.");
+            Environment.Exit(1);
+        }
+        // The looted world round-trips through snapshot.
+        var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 0xCAC4E);
+        if (Snapshot.Hash(sim) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE: looted cache world diverged.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: twin genesis scatters identical caches; looted world round-trips.");
     }
 }
 

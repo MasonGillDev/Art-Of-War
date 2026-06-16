@@ -67,7 +67,8 @@ public sealed class EquipUnitIntent : Intent
         // to current Health (the Buff.cs apply-time rule — Shield's +10
         // raises Health now and is reversed at strip time).
         storage.Withdraw(Item, 1);
-        unit.Buffs.Add(new Buff(spec.BuffKind, spec.PowerModifier, spec.HealthModifier, ExpiresAt: null));
+        unit.Buffs.Add(new Buff(spec.BuffKind, spec.PowerModifier, spec.HealthModifier, ExpiresAt: null,
+            CargoModifier: spec.CargoModifier, MoveCostPercent: spec.MoveCostPercent));
         unit.Health += spec.HealthModifier;
         unit.BumpEpoch();
 

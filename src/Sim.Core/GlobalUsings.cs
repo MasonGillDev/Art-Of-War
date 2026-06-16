@@ -1,4 +1,5 @@
 global using Sim.Core.Biomes;
+global using Sim.Core.Caches;
 global using Sim.Core.Canals;
 global using Sim.Core.Engine;
 global using Sim.Core.Groups;

@@ -40,6 +40,12 @@ public sealed record GenesisSpec
     // for faster pacing, same as the other configs.
     public Sim.Core.Biomes.BiomeDegradationConfig BiomeDegradation { get; init; } = new();
 
+    // M23: loot-cache scatter (count + loot table). Defaulted to Count 0 (no
+    // caches), so existing scenarios are unaffected; scenarios opt in. The
+    // scatter runs in the Simulation spec-ctor with the seeded Rng; only the
+    // resulting Cache structures persist. See docs/loot-caches.md.
+    public Sim.Core.Caches.CacheConfig Caches { get; init; } = new();
+
     public int FactionCount => FactionStarts.Count;
 }
 

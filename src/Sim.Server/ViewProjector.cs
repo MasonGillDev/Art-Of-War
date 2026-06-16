@@ -276,6 +276,7 @@ public sealed class ViewProjector
         var dto = new StructDto { X = s.At.X, Y = s.At.Y, Kind = (int)s.Kind, OwnerId = s.OwnerId };
         if (s.OwnerId == viewerPlayerId) EnrichOwned(dto, s, world, now);
         FillClaims(dto, s);
+        FillCacheLoot(dto, s);
         return dto;
     }
 
@@ -292,8 +293,23 @@ public sealed class ViewProjector
             // enrichment rule): a visible structure's land use is physical
             // and scoutable; placement rejections reference it anyway.
             FillClaims(dto, real);
+            FillCacheLoot(dto, real);
         }
         return dto;
+    }
+
+    // M23 — a discovered cache's contents are revealed to whoever can SEE it
+    // (an unowned Cache reaches the DTO only when its tile is visible). Same
+    // "a visible structure's contents are public" stance as FillClaims, and
+    // necessary so the player can name which resource to LootCacheIntent.
+    // Stays fogged like the cache itself — no Remembered reveal, so it
+    // vanishes when you look away.
+    private static void FillCacheLoot(StructDto dto, Structure s)
+    {
+        if (s is not Cache cache) return;
+        dto.Holdings = cache.Holdings
+            .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+            .ToArray();
     }
 
     // M15 — claimed tiles for either carrier (extractor or pending site).

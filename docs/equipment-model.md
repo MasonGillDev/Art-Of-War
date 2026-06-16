@@ -151,6 +151,17 @@ must stay a pure read (see `docs/architecture.md`, pure-read wall).
 - `MilitaryDeterminismTests.MidFight_EquippedForces_SnapshotRoundTrip_Identical`
   — the M7 closure gate re-proven in a buffed world.
 
+## Update 2026-06-16 — the first non-combat buff (the cart)
+
+The deferred "passive/non-combat source" question is now live: the **cart**
+(`docs/cart.md`) is a `Buff` that trades move speed for carry capacity. It adds
+two modifier dimensions to `Buff` (`CargoModifier`, `MoveCostPercent`) and rolls
+them up live (cargo in `Unit.CargoCapacity`, move-cost in
+`MoveIntent.ScheduleNextHop`). Per the "two slots, distinct Kinds" note below, we
+shipped it **sharing the 2 slots** (carts → Haulers, weapons → Soldiers/Archers,
+so they rarely compete); a separate gear-slot category is the clean split if play
+demands it. The craft/equip/drop loop and the slot rules were reused unchanged.
+
 ## Future expansion
 
 - **Timed buffs** (drills, well-fed): `ExpiresAt` is already

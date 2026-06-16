@@ -78,7 +78,7 @@ public static class Snapshot
     //       observation log). Pure durable data — the log is appended only
     //       by ScoutObservation.Capture (no new scheduled events), so
     //       RegenerateQueue is untouched.
-    public const int FormatVersion = 16;
+    public const int FormatVersion = 18;
 
     public static string Hash(Simulation sim)
     {
@@ -282,6 +282,8 @@ public static class Snapshot
             bw.Write(b.PowerModifier);
             bw.Write(b.HealthModifier);
             WriteNullableLong(bw, b.ExpiresAt);
+            bw.Write(b.CargoModifier);    // M-cart
+            bw.Write(b.MoveCostPercent);  // M-cart
         }
     }
 
@@ -295,7 +297,10 @@ public static class Snapshot
             var pm = br.ReadInt32();
             var hm = br.ReadInt32();
             var exp = ReadNullableLong(br);
-            list.Add(new Sim.Core.Combat.Buff(kind, pm, hm, exp));
+            var cargo = br.ReadInt32();        // M-cart
+            var moveCost = br.ReadInt32();     // M-cart
+            list.Add(new Sim.Core.Combat.Buff(kind, pm, hm, exp,
+                CargoModifier: cargo, MoveCostPercent: moveCost));
         }
         return list;
     }
@@ -444,6 +449,9 @@ public static class Snapshot
                 // M13 — Castle has the food-consumption anchor. Castle
                 // must come before StorageStructure for the same reason.
                 case Castle castle:       WriteStorage(bw, castle); WriteFoodHomeAnchors(bw, castle); break;
+                // M23 — Cache is a StorageStructure; its loot rides the same
+                // payload. Must precede the StorageStructure case.
+                case Cache cache:         WriteStorage(bw, cache); break;
                 case StorageStructure ss: WriteStorage(bw, ss); break;
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
@@ -485,6 +493,7 @@ public static class Snapshot
                 StructureKind.School           => new School(at) { OwnerId = ownerId },
                 StructureKind.Lodge            => new Lodge(at) { OwnerId = ownerId },
                 StructureKind.Barracks         => ReadStorage(br, new Barracks(at) { OwnerId = ownerId }),
+                StructureKind.Cache            => ReadStorage(br, new Cache(at) { OwnerId = ownerId }),
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };

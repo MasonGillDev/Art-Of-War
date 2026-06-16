@@ -142,6 +142,14 @@ needing to detour for a Hauler. Tuning knob.
   natural. Out of scope until the M7 buff system grows non-combat
   edges.
 
+## Update 2026-06-16 — buff-based cargo landed (the cart)
+
+The "Buff-based cargo modifiers" future-expansion below is now real:
+`Unit.CargoCapacity` rolls up `Buff.CargoModifier` over the unit's buffs on top
+of the role value (clamped ≥ 0). The first user is the **cart** (`docs/cart.md`):
++25 carry for −speed. No structural change to `UnitCargoCatalog` — exactly as
+predicted; the catalog stays the per-role base, buffs stack on top.
+
 ## References
 
 - `src/Sim.Core/Combat/UnitCombatCatalog.cs` — the precedent pattern.

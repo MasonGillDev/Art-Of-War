@@ -52,6 +52,11 @@ public sealed class Simulation
             if (castle is not null)
                 Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, this);
         }
+        // M23 — scatter loot caches into the genesis fog. Runs AFTER the
+        // lifespan rolls so existing scenarios' RNG sequence is untouched
+        // (Count == 0 is a no-op that consumes no Rng). Deterministic from
+        // (seed, spec). See docs/loot-caches.md.
+        Sim.Core.Caches.CacheScatter.Scatter(World, Rng, spec.Caches);
     }
 
     // Schedule an event with the next monotonic Seq. Returns the Seq actually

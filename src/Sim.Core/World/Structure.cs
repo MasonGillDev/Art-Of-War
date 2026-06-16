@@ -125,6 +125,19 @@ public sealed class Barracks : StorageStructure
     public Barracks(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Barracks).StorageCapacity) { }
 }
 
+// M23 — a loot cache: an UNOWNED StorageStructure holding a scattered bundle
+// of resources / gear, discovered in the fog and looted with LootCacheIntent
+// (cargo-capped; removed when empty). Genesis scatters them
+// (Sim.Core.Caches.CacheScatter); they are never player-built. Capacity comes
+// from the catalog like the other storage kinds so the snapshot's
+// capacity-drift check holds — it is a stable ceiling for any rolled loot
+// bundle, not a gameplay number. See docs/loot-caches.md.
+public sealed class Cache : StorageStructure
+{
+    public override StructureKind Kind => StructureKind.Cache;
+    public Cache(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Cache).StorageCapacity) { }
+}
+
 // One class for all four extractor kinds. The Phase-A deferral note that
 // lived here ("extractors operate over a working radius of biome tiles...
 // the snapshot format WILL change") was paid off by M15: claiming kinds

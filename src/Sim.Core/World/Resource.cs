@@ -13,4 +13,7 @@ public enum Resource : byte
     Sword = 5,
     Bow = 6,
     Shield = 7,
+    // M-cart — a hauler's cart: equipment that trades move speed for carry
+    // capacity. Same fungible-item machinery as the weapons. See docs/cart.md.
+    Cart = 8,
 }

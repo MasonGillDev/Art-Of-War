@@ -18,6 +18,11 @@ public sealed record EquipmentSpec
     // Applied to current Health at equip time; reversed (clamped to
     // min 1) when the equipment is stripped. See docs/equipment-model.md.
     public int HealthModifier { get; init; }
+    // M-cart — non-combat modifiers. CargoModifier adds to carry capacity
+    // (rolled up live in Unit.CargoCapacity); MoveCostPercent adds to each
+    // hop's move cost (the unit moves slower). See docs/cart.md.
+    public int CargoModifier { get; init; }
+    public int MoveCostPercent { get; init; }
     public required IReadOnlySet<UnitRole> AllowedRoles { get; init; }
     // Consumed from the Barracks' own holdings by CraftEquipmentIntent.
     public required SortedDictionary<Resource, int> CraftCost { get; init; }
@@ -63,6 +68,25 @@ public static class EquipmentCatalog
             {
                 [Resource.Wood] = 5,
                 [Resource.Stone] = 5,
+            },
+        },
+        // M-cart — a hauler's cart: +25 carry (doubles the Hauler's 25 base)
+        // at the cost of +50% move time per hop (the tradeoff that makes it a
+        // choice, not a free upgrade). Crafted from a frame (Wood) + wheels
+        // (Stone). Equippable by Haulers — the carry role; widen AllowedRoles
+        // if other roles should pull a cart. It shares the 2 generic buff
+        // slots (no separate gear slot). docs/cart.md.
+        [Resource.Cart] = new EquipmentSpec
+        {
+            Item = Resource.Cart,
+            BuffKind = "cart",
+            CargoModifier = 25,
+            MoveCostPercent = 50,
+            AllowedRoles = new HashSet<UnitRole> { UnitRole.Hauler },
+            CraftCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 20,
+                [Resource.Stone] = 10,
             },
         },
     };

@@ -29,10 +29,20 @@ public sealed class Unit
     private UnitRole _role = UnitRole.None;
     public UnitRole Role { get => _role; init => _role = value; }
 
-    // Derived from Role via UnitCargoCatalog. When TrainUnitIntent flips
-    // a citizen to Hauler, the cap jumps to HaulerCapacity automatically
-    // — no second mutation needed, no risk of role/cap drift.
-    public int CargoCapacity => Sim.Core.Logistics.UnitCargoCatalog.CapacityFor(_role);
+    // Derived from Role via UnitCargoCatalog, PLUS any buff cargo modifiers
+    // (M-cart: a cart adds carry capacity; rolled up live here, summed across
+    // buffs). When TrainUnitIntent flips a citizen to Hauler, the cap jumps to
+    // HaulerCapacity automatically — no second mutation, no role/cap drift; a
+    // cart buff stacks on top of whatever the role gives. docs/cart.md.
+    public int CargoCapacity
+    {
+        get
+        {
+            var cap = Sim.Core.Logistics.UnitCargoCatalog.CapacityFor(_role);
+            foreach (var b in Buffs) cap += b.CargoModifier;
+            return cap < 0 ? 0 : cap;
+        }
+    }
 
     // M12 — per-unit movement domain. Foot is the default for every
     // existing role; boats (Phase C) set Water. Snapshot.WriteUnits

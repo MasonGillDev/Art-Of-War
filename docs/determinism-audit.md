@@ -860,3 +860,83 @@ If `IsCommonKnowledgeTerrain` is ever widened to a band that the sim can MUTATE
 constructor-time cache would go stale — re-evaluate whether to recompute on the
 terrain-mutation event (the way `OnWaterProximityChanged` handles canal floods) or
 make the predicate read the live grid per call.
+
+## Update 2026-06-16 — M23 loot caches
+
+Unowned `Cache` structures (owner `-2`) scattered into the genesis fog, looted
+with `LootCacheIntent`. See `docs/loot-caches.md`. No new scheduled-event type
+and no new anchor — caches are ordinary structures in the snapshot →
+recovery-clean by construction (`RegenerateQueue` untouched).
+
+### Genesis scatter consumes the seeded `Rng` deterministically
+
+`CacheScatter.Scatter` runs once in the `Simulation` spec-ctor, AFTER the
+lifespan rolls, using the sim's owned `Rng`. Determinism rests on three things:
+candidate tiles enumerated in canonical `(y, x)` order; a partial Fisher-Yates
+draw over `Rng.NextInt`; loot rolled in a fixed draw order (primary resource,
+amount, gear chance, gear pick). It reads — never writes — every player's
+genesis `Explored` set for the fog gate. **`CacheConfig.Count` defaults to 0**,
+making the scatter a pure no-op that consumes zero `Rng` for every existing
+scenario, so their hashes are bit-identical (proven by the unchanged 749-test
+baseline and `Scatter_Count0_ProducesNoCaches`). Headline:
+`CachesTests.Caches_TwinRun_HashesMatch` (twin genesis → equal hash) +
+`Scatter_EveryCache_IsUnseenByAllPlayers_AtGenesis` (the spawn-in-fog invariant).
+
+`CacheConfig` lives on `GenesisSpec`, NOT on `GameWorld` — it is a genesis-time
+input, and only the RESULTING `Cache` structures are serialized. Restore loads
+those structures and never re-scatters (recovery anchors on the snapshot, not
+genesis — see the M4 addendum), so the config is correctly absent from the save.
+
+### The cache fog/loot surfaces
+
+- `Cache` is a `StorageStructure`; it serializes through the existing
+  `WriteStorage`/`ReadStorage` (capacity from the catalog — stable, drift-checked
+  — Holdings as the loot). `Snapshot.FormatVersion` 16 → 17 (new structure kind
+  in the serialized surface; old binaries reject cache-bearing snapshots cleanly
+  via the version gate). Append-only enum byte `StructureKind.Cache = 15`.
+- `LootCacheIntent` is the only cache mutator outside scatter/restore: it
+  withdraws cargo-capped from the `Cache` on the unit's tile and removes the
+  cache when emptied. Fail-clean (all preconditions precede any mutation), same
+  shape as `LoadCargoIntent`. Registered in `IntentJson` (frozen name
+  `"LootCacheIntent"`, `[JsonConstructor]`), round-trip covered by the
+  persistence suite.
+- The unowned owner `-2` is what makes the view behavior free: `BuildPlayerView`
+  surfaces a structure only when `owner == viewer || tile visible`, so a cache
+  shows on sight and vanishes in fog with no new code. `ViewProjector` reveals a
+  VISIBLE cache's Holdings (so the player can name the loot) — the M15
+  "visible structure's contents are public" exception; it is a pure read, never
+  Remembered, so the contents fog with the cache.
+
+No new global-iteration on a timer: the scatter is a one-time O(W·H) genesis
+candidate scan (like worldgen), not a per-tick sweep.
+
+## Update 2026-06-16 — the cart (first non-combat buff)
+
+A cart is a `Buff` that adds carry capacity and slows movement (`docs/cart.md`).
+It adds two modifier dimensions to `Buff` (`CargoModifier`, `MoveCostPercent`)
+and two live rollups. No new entity, event, or anchor → recovery-clean.
+
+### The move-cost rollup is a pure-read, on the execution side only
+
+`MoveIntent.ScheduleNextHop` scales the ground-truth `ExecutionCost` by the
+unit's summed `MoveCostPercent` before scheduling the arrival:
+`hopCost * (100 + slow) / 100` (long intermediate, `Impassable`-guarded, integer).
+It reads `unit.Buffs` and writes nothing but the (already-existing) arrival
+anchor. A* planning (`PlanCost`) is **not** touched — a uniform multiplier
+doesn't change the route — so the determinism-sensitive pathfinder is untouched.
+`slow == 0` (no move-cost buffs) leaves the cost identical → every existing move
+is bit-for-bit unchanged (`CartTests.NoCart_Movement_Unchanged`). The scaled cost
+bakes into `NextArrivalTick`, so mid-move recovery is correct for free, and
+equipping requires Idle so no hop is ever half-scaled.
+
+`Unit.CargoCapacity` becomes role value + summed `CargoModifier` (clamped ≥ 0) —
+still a pure derived getter, no stored field.
+
+### Snapshot format
+
+`Snapshot.FormatVersion` 17 → 18: `WriteBuffs`/`ReadBuffs` now carry the two new
+ints per buff (existing weapon buffs serialize them as 0, unchanged behavior).
+`Resource.Cart = 8` is an append-only enum byte; it rides the existing
+holdings/cargo/ground-pile serialization with no new code. Round-trip pinned by
+`CartTests.Cart_RoundTripsThroughSnapshot_PreservesModifiers`; the cart drops as
+an item via the existing `Equipment.DropEquipmentToGround` (one shared rule).
