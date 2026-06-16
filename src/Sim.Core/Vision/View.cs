@@ -34,6 +34,12 @@ public sealed record ProposalView(
 // VisibleUnits / VisibleStructures include OWN entities unconditionally
 // plus any OTHER entities standing on a currently-visible tile.
 //
+// M22 EXCEPTION: common-knowledge high terrain (Mountain — the scarcest
+// resource band) appears in RememberedTerrain even when never explored, so
+// every player sees the peaks from the start. This is TERRAIN ONLY — such a
+// tile is NOT added to Explored, and entities/roads on it stay hidden until
+// the tile is genuinely visible. See docs/high-terrain-visibility.md.
+//
 // Diplomatic state (Factions / Relationships / PendingWars) is public
 // knowledge — populated identically for every PlayerView. IncomingProposals
 // is the only diplomatic field that's per-viewer scoped: offers stay
@@ -135,6 +141,23 @@ public static class View
                 remembered[t] = seen;
             else
                 remembered[t] = world.Grid.BiomeAt(t);
+        }
+
+        // M22 — the highest terrain is COMMON KNOWLEDGE: reveal Mountain tiles
+        // to every player from the start (a race to the scarcest resources).
+        // Added to RememberedTerrain (terrain memory) ONLY — NOT to Visible or
+        // Explored — so the client and the AI brain (both read RememberedTerrain)
+        // see the peaks, while units / structures / roads on them stay fogged
+        // until real vision arrives. Currently-visible mountains are skipped
+        // (already shown live this frame). PURE READ: we write only to this
+        // freshly-built `remembered` copy, never to world state; the tile set
+        // is immutable worldgen data (GameWorld.CommonKnowledgeTerrain). Keeping
+        // it OUT of Explored is deliberate — Explored gates the road overlay
+        // (ViewProjector), so an enemy road on an un-scouted peak doesn't leak.
+        foreach (var t in world.CommonKnowledgeTerrain)
+        {
+            if (visible.Contains(t)) continue;
+            remembered[t] = world.Grid.BiomeAt(t); // == Mountain (off-ladder; never stale)
         }
 
         // Units: own unconditionally; others only if their tile is visible.

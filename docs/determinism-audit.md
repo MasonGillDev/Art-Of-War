@@ -821,3 +821,42 @@ and `Claims.ValidateOne`.
 Closure gate: `CanalsTests.Canals_TwinRun_HashesMatch` (build a multi-tile
 canal → sail a boat through it → a degraded field beside it recovers →
 twin-run hash equality).
+
+## Update 2026-06-16 — M22 high-terrain visibility
+
+The highest terrain band (Mountain) is revealed to every player's view from the
+start (a race to the scarcest resources). See `docs/high-terrain-visibility.md`.
+
+**No new mutation surface, no new sim state, no snapshot change.** The reveal is
+entirely in the pure-read view projection and adds the mountain biome to the
+returned view's `RememberedTerrain` copy only — never to `Explored`, never to any
+`world.*` collection.
+
+### `BuildPlayerView` stays a strict pure read
+
+The reveal loop writes only to the freshly-built `remembered` dictionary that is
+part of the returned `PlayerView`; it touches no world state. `Explored` is left
+untouched on purpose — it gates the road overlay (`ViewProjector`), so keeping
+mountains out of it prevents an enemy-road-on-un-scouted-peak leak. The headline
+fog contract (`FogDeterminismTests.ViewsOff_HashEquals_ViewsOn`) and the pure-read
+wall (`HighTerrainVisibilityTests.MountainReveal_BuildPlayerView_IsPureRead_NoMutation`,
+100× no-mutation) both hold.
+
+### `GameWorld.CommonKnowledgeTerrain` is non-serialized derived data
+
+The set of mountain tiles is computed ONCE in the `GameWorld` constructor from the
+frozen grid (`Biomes.IsCommonKnowledgeTerrain`). It is **not** written by any
+`Snapshot.Write*` method and **not** part of the sim hash — a read-side memo of
+immutable worldgen data, recomputed identically from the grid on restore. Mountain
+tiles never change (canals only flood non-Mountain land; nothing else mutates the
+grid), so the eager one-time computation is always valid. Because it is
+unserialized, building a view (which reads it) cannot change the snapshot —
+pinned by `HighTerrainVisibilityTests.MountainReveal_DoesNotAffectSnapshotHash_AndSurvivesRoundTrip`.
+
+### Trigger note for this audit
+
+If `IsCommonKnowledgeTerrain` is ever widened to a band that the sim can MUTATE
+(e.g. if a future feature changes Mountain/Hills tiles at runtime), the eager
+constructor-time cache would go stale — re-evaluate whether to recompute on the
+terrain-mutation event (the way `OnWaterProximityChanged` handles canal floods) or
+make the predicate read the live grid per call.

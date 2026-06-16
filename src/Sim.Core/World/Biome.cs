@@ -48,6 +48,19 @@ public static class Biomes
         _ => throw new ArgumentOutOfRangeException(nameof(b), b, null),
     };
 
+    // M22 — the HIGHEST terrain band is common knowledge. Mountain (the
+    // scarcest resource band — it alone gates Stone via the Quarry) is
+    // revealed to every player's view from the start, so the opening is a
+    // RACE to the peaks rather than a fog-gated discovery. TERRAIN ONLY: fog
+    // still hides the units / structures / roads ON a mountain until a player
+    // gets real vision there (you see WHERE to race, not who already arrived).
+    //
+    // This is the single knob for "which biomes are always-known terrain":
+    // add `or Biome.Hills` to reveal the second band too. Pure terrain
+    // property, deterministic, view-side only — it never touches sim state.
+    // See docs/high-terrain-visibility.md.
+    public static bool IsCommonKnowledgeTerrain(Biome b) => b == Biome.Mountain;
+
     public static Resource Resource(Biome b) => b switch
     {
         Biome.Grassland => World.Resource.Food,

@@ -109,6 +109,20 @@ public sealed class GameWorld
     // Scouting/ScoutMission.cs and docs/m20-scouting-reports-spec.md.
     public SortedDictionary<int, Sim.Core.Scouting.ScoutMission> ScoutMissions { get; } = new();
 
+    // M22 — tiles whose worldgen biome is common-knowledge HIGH terrain
+    // (Biomes.IsCommonKnowledgeTerrain — Mountain today). View.BuildPlayerView
+    // reveals these in every player's RememberedTerrain regardless of fog, so
+    // the scarce peaks are visible from the start — a race, not a discovery
+    // (docs/high-terrain-visibility.md).
+    //
+    // Computed ONCE in the constructor and never mutated: Mountain tiles are
+    // immutable (canals only flood non-Mountain land; nothing else changes the
+    // grid). It is NOT serialized and NOT part of the sim hash — a read-side
+    // memo of immutable worldgen data, recomputed identically from the grid on
+    // restore. Eager (not lazy) so BuildPlayerView stays a strict pure read
+    // with no cache write on the fog path.
+    public IReadOnlySet<TileCoord> CommonKnowledgeTerrain { get; }
+
     public GameWorld(TileGrid grid)
         : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 
@@ -128,6 +142,22 @@ public sealed class GameWorld
         CombatConfig = combatConfig;
         PopulationConfig = populationConfig;
         BiomeDegradationConfig = biomeDegradationConfig;
+        CommonKnowledgeTerrain = ComputeCommonKnowledgeTerrain(grid);
+    }
+
+    // M22 — scan the frozen grid once for the common-knowledge high-terrain
+    // band. Bounded O(W*H), one-time per world construction (genesis + each
+    // restore); the result is immutable for the world's lifetime.
+    private static HashSet<TileCoord> ComputeCommonKnowledgeTerrain(TileGrid grid)
+    {
+        var set = new HashSet<TileCoord>();
+        for (var y = 0; y < grid.Height; y++)
+            for (var x = 0; x < grid.Width; x++)
+            {
+                var t = new TileCoord(x, y);
+                if (Biomes.IsCommonKnowledgeTerrain(grid.BiomeAt(t))) set.Add(t);
+            }
+        return set;
     }
 
     // Restore-only — used by Snapshot.Restore to swap in the serialized
