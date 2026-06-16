@@ -411,3 +411,48 @@ population for 60 fewer tiles of PERMANENT desert - a gap that
 compounds forever while the pop difference does not. Pinned by
 CropRotation_VsSlashAndBurn_LabReport: rotation must never starve
 anyone and must burn no more land than slash-and-burn.
+
+## Update 2026-06-16 — water lifts the latch (M21)
+
+**The latch is no longer unconditional.** A degraded tile within
+`BiomeDegradationConfig.WaterRecoveryRadius` (Chebyshev, default 2) of any
+`Biome.Water` tile — worldgen lake/sea OR a player-built canal — escapes the
+permanent Desert latch and recovers toward its original band at the normal
+recovery rate. The change is a single extra condition on the latch branch of
+`DeriveRate`:
+
+```
+if (storedFert < DesertThreshold && !WaterProximity.IsNearWater(world, tile, R))
+    // latched — recovery forced to 0
+```
+
+When near water the tile falls through to the existing
+`storedDev < 0 → recovery` path.
+
+**Degraded-only — raw desert does NOT green.** This restores land the player
+*degraded* (negative deviation), not naturally barren worldgen Desert. No
+special case is needed: raw desert sits at deviation 0, so the pre-existing
+"recovery applies only when `storedDev < 0`" guard returns rate 0 for it. Only
+tiles carrying a degrade deficit climb back. (Blooming raw desert would mean
+raising the effective baseline near water — deferred to a future decision; see
+`docs/canals.md`.)
+
+**Water proximity is a new RATE-TRANSITION trigger.** `IsNearWater` is a pure
+grid read, and the rate stays invariant between transitions *because the only
+thing that adds water is canal completion*. That event
+(`BiomeDegradation.OnWaterProximityChanged`, called from the canal
+`BuildCompleteEvent` branch) catches up every on-ladder tile within
+`WaterRecoveryRadius` of the new water UNDER THE OLD RATE and anchors
+`lastUpdate = now`, **before** the grid mutates to Water — the same carry-drop/
+anchor discipline as `OnProductionTransition` (`§Why anchor lastUpdateTick`).
+Catching up after the flood would re-interpret the whole pre-canal latched
+window as recovery time (wrong). Natural worldgen water never changes, so it
+needs no transition — it has been "near water" since tick 0 and the lazy math
+is exact from the last extractor transition.
+
+**Config + snapshot.** `WaterRecoveryRadius` is a new positional (defaulted)
+field on `BiomeDegradationConfig`; `Snapshot.FormatVersion` 14 → 15 (the config
+block is 13 fields now). See `docs/canals.md` and the M21 determinism-audit
+addendum. The lazy catch-up math, snap penalty, implicit latch, carry/anchor
+discipline, and off-ladder rules are all unchanged — M21 only changes *when*
+the latch is allowed to release.

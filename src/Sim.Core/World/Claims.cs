@@ -135,6 +135,10 @@ public static class Claims
         // ...and unclaimed by anyone, any kind (one claimant per tile).
         if (ClaimantAt(world, t) is { } c)
             return $"claim tile {t.X},{t.Y} already claimed by structure at {c.X},{c.Y}";
+        // M21 — ...and not promised to an in-flight canal (canal water can't
+        // host an extractor claim; the tile is about to stop being land).
+        if (Sim.Core.Canals.CanalReservation.IsReserved(world, t))
+            return $"claim tile {t.X},{t.Y} is reserved by a canal under construction";
         return null;
     }
 }

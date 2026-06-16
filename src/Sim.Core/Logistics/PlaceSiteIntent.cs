@@ -43,11 +43,22 @@ public sealed class PlaceSiteIntent : Intent
         if (!spec.IsPlayerBuildable)
             return IntentOutcome.Reject($"{Kind} is not player-buildable");
 
+        // M21 — a Canal is a whole-PATH build with its own validation; it
+        // cannot be placed as a single-tile site here.
+        if (Kind == StructureKind.Canal)
+            return IntentOutcome.Reject("Canal must be placed via PlaceCanalIntent (whole-path build)");
+
         if (!sim.World.Grid.InBounds(Tile))
             return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} out of bounds");
 
         if (sim.World.Structures.ContainsKey(Tile))
             return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} already has a structure");
+
+        // M21 — a tile promised to an in-flight canal is reserved territory,
+        // just like a claim: nothing else may build on it.
+        if (Sim.Core.Canals.CanalReservation.IsReserved(sim.World, Tile))
+            return IntentOutcome.Reject(
+                $"tile {Tile.X},{Tile.Y} is reserved by a canal under construction");
 
         // M15 — full structural exclusion: NO structure of any kind may be
         // placed on a tile claimed by anyone (the owner included). Claims

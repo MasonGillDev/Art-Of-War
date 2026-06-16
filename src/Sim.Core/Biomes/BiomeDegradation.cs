@@ -175,7 +175,19 @@ public static class BiomeDegradation
         // Implicit latch: stored fertility below threshold → permanent desert.
         // Recovery is forced to 0; only degrade applies (which just pushes the
         // deviation further negative — biome stays Desert).
-        if (storedFert < config.DesertThreshold)
+        //
+        // M21 EXCEPTION — water lifts the latch. A latched tile within
+        // WaterRecoveryRadius of any Water tile (worldgen OR a built canal)
+        // does NOT take the latch branch: it falls through to the normal
+        // `storedDev < 0 → recovery` path and climbs back toward its band.
+        // Note this restores DEGRADED land only — raw worldgen desert sits at
+        // deviation 0, so the `storedDev < 0` guard below returns (0,1) and it
+        // never greens. Water proximity is invariant between rate transitions
+        // (the only thing that adds water is canal completion, which catches
+        // up affected tiles via OnWaterProximityChanged), so the lazy-field
+        // contract holds. See WaterProximity + docs/canals.md.
+        if (storedFert < config.DesertThreshold
+            && !WaterProximity.IsNearWater(world, tile, config.WaterRecoveryRadius))
         {
             return degradeAmount > 0
                 ? (-degradeAmount, config.DegradePeriod)
@@ -225,6 +237,42 @@ public static class BiomeDegradation
     {
         if (extractor.Spec.DegradeAmount <= 0) return;  // Quarry / Mine: no-op
         foreach (var t in extractor.ClaimTiles)
+            CatchUp(world, t, now, config);
+    }
+
+    // M21 — a built canal turns land into Water, which can lift the permanent
+    // desert latch on nearby degraded land (WaterProximity + DeriveRate). That
+    // is a RATE-CHANGING event, exactly like an extractor production
+    // transition: every affected tile must be caught up under the OLD
+    // (pre-water) rate and anchored at `now` BEFORE the grid is mutated to
+    // Water — otherwise a later read would re-interpret the whole pre-canal
+    // elapsed time under the new recovery rate (the M9 anchor-discipline trap;
+    // architecture §2.5). The canal BuildCompleteEvent branch calls this with
+    // the path tiles, THEN sets them to Water.
+    //
+    // Affected = every on-ladder, in-bounds tile within WaterRecoveryRadius
+    // (Chebyshev) of any path tile (the path tiles themselves included; they go
+    // off-ladder when flooded and the caller drops their Fertility entry).
+    // Catch-up ORDER is irrelevant to the result — each tile's CatchUp reads
+    // only its own stored deviation and the (still-unmutated) world — but we
+    // iterate canonical (y, x) for hygiene per architecture §3 rule 6.
+    internal static void OnWaterProximityChanged(
+        GameWorld world, IReadOnlyList<TileCoord> newWaterTiles, long now, BiomeDegradationConfig config)
+    {
+        var r = config.WaterRecoveryRadius;
+        var affected = new HashSet<TileCoord>();
+        foreach (var center in newWaterTiles)
+            for (var dy = -r; dy <= r; dy++)
+                for (var dx = -r; dx <= r; dx++)
+                {
+                    var t = new TileCoord(center.X + dx, center.Y + dy);
+                    if (!world.Grid.InBounds(t)) continue;
+                    if (!IsOnLadder(world.Grid.BiomeAt(t))) continue;
+                    affected.Add(t);
+                }
+        var ordered = new List<TileCoord>(affected);
+        ordered.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+        foreach (var t in ordered)
             CatchUp(world, t, now, config);
     }
 

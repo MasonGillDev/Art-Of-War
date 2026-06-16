@@ -55,6 +55,16 @@ public sealed class BuildCompleteEvent : ScheduledEvent
             world.Units[id].TrySetActivity(Activity.Idle);
 
         world.Structures.Remove(SiteTile);
+
+        // M21 — a Canal build produces NO structure: it floods its path of
+        // tiles into Water and irrigates the surrounding land. Handle it
+        // before the structure-producing path and return.
+        if (site.TargetKind == StructureKind.Canal)
+        {
+            CompleteCanal(sim, site);
+            return;
+        }
+
         // OwnerId inherits from the ConstructionSite (which got it from
         // PlaceSiteIntent's PlayerId at submission time).
         var built = BuildStructure(site.TargetKind, SiteTile, site.OwnerId, site.DockSlip);
@@ -116,6 +126,46 @@ public sealed class BuildCompleteEvent : ScheduledEvent
             if (cap > 0 && house.ResidentCount >= cap) break;
             Sim.Core.Population.Population.SetHome(sim, u, house.At);
         }
+    }
+
+    // M21 — flood a finished canal (docs/canals.md). THE ORDER IS LOAD-
+    // BEARING (architecture §2.5, biome-degradation transition discipline):
+    //
+    //   1. Catch up the fertility of every tile whose water proximity is about
+    //      to change, UNDER THE OLD (pre-water) rate, anchoring lastUpdate=now
+    //      — while the grid is still un-mutated. Doing this AFTER the flood
+    //      would re-interpret the whole pre-canal elapsed time under the new
+    //      recovery rate (the anchor-discipline trap).
+    //   2. Only then mutate the grid: each path tile becomes Water and leaves
+    //      the F/G/D ladder. Drop its now-meaningless Fertility entry (keeps
+    //      the sparse dict canonical) and any road on it (roads never live on
+    //      water).
+    //   3. Reveal the freshly-flooded tiles for the owner.
+    //
+    // No resulting structure: a canal "is just more water to sail through"
+    // (docs/boats.md). The site was already removed by Apply; builders were
+    // already freed. Existing boat movement (Biome.Water == cost-6 for boats)
+    // and the M21 water-restores-land rule both compose for free.
+    private static void CompleteCanal(Simulation sim, ConstructionSite site)
+    {
+        var world = sim.World;
+        var path = site.CanalPath;
+
+        // 1. Transition catch-up under the OLD rate (grid still un-mutated).
+        BiomeDegradation.OnWaterProximityChanged(
+            world, path, sim.Now, world.BiomeDegradationConfig);
+
+        // 2. Mutate terrain.
+        foreach (var p in path)
+        {
+            world.Grid.SetBiome(p, Biome.Water);
+            world.Fertility.Remove(p);
+            world.Roads.Remove(p);
+        }
+
+        // 3. Reveal the new water for the owner.
+        foreach (var p in path)
+            Sight.Reveal(world, site.OwnerId, p, 1, sim.Now);
     }
 
     // Catalog dispatch. Every player-buildable kind needs a row here.

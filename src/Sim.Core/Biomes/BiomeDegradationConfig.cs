@@ -40,7 +40,13 @@ public readonly record struct BiomeDegradationConfig(
     int RecoveryAmount,
     long RecoveryPeriod,
     long DegradePeriod,
-    int DegradeRadius)
+    int DegradeRadius,
+    // M21 — Chebyshev radius within which a Water tile (worldgen lake/sea OR a
+    // player-built canal) lifts the otherwise-permanent desert latch on
+    // degraded ladder land, letting it recover toward its original biome.
+    // Defaulted so existing positional/named construction stays source-
+    // compatible. See WaterProximity + docs/canals.md.
+    int WaterRecoveryRadius = 2)
 {
     // SCALE NOTE: the fertility space is ×100 the original M9 scale
     // (10000/5000/1000 instead of 100/50/10). The point space is fine-
@@ -88,6 +94,11 @@ public readonly record struct BiomeDegradationConfig(
         // Chebyshev radius around an extractor. Radius 1 = 3×3 area (8
         // neighbours + own tile). Tuneable once play surfaces the right
         // pressure curve.
-        DegradeRadius:       2)
+        DegradeRadius:       2,
+        // M21 — same Chebyshev scale as the degrade footprint: land within 2
+        // tiles of water (lake/sea/canal) escapes the permanent latch and
+        // recovers. Lakeside/canal-side fields are renewable; inland land
+        // still has a hard desert floor.
+        WaterRecoveryRadius: 2)
     { }
 }

@@ -78,7 +78,7 @@ public static class Snapshot
     //       observation log). Pure durable data — the log is appended only
     //       by ScoutObservation.Capture (no new scheduled events), so
     //       RegenerateQueue is untouched.
-    public const int FormatVersion = 14;
+    public const int FormatVersion = 16;
 
     public static string Hash(Simulation sim)
     {
@@ -564,6 +564,12 @@ public static class Snapshot
     private static void WriteConstruction(BinaryWriter bw, ConstructionSite c)
     {
         bw.Write((byte)c.TargetKind);
+        // M21 — canal path (empty for every non-canal target). Written right
+        // after TargetKind so ReadConstruction can reconstruct the path-scaled
+        // site (its BuildDurationTicks/Required are ×length) BEFORE the
+        // build-duration drift check below.
+        bw.Write(c.CanalPath.Count);
+        foreach (var t in c.CanalPath) { bw.Write(t.X); bw.Write(t.Y); }
         bw.Write(c.Required.Count);
         foreach (var (r, n) in c.Required) { bw.Write((byte)r); bw.Write(n); }
         bw.Write(c.Delivered.Count);
@@ -586,7 +592,18 @@ public static class Snapshot
     private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at, int ownerId)
     {
         var targetKind = (StructureKind)br.ReadByte();
-        var c = new ConstructionSite(at, targetKind) { OwnerId = ownerId };
+        // M21 — canal path read first so the site is reconstructed with its
+        // length-scaled BuildDurationTicks (the drift check below compares
+        // against the catalog × path length).
+        var canalLen = br.ReadInt32();
+        List<TileCoord>? canalPath = null;
+        if (canalLen > 0)
+        {
+            canalPath = new List<TileCoord>(canalLen);
+            for (var i = 0; i < canalLen; i++)
+                canalPath.Add(new TileCoord(br.ReadInt32(), br.ReadInt32()));
+        }
+        var c = new ConstructionSite(at, targetKind, canalPath) { OwnerId = ownerId };
         c.Required.Clear();
         var req = br.ReadInt32();
         for (var i = 0; i < req; i++)
@@ -980,7 +997,7 @@ public static class Snapshot
 
     private static void WriteBiomeDegradation(BinaryWriter bw, GameWorld world)
     {
-        // Config first — twelve fields, fixed order matches the record-struct
+        // Config first — thirteen fields, fixed order matches the record-struct
         // positional layout.
         var c = world.BiomeDegradationConfig;
         bw.Write(c.ForestBaseline);
@@ -995,6 +1012,7 @@ public static class Snapshot
         bw.Write(c.RecoveryPeriod);
         bw.Write(c.DegradePeriod);
         bw.Write(c.DegradeRadius);
+        bw.Write(c.WaterRecoveryRadius); // M21
 
         // Sparse fertility dict in canonical (y, x) order — serialized
         // FAITHFULLY, including Deviation == 0 entries. Those are the M9
@@ -1076,9 +1094,11 @@ public static class Snapshot
         var recoveryPeriod = br.ReadInt64();
         var degradePeriod = br.ReadInt64();
         var degradeRadius = br.ReadInt32();
+        var waterRecoveryRadius = br.ReadInt32(); // M21
         world.RestoreBiomeDegradationConfig(new Sim.Core.Biomes.BiomeDegradationConfig(
             forestBase, grassBase, desertBase, hillsBase, mountainBase, waterBase,
-            forestThresh, desertThresh, recoveryAmount, recoveryPeriod, degradePeriod, degradeRadius));
+            forestThresh, desertThresh, recoveryAmount, recoveryPeriod, degradePeriod, degradeRadius,
+            waterRecoveryRadius));
 
         var count = br.ReadInt32();
         for (var i = 0; i < count; i++)

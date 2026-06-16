@@ -276,16 +276,38 @@ public sealed class ConstructionSite : Structure
     // non-claiming targets.
     public List<TileCoord> ClaimTiles { get; } = new();
 
-    public ConstructionSite(TileCoord at, StructureKind targetKind)
+    // M21 — Canal targets only: the ordered path of land tiles this build
+    // floods into Water on completion (docs/canals.md). The anchor tile
+    // (`At`, where materials haul and builders gather) is path[0]. A canal is
+    // priced and timed PER TILE — the ctor scales Required and
+    // BuildDurationTicks by the path length. Empty for every other target;
+    // also serves as the reservation source (CanalReservation scans it so no
+    // other build/claim can land on a tile a canal already promised).
+    public List<TileCoord> CanalPath { get; } = new();
+
+    public ConstructionSite(TileCoord at, StructureKind targetKind,
+        IReadOnlyList<TileCoord>? canalPath = null)
         : base(at)
     {
         var spec = StructureCatalog.Spec(targetKind);
         if (!spec.IsPlayerBuildable)
             throw new InvalidOperationException($"{targetKind} is not player-buildable.");
         TargetKind = targetKind;
+        // Canal cost/time scale with the number of tiles dug. A canal MUST
+        // carry a non-empty path (PlaceCanalIntent supplies it); any other
+        // kind ignores the parameter.
+        var scale = 1;
+        if (targetKind == StructureKind.Canal)
+        {
+            if (canalPath is null || canalPath.Count == 0)
+                throw new InvalidOperationException(
+                    "Canal ConstructionSite requires a non-empty path (use PlaceCanalIntent).");
+            CanalPath.AddRange(canalPath);
+            scale = canalPath.Count;
+        }
         Required = new SortedDictionary<Resource, int>();
-        foreach (var (r, n) in spec.BuildCost) Required[r] = n;
-        BuildDurationTicks = spec.BuildDurationTicks;
+        foreach (var (r, n) in spec.BuildCost) Required[r] = n * scale;
+        BuildDurationTicks = spec.BuildDurationTicks * scale;
         RequiredBuilderCount = spec.RequiredBuilderCount;
     }
 

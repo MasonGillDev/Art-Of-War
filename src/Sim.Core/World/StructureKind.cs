@@ -16,4 +16,5 @@ public enum StructureKind : byte
     School = 11, // training — flips a unit's UnitRole
     Barracks = 12, // military training + equipment crafting (storage)
     Lodge = 13, // M20 — intelligence structure; gates DispatchScoutIntent
+    Canal = 14, // M21 — build job that floods a path of land into Water (docs/canals.md)
 }

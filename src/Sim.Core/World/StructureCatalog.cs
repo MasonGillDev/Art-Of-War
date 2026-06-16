@@ -228,6 +228,29 @@ public static class StructureCatalog
             // while the slip is free; stalls when slip is occupied.
             ProductionPeriodTicks = 10 * Time.Day,
         },
+        // M21 — Canal. A terrain-mutation build job: it converts a chosen
+        // PATH of land tiles into Water (docs/canals.md). The cost and build
+        // time below are PER DUG TILE — PlaceCanalIntent multiplies both by
+        // the path length, so a long canal is a proportionally huge
+        // investment ("a real investment" — the user). Stone-heavy (digging
+        // and lining the channel) with timber for shoring; three builders.
+        // A finished canal leaves NO structure — the tiles simply become
+        // Water (BuildCompleteEvent's canal branch). IsPlayerBuildable is
+        // true so the ConstructionSite ctor accepts it, but PlaceSiteIntent
+        // rejects Canal — the whole-path validation lives in PlaceCanalIntent.
+        // No RequiredBiome: the intent does its own diggable-land checks.
+        [StructureKind.Canal] = new StructureSpec
+        {
+            Kind = StructureKind.Canal,
+            IsPlayerBuildable = true,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Stone] = 150,
+                [Resource.Wood] = 50,
+            },
+            BuildDurationTicks = 1 * Time.Day,
+            RequiredBuilderCount = 3,
+        },
     };
 
     public static StructureSpec Spec(StructureKind kind) =>

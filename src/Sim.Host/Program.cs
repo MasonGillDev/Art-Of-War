@@ -176,6 +176,7 @@ static void Print(string label, Simulation sim)
 var generate = args.Length > 0 && args[0] == "--generate";
 var groupsDemo = args.Length > 0 && args[0] == "--groups";
 var degradationDemo = args.Length > 0 && args[0] == "--degradation";
+var canalDemo = args.Length > 0 && args[0] == "--canal";
 var automationDemo = args.Length > 0 && args[0] == "--automation";
 var scoutingDemo = args.Length > 0 && args[0] == "--scouting";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
@@ -192,6 +193,10 @@ else if (groupsDemo)
 else if (degradationDemo)
 {
     DegradationDemo.Run();
+}
+else if (canalDemo)
+{
+    CanalDemo.Run();
 }
 else if (automationDemo)
 {
@@ -736,6 +741,115 @@ static class PersistentDemo
             new HaulIntent(2, new TileCoord(15, 0), new TileCoord(0, 0), Resource.Wood));
 
         return sim;
+    }
+}
+
+// M21 — canals smoke. A latched desert field sits inland, beyond the coastal
+// sea's reach. The player digs a canal from the coast to the field: the path
+// floods to Water, irrigates the field (M21 latch-lift restores degraded land
+// near water), and a boat sails up the new canal to the heart of the kingdom.
+// Ends with the milestone determinism checks (twin run + snapshot round-trip).
+static class CanalDemo
+{
+    // Demo-scale degradation config (the production default's hourly pacing
+    // would take game-months to show recovery). Same shape as DegradationDemo.
+    static readonly Sim.Core.Biomes.BiomeDegradationConfig Cfg = new(
+        ForestBaseline: 100, GrasslandBaseline: 50, DesertBaseline: 10,
+        HillsBaseline: 30, MountainBaseline: 60, WaterBaseline: 0,
+        ForestThreshold: 75, DesertThreshold: 25,
+        RecoveryAmount: 1, RecoveryPeriod: 30,
+        DegradePeriod: 40, DegradeRadius: 2, WaterRecoveryRadius: 2);
+
+    static readonly TileCoord Field = new(3, 5);
+    static readonly List<TileCoord> Path = new() { new(1, 5), new(2, 5) };
+
+    static Simulation Build()
+    {
+        var grid = new TileGrid(12, 12, Biome.Grassland);
+        for (var y = 0; y < 12; y++) grid.SetBiome(new TileCoord(0, y), Biome.Water); // west coast
+        var world = new GameWorld(grid, new Sim.Core.Diplomacy.DiplomacyConfig(),
+            new Sim.Core.Combat.CombatConfig(), new Sim.Core.Population.PopulationConfig(), Cfg);
+        world.Players[0] = new Player(0);
+        world.AddStructure(new Castle(new TileCoord(6, 0)) { OwnerId = 0 });
+        // The field, degraded into latched desert (fertility 20 < threshold 25),
+        // 3 tiles from the coast so it is NOT near water until the canal arrives.
+        world.Fertility[Field] = new Sim.Core.Biomes.Fertility(-30, 0);
+        // A boat waiting on the coast.
+        world.AddUnit(new Unit(50, new TileCoord(0, 6))
+            { Role = UnitRole.Boat, OwnerId = 0, Traversal = Traversal.Water, BornTick = 0 });
+        // Three builders on the canal's anchor tile (Path[0]).
+        for (var i = 1; i <= 3; i++)
+            world.AddUnit(new Unit(i, Path[0]) { Role = UnitRole.Builder, OwnerId = 0 });
+        return new Simulation(world, seed: 0xCABA1);
+    }
+
+    static string FieldState(Simulation sim, long tick) =>
+        $"{Sim.Core.Biomes.BiomeDegradation.BiomeAt(sim.World, Field, tick, Cfg)} " +
+        $"(fertility {Sim.Core.Biomes.BiomeDegradation.FertilityAt(sim.World, Field, tick, Cfg)})";
+
+    static Simulation RunScenario(Action<string>? log = null)
+    {
+        var sim = Build();
+        var beforeFlood = FieldState(sim, 0);
+
+        // Dig the canal from the coast toward the field.
+        new Sim.Core.Canals.PlaceCanalIntent(Path) { PlayerId = 0 }.Resolve(sim);
+        var site = (ConstructionSite)sim.World.Structures[Path[0]];
+        foreach (var (r, n) in site.Required) site.Deposit(r, n); // hand-deliver stone/wood
+        sim.SubmitIntent(sim.Now, new AssignBuildersIntent(Path[0], new[] { 1, 2, 3 }));
+        sim.Run(); // build completes; the path floods to Water
+        var floodedAt = sim.Now;
+
+        // Sail the boat up the new canal to the inland end — an inland supply line.
+        new MoveIntent(50, new TileCoord(2, 5)) { PlayerId = 0 }.Resolve(sim);
+        sim.Run();
+
+        // Let the irrigated field recover, then settle.
+        sim.Schedule(sim.Now + Cfg.RecoveryPeriod * 30, new NoOpEvent());
+        sim.Run();
+
+        if (log != null)
+        {
+            log("--- Canals Demo (M21) ---");
+            log($"A latched desert field sits inland at ({Field.X},{Field.Y}): {beforeFlood}.");
+            log("");
+            log($"Canal dug {string.Join(" -> ", Path.Select(t => $"({t.X},{t.Y})"))}, flooded at tick {floodedAt}:");
+            foreach (var t in Path)
+                log($"  tile ({t.X},{t.Y}) is now {sim.World.Grid.BiomeAt(t)}");
+            log("");
+            var boat = sim.World.Units[50].Position;
+            log($"Boat sailed up the canal to ({boat.X},{boat.Y}) — supply lines reach inland.");
+            log("");
+            log("Field beside the canal, recovering after irrigation:");
+            log($"  at flood   (tick {floodedAt}): {FieldState(sim, floodedAt)}");
+            log($"  +150 ticks: {FieldState(sim, floodedAt + 150)}");
+            log($"  +900 ticks: {FieldState(sim, floodedAt + 900)} — restored to grassland.");
+            log("");
+            log("The desert latch is no longer permanent NEAR WATER. Where you farm matters,");
+            log("and a canal can reclaim land you thought you'd lost forever.");
+            log("");
+        }
+        return sim;
+    }
+
+    public static void Run()
+    {
+        var first = RunScenario(Console.WriteLine);
+        var second = RunScenario();
+        if (Snapshot.Hash(first) != Snapshot.Hash(second))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE: twin canal runs diverged.");
+            Environment.Exit(1);
+        }
+        var bytes = Snapshot.Serialize(first);
+        var restored = Snapshot.Restore(bytes, seed: 0xCABA1);
+        if (Snapshot.Hash(first) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE: restored canal snapshot diverged.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: twin run identical; canal world round-trips through snapshot " +
+            $"({bytes.Length} bytes).");
     }
 }
 

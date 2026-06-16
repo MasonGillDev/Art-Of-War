@@ -83,3 +83,32 @@ The pipeline is structured so each stage can be swapped without touching the sim
 - `Snapshot_RoundTrips_OnGeneratedWorld` — proves the snapshot path is biome-grid-only, generator-independent.
 
 The last two are the freeze-rule contract: if generator state ever became sim state, those tests would diverge.
+
+## Update 2026-06-16 — canals are the sanctioned post-worldgen terrain mutation (M21)
+
+The freeze rule above says the biome grid is frozen before the sim starts and
+the generator never runs on the replay path. **Canals (M21) are the deliberate,
+sanctioned exception** to "terrain is immutable post-worldgen": the canal
+`BuildCompleteEvent` branch calls `TileGrid.SetBiome(p, Biome.Water)` for each
+finished-canal path tile (`docs/canals.md`).
+
+This does **not** weaken the freeze-rule contract, because the mutation is sim
+state, not generator state:
+
+- The mutation happens inside a deterministic, event-driven `BuildCompleteEvent`
+  — same `(At, Seq)` ordering as everything else, no floats, no generator.
+- The grid is already snapshotted faithfully as one biome byte per tile
+  (`WriteGrid`/`ReadGrid`), so a canal-flooded tile round-trips and replays as a
+  plain `Biome.Water` tile. The generator is never consulted to reproduce it.
+- `Snapshot_RoundTrips_OnGeneratedWorld` and `TwinRun_OnGeneratedGenesis` stay
+  green for the same reason they always did — the snapshot path is biome-grid-
+  only and generator-independent, whether a Water tile came from worldgen or a
+  canal.
+
+So the rule sharpens rather than breaks: **the grid is frozen against the
+*generator*, not against the *sim*.** Deterministic event-driven terrain
+mutation (canals today; canal draining or other terraforming later) is allowed
+precisely because it is sim state captured by the snapshot, off the float/replay
+path. A worldgen *feature pass* that stamped biomes would still have to run
+before the freeze; a sim-time terrain change must run as an event and be
+snapshotted — which is exactly what canals do.

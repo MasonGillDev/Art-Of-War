@@ -743,3 +743,81 @@ per think — bounded by the per-player order cap
 (`AutomationConstants.MaxOrdersPerPlayer`), not by world size, and it
 runs server-side outside the sim's event stream. `View.VisibleTiles` is
 computed once per owner per think, not per condition.
+
+## Update 2026-06-16 — M21 water-restores-land + canals
+
+Two coupled features: water proximity lifts the desert latch on degraded
+land, and canals mutate land tiles into Water as a build job. Both ride the
+existing M9/M15 spatial-lazy-field discipline — canal completion is just a
+new rate-changing event. See `docs/canals.md`.
+
+### `TileGrid` biome now has a SECOND post-construction write site
+
+Until M21 the only post-worldgen biome writer was `Snapshot.ReadGrid`
+(restore). M21 adds one event-driven writer:
+
+| Site | Purpose | Verdict |
+|---|---|---|
+| `Logistics/BuildCompleteEvent.cs` (`CompleteCanal`) | `Grid.SetBiome(p, Water)` for each finished-canal path tile | Allowed — event-driven (canal `BuildCompleteEvent`), the one production terrain-mutation point |
+| `Persistence/Snapshot.cs` (`ReadGrid`) | Restore | Allowed — serialization |
+
+The mutated grid is captured by the existing full-grid snapshot
+(`WriteGrid`/`ReadGrid`, one biome byte per tile) — canal water persists for
+free, off the worldgen-generator/replay path (world-generation freeze rule
+addendum, `docs/world-generation.md`).
+
+### `world.Fertility` gains a third write site — the canal transition
+
+`BiomeDegradation.OnWaterProximityChanged` (called only from
+`CompleteCanal`, before the grid mutates) catches up every on-ladder tile
+within `WaterRecoveryRadius` of a new water tile, under the OLD rate,
+anchoring `lastUpdate = now`. This is the M9 transition discipline applied
+to a new rate-changing event (water proximity). It calls the existing
+`CatchUp` (so the mutator set stays `CatchUp` only) — scope is
+**radius-bounded** (`(2*WaterRecoveryRadius+1)^2` per path tile), never a
+global sweep. ORDER IS LOAD-BEARING: catch up → then `SetBiome` (the audit's
+"anchor before you change the rate" rule). Pinned by
+`WaterRestorationTests.OnWaterProximityChanged_AnchorsRecoveryAtTransition_NotRetroactively`
+and the canal completion/recovery tests.
+
+### `DeriveRate` latch-lift is a pure read over the grid
+
+The latch branch now consults `WaterProximity.IsNearWater` (a bounded
+Chebyshev grid scan — pure, no mutation). Water proximity is invariant
+between rate transitions (the only thing that adds water is canal
+completion, which catches up affected tiles), so the lazy field stays exact
+and observation-independent. `FertilityAt`/`BiomeAt` 100×-no-mutation is
+re-pinned by `WaterRestorationTests.NearWaterRecovery_FertilityAt_IsPureRead_NoMutation`.
+The degraded-only guarantee (raw desert at deviation 0 does not green) falls
+out of the pre-existing `storedDev < 0` recovery guard — no special case.
+
+### Canal reservation is a pure-read scan, like claims
+
+`CanalReservation.IsReserved` scans in-flight canal `ConstructionSite`s for
+the tile in their `CanalPath` (mirrors `Claims.ClaimantAt`; same
+O(sites×len) future-index note). No stored world collection — the
+reservation IS the path on the site, so it round-trips for free and cannot
+drift. Consulted (never written) by `PlaceCanalIntent`, `PlaceSiteIntent`,
+and `Claims.ValidateOne`.
+
+### Checklist compliance
+
+- New intent `PlaceCanalIntent`: in `IntentJson.TypeNames` + `Deserialize`
+  with frozen name `"PlaceCanalIntent"`, `[JsonConstructor]`-annotated
+  (`List<TileCoord> path`), round-trips like `PlaceSiteIntent.ClaimTiles`.
+- `StructureKind.Canal = 14`: append-only enum byte.
+- New serialized field `BiomeDegradationConfig.WaterRecoveryRadius`
+  (positional, defaulted) and `ConstructionSite.CanalPath` (written right
+  after `TargetKind` so `ReadConstruction` reconstructs the length-scaled
+  site before the build-duration drift check). `Snapshot.FormatVersion`
+  15 → 16 (Phase A added the config field at 15; Phase B added the path at 16).
+- No new scheduled-event type and no new anchor: a canal is an ordinary
+  `ConstructionSite`, so `RegenerateQueue` regenerates its `BuildCompleteEvent`
+  from the existing construction anchor. Mid-canal-build recovery is pinned by
+  `CanalsTests.Canal_RecoveryAfterCrash_MidBuild_ReplaysIdentical`.
+- New global-iteration sites: none beyond the bounded `IsReserved` /
+  `IsNearWater` / `OnWaterProximityChanged` scans noted above.
+
+Closure gate: `CanalsTests.Canals_TwinRun_HashesMatch` (build a multi-tile
+canal → sail a boat through it → a degraded field beside it recovers →
+twin-run hash equality).
