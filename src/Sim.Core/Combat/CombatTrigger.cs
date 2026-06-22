@@ -35,16 +35,27 @@ public static class CombatTrigger
         var owners = new SortedSet<int>();
         foreach (var u in world.Units.Values)
             if (u.Position == tile && !u.IsEmbarked) owners.Add(u.OwnerId);
-        if (owners.Count < 2) return;
+        // No units → no combat. (M24: a structure on its own is inert; it
+        // takes someone to attack it.)
+        if (owners.Count == 0) return;
 
-        // Any hostile pair? Iterate in canonical order so the decision is
+        // Any hostile UNIT pair? Iterate in canonical order so the decision is
         // deterministic across runs.
         var ownerArr = owners.ToArray();
         var hostile = false;
         for (var i = 0; i < ownerArr.Length && !hostile; i++)
             for (var j = i + 1; j < ownerArr.Length && !hostile; j++)
                 if (diplomacy.AreHostile(ownerArr[i], ownerArr[j])) hostile = true;
-        if (!hostile) return;
+
+        // M24 — siege start. A lone attacker on a tile holding a hostile
+        // destructible structure (no defending units of the structure's
+        // owner — that case would already be a hostile unit pair) also
+        // triggers combat. The round event then drains structure HP.
+        var siegeTarget = CombatRules.SiegeableStructureOn(world, tile);
+        var siege = siegeTarget is not null
+            && CombatRules.AnyHostileToStructure(diplomacy, owners, siegeTarget.OwnerId);
+
+        if (!hostile && !siege) return;
 
         // ENGAGEMENT PIN: a force cannot walk THROUGH a hostile one. Cancel the
         // committed movement of every belligerent on the tile so it stops here

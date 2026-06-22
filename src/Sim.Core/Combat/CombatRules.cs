@@ -47,6 +47,42 @@ public static class CombatRules
         return total;
     }
 
+    // M24 — siege seam. Returns the structure on `tile` only if it is a
+    // legitimate siege target: present, with HP > 0 (the "indestructible"
+    // kinds Cache / Canal / Rubble have BaseHealth = 0 and never qualify).
+    // Pure read. Callers compose this with diplomacy hostility to decide
+    // whether combat starts / continues against the structure.
+    public static Structure? SiegeableStructureOn(GameWorld world, TileCoord tile)
+    {
+        if (!world.Structures.TryGetValue(tile, out var s)) return null;
+        if (s.Health <= 0) return null;
+        return s;
+    }
+
+    // Any of `unitOwners` hostile to `structureOwner` AND able to siege?
+    // Linear in owners, bounded by the faction count. The answer is
+    // symmetric in the diplomacy axis.
+    //
+    // Bandits (BanditConstants.OwnerId) are EXEMPT: M16 explicitly defers
+    // structure damage by the bandit faction (docs/m16-bandits-spec.md /
+    // "structure-damage deferred"). Bandits steal (LoadCargoIntent) and
+    // raid — they don't level extractors or storm castles. Without the
+    // exemption a wandering bandit party would auto-start a siege on any
+    // unguarded outpost and the raid-then-flee loop would never close.
+    // Player-vs-player and player-vs-future-faction sieges are unaffected.
+    public static bool AnyHostileToStructure(
+        Sim.Core.Diplomacy.Diplomacy diplomacy,
+        IEnumerable<int> unitOwners,
+        int structureOwner)
+    {
+        foreach (var o in unitOwners)
+        {
+            if (o == Sim.Core.Bandits.BanditConstants.OwnerId) continue;
+            if (diplomacy.AreHostile(o, structureOwner)) return true;
+        }
+        return false;
+    }
+
     // The gather-from-tiles seam. Today reads the single tile; later
     // ranged-from-adjacent will pass [tile, north, south, east, west]
     // (each with a reach modifier). Returns per-owner unit lists in

@@ -11,6 +11,10 @@ public static class StructureCatalog
             Kind = StructureKind.Castle,
             IsPlayerBuildable = false,   // placed at genesis only
             StorageCapacity = 5000,
+            // M24 — siege HP. The seat-of-power figure: razing it costs an
+            // attacker a long sustained presence (no defender shielding) and
+            // razing it ends the owner. See docs/sieges-and-conquest.md.
+            BaseHealth = 1000,
         },
         [StructureKind.Stockpile] = new StructureSpec
         {
@@ -20,6 +24,7 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 20 },
             BuildDurationTicks = 20 * Time.Hour,
             RequiredBuilderCount = 1,
+            BaseHealth = 100,
         },
         [StructureKind.LumberCamp] = new StructureSpec
         {
@@ -47,6 +52,7 @@ public static class StructureCatalog
             DegradeAmount = 2,
             ClaimCount = 8,
             ClaimRange = 2,
+            BaseHealth = 50,
         },
         [StructureKind.Quarry] = new StructureSpec
         {
@@ -64,6 +70,7 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 15 },
             BuildDurationTicks = 15 * Time.Hour,
             RequiredBuilderCount = 2,
+            BaseHealth = 50,
         },
         [StructureKind.Mine] = new StructureSpec
         {
@@ -85,6 +92,7 @@ public static class StructureCatalog
             },
             BuildDurationTicks = 25 * Time.Hour,
             RequiredBuilderCount = 2,
+            BaseHealth = 50,
         },
         [StructureKind.Farm] = new StructureSpec
         {
@@ -121,11 +129,15 @@ public static class StructureCatalog
             DegradeAmount = 1,
             ClaimCount = 15,
             ClaimRange = 2,
+            BaseHealth = 50,
         },
         [StructureKind.ConstructionSite] = new StructureSpec
         {
             Kind = StructureKind.ConstructionSite,
             // Transient internal state; no player intent targets it directly.
+            // M24 — an unfinished build is fragile (you're attacking
+            // scaffolding, not walls). A few attackers level it.
+            BaseHealth = 25,
         },
         [StructureKind.Tower] = new StructureSpec
         {
@@ -140,6 +152,7 @@ public static class StructureCatalog
             BuildDurationTicks = 30 * Time.Hour,
             RequiredBuilderCount = 1,
             // Vision contribution is read from Sight.RadiusFor — not duplicated here.
+            BaseHealth = 150,
         },
         [StructureKind.House] = new StructureSpec
         {
@@ -159,6 +172,7 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 30 },
             BuildDurationTicks = 30 * Time.Hour,
             RequiredBuilderCount = 1,
+            BaseHealth = 50,
         },
         // Training — School. A placeable seam where TrainUnitIntent
         // resolves. No production, no storage. Cheap-ish: training is a
@@ -170,6 +184,7 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 80 },
             BuildDurationTicks = 80 * Time.Minute,
             RequiredBuilderCount = 1,
+            BaseHealth = 75,
         },
         // Military — Barracks. Trains Soldier/Archer (RoleTrainerCatalog
         // routes military roles here, civilian roles to the School) and
@@ -189,6 +204,7 @@ public static class StructureCatalog
             },
             BuildDurationTicks = 100 * Time.Minute,
             RequiredBuilderCount = 1,
+            BaseHealth = 200,
         },
         // M20 — Lodge. The intelligence structure: a placeable seam (like the
         // School) whose completed presence gates DispatchScoutIntent. No
@@ -205,6 +221,7 @@ public static class StructureCatalog
             },
             BuildDurationTicks = 50 * Time.Minute,
             RequiredBuilderCount = 1,
+            BaseHealth = 75,
         },
         // M12 — Dock. Expensive: a long write-down up front that pays
         // off forever in fast water travel (the design contract from
@@ -227,6 +244,7 @@ public static class StructureCatalog
             // M12 — boat-production cadence. One boat per 5 game-hours
             // while the slip is free; stalls when slip is occupied.
             ProductionPeriodTicks = 10 * Time.Day,
+            BaseHealth = 75,
         },
         // M21 — Canal. A terrain-mutation build job: it converts a chosen
         // PATH of land tiles into Water (docs/canals.md). The cost and build
@@ -261,6 +279,17 @@ public static class StructureCatalog
             Kind = StructureKind.Cache,
             IsPlayerBuildable = false,
             StorageCapacity = 1000,
+        },
+        // M24 — Rubble. The destroyed-structure tile occupant produced when a
+        // structure's Health hits 0 (CombatRoundEvent). Indestructible
+        // (BaseHealth = 0), no production, no holdings — its only job is
+        // OCCUPYING THE TILE so PlaceSiteIntent / PlaceCanalIntent reject any
+        // attempt to build on top of the wreckage. See
+        // docs/sieges-and-conquest.md.
+        [StructureKind.Rubble] = new StructureSpec
+        {
+            Kind = StructureKind.Rubble,
+            IsPlayerBuildable = false,
         },
     };
 

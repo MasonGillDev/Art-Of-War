@@ -64,4 +64,13 @@ public sealed record StructureSpec
     // M15 — Chebyshev range (from the building tile) within which claim
     // tiles may be chosen. Meaningless when ClaimCount == 0.
     public int ClaimRange { get; init; }
+
+    // M24 — siege HP. The hit-point pool combat damages once defenders
+    // are cleared from the tile (CombatRoundEvent.Apply). Zero = the
+    // SENTINEL "indestructible" (Cache, Canal, Rubble, and the transient
+    // internal kinds that should never take siege damage). Live values
+    // come through StructureCatalog.Spec(kind).BaseHealth and are written
+    // onto Structure.Health by GameWorld.AddStructure at insertion time,
+    // mirroring UnitCombatCatalog → Unit.Health.
+    public int BaseHealth { get; init; }
 }

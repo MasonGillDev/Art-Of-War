@@ -9,6 +9,17 @@ public abstract class Structure
     // BuildCompleteEvent, which gets it from PlaceSiteIntent). Defaults to
     // 0 for single-player scenarios.
     public int OwnerId { get; init; } = 0;
+
+    // M24 — siege HP. Sentinel 0 at construction is auto-filled from
+    // StructureCatalog.Spec(Kind).BaseHealth in GameWorld.AddStructure,
+    // mirroring Unit.Health / UnitCombatCatalog. A spec BaseHealth of 0
+    // (Cache, Canal, Rubble) keeps Health = 0 forever and the combat
+    // round treats the structure as INDESTRUCTIBLE (skipped). Snapshot
+    // reads the persisted value BEFORE AddStructure runs, so a partially
+    // damaged structure restores at its damaged HP. See
+    // docs/sieges-and-conquest.md.
+    public int Health { get; set; }
+
     protected Structure(TileCoord at) { At = at; }
 }
 
@@ -409,6 +420,19 @@ public sealed class Tower : Structure
 {
     public override StructureKind Kind => StructureKind.Tower;
     public Tower(TileCoord at) : base(at) { }
+}
+
+// M24 — Rubble. What's left when a structure is razed (Castle, Barracks,
+// etc.). Indestructible (BaseHealth = 0), no holdings, no production, no
+// owner (OwnerId = OwnerIds.Destroyed, the -3 sentinel — never a living
+// player, so no iteration over "player N's structures" picks it up). Its
+// only mechanical effect is OCCUPYING THE TILE: PlaceSiteIntent and
+// PlaceCanalIntent reject any target tile that already holds rubble.
+// See docs/sieges-and-conquest.md.
+public sealed class Rubble : Structure
+{
+    public override StructureKind Kind => StructureKind.Rubble;
+    public Rubble(TileCoord at) : base(at) { }
 }
 
 // Training — School. A unit standing on this tile can issue

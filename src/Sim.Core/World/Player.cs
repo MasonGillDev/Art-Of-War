@@ -14,6 +14,14 @@ public sealed class Player
     // no other writer exists.
     public int PopulationCount { get; private set; }
 
+    // M24 — defeated when the player's Castle is razed (CombatRoundEvent
+    // → SiegeDamage.RazeStructure → PlayerDefeatedEvent). A defeated
+    // player's IntentEvent rejects every intent at the wrapper layer —
+    // their existing Units and non-castle Structures persist as inert
+    // wreckage of their civilization. Cleared only by GameWorld restore
+    // (snapshot v19+). See docs/sieges-and-conquest.md.
+    public bool Defeated { get; internal set; }
+
     public Player(int id) { Id = id; }
 
     internal void IncrementPopulation() => PopulationCount++;

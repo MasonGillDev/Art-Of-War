@@ -214,6 +214,21 @@ public sealed class GameWorld
     public T AddStructure<T>(T s) where T : Structure
     {
         Structures.Add(s.At, s);
+        InitStructureHealthIfFresh(s);
         return s;
+    }
+
+    // M24 — auto-init Health from the catalog when the structure was
+    // constructed without an explicit value (Health == 0 sentinel). Mirrors
+    // InitCombatStatsIfFresh for units. Snapshot.ReadStructures writes the
+    // serialised Health BEFORE calling AddStructure, so a damaged structure
+    // restores at its persisted HP (this no-ops when Health > 0). Kinds with
+    // BaseHealth == 0 (Cache, Canal, future Rubble) stay at Health == 0 and
+    // the combat round treats them as indestructible.
+    private static void InitStructureHealthIfFresh(Structure s)
+    {
+        if (s.Health != 0) return;
+        if (!StructureCatalog.TryGetSpec(s.Kind, out var spec)) return;
+        s.Health = spec.BaseHealth;
     }
 }

@@ -180,6 +180,7 @@ var canalDemo = args.Length > 0 && args[0] == "--canal";
 var cachesDemo = args.Length > 0 && args[0] == "--caches";
 var automationDemo = args.Length > 0 && args[0] == "--automation";
 var scoutingDemo = args.Length > 0 && args[0] == "--scouting";
+var siegeDemo = args.Length > 0 && args[0] == "--siege";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
 var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
@@ -210,6 +211,10 @@ else if (automationDemo)
 else if (scoutingDemo)
 {
     ScoutingDemo.Run();
+}
+else if (siegeDemo)
+{
+    SiegeDemo.Run();
 }
 else if (!generate)
 {
@@ -1072,5 +1077,133 @@ static class DegradationDemo
         var biome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(sim.World, watch, sim.Now, cfg);
         var fert = Sim.Core.Biomes.BiomeDegradation.FertilityAt(sim.World, watch, sim.Now, cfg);
         Console.WriteLine($"{step,4} | {sim.Now,7} | {ext.TickArmed,9} | {ext.Buffer,6} | {biome,-11} | {fert}");
+    }
+}
+
+// M24 — sieges smoke. Two factions at war. The attacker marches a squad onto
+// the enemy castle, the round-based siege chips it down, the castle becomes
+// rubble, the defender is defeated, and a GameOverEvent names the winner.
+// Closes with the milestone determinism checks (twin run + snapshot
+// round-trip).
+static class SiegeDemo
+{
+    static Sim.Core.World.GenesisSpec MakeSpec() => new()
+    {
+        Width = 12, Height = 6,
+        Diplomacy = new Sim.Core.Diplomacy.DiplomacyConfig(Delay: 5, ProposalExpiryTicks: 200),
+        Combat = new Sim.Core.Combat.CombatConfig(RoundIntervalTicks: 10),
+        FactionStarts = new[]
+        {
+            new Sim.Core.World.FactionStartSpec
+            {
+                OwnerId = 0,
+                CastlePosition = new Sim.Core.World.TileCoord(0, 3),
+                UnitSpawns = new[]
+                {
+                    new Sim.Core.World.UnitSpawn(100, new Sim.Core.World.TileCoord(0, 3), Sim.Core.World.UnitRole.Soldier),
+                    new Sim.Core.World.UnitSpawn(101, new Sim.Core.World.TileCoord(0, 3), Sim.Core.World.UnitRole.Soldier),
+                    new Sim.Core.World.UnitSpawn(102, new Sim.Core.World.TileCoord(0, 3), Sim.Core.World.UnitRole.Soldier),
+                },
+            },
+            new Sim.Core.World.FactionStartSpec
+            {
+                OwnerId = 1,
+                CastlePosition = new Sim.Core.World.TileCoord(11, 3),
+            },
+        },
+    };
+
+    static Simulation Build()
+    {
+        var sim = new Simulation(MakeSpec(), seed: 0x51E6E);
+        // Telegraph the war via the public intent path; with Delay=5 above the
+        // WarBecomesEffectiveEvent fires by tick 5. Then drop the castle's HP
+        // so the smoke finishes in seconds, not in-game years. The MECHANICS
+        // are identical at 30 HP as at 1000 — only the round count shrinks.
+        new Sim.Core.Diplomacy.DeclareWarIntent(0, 1) { PlayerId = 0 }.Resolve(sim);
+        sim.Run(until: 5);
+        ((Castle)sim.World.Structures[new TileCoord(11, 3)]).Health = 30;
+        return sim;
+    }
+
+    public static void Run()
+    {
+        Console.WriteLine("--- Sieges & Conquest Demo (M24) ---");
+        Console.WriteLine("Two factions at war; faction 0 marches 3 Soldiers onto faction 1's castle.");
+        Console.WriteLine($"Castle starts at {StructureCatalog.Spec(StructureKind.Castle).BaseHealth} HP " +
+            "(dialed to 30 here so the demo finishes in seconds).");
+        Console.WriteLine();
+
+        var sim = Build();
+        var castleTile = new TileCoord(11, 3);
+
+        // March each soldier across the map. MoveIntent.Resolve schedules the
+        // arrival; the attackers converge on the castle.
+        foreach (var id in new[] { 100, 101, 102 })
+            new MoveIntent(id, castleTile) { PlayerId = 0 }.Resolve(sim);
+
+        Console.WriteLine("tick |    castle HP | defenders | attackers | event");
+        Console.WriteLine("-----+--------------+-----------+-----------+-------------------------");
+        long lastReportTick = -1;
+        for (var t = 0L; t <= 5_000; t += 5)
+        {
+            sim.Run(until: t);
+            if (t == lastReportTick) continue;
+            lastReportTick = t;
+
+            var occupant = sim.World.Structures.GetValueOrDefault(castleTile);
+            var hp = occupant?.Health ?? 0;
+            var atk = sim.World.Units.Values.Count(u => u.OwnerId == 0 && u.Position == castleTile);
+            var def = sim.World.Units.Values.Count(u => u.OwnerId == 1 && u.Position == castleTile);
+            var note = occupant switch
+            {
+                Castle => "",
+                Rubble => "CASTLE RAZED",
+                _ => "(no structure)"
+            };
+
+            // Only report ticks where something happened.
+            if (atk == 0 && def == 0 && occupant is Castle) continue;
+            Console.WriteLine($"{t,4} | {hp,4} ({(occupant?.Kind.ToString() ?? "—"),-6}) | {def,9} | {atk,9} | {note}");
+            if (sim.World.Players[1].Defeated)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Player 1 defeated at tick {t}.");
+                break;
+            }
+        }
+
+        // Trace through the resolved log for the named transitions.
+        Console.WriteLine();
+        Console.WriteLine("Resolved-log highlights:");
+        foreach (var e in sim.ResolvedLog)
+        {
+            if (e is Sim.Core.Sieges.PlayerDefeatedEvent pd)
+                Console.WriteLine($"  tick {pd.At,4}: {pd.Describe()}");
+            else if (e is Sim.Core.Sieges.GameOverEvent go)
+                Console.WriteLine($"  tick {go.At,4}: {go.Describe()}");
+        }
+
+        // Determinism: twin run hash equality.
+        var twin = Build();
+        foreach (var id in new[] { 100, 101, 102 })
+            new MoveIntent(id, castleTile) { PlayerId = 0 }.Resolve(twin);
+        twin.Run(until: sim.Now);
+        if (Snapshot.Hash(sim) != Snapshot.Hash(twin))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE: twin siege diverged.");
+            Environment.Exit(1);
+        }
+
+        // Round-trip the post-game state through snapshot.
+        var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 0x51E6E);
+        if (Snapshot.Hash(sim) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE: razed-castle world diverged.");
+            Environment.Exit(1);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("OK: twin run identical; post-game snapshot round-trips.");
     }
 }

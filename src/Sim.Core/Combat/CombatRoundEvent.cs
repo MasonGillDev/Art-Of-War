@@ -39,16 +39,30 @@ public sealed class CombatRoundEvent : ScheduledEvent
         // 1) Gather start-of-round forces by owner.
         var forces = CombatRules.GatherForcesOnTile(world, Tile);
 
-        // 2) Filter to belligerent set: keep only owners that have at least
-        //    one hostile counterpart in the gather. Single-owner tiles or
-        //    fully-friendly tiles end combat.
+        // 2) Determine belligerent state. Combat continues this round if
+        //    there is a hostile UNIT pair OR a siege case (any unit hostile
+        //    to a destructible structure on the tile). Otherwise end.
         var diplomacy = world.Diplomacy;
         var owners = forces.Keys.OrderBy(k => k).ToList();
         var hasHostilePair = false;
         for (var i = 0; i < owners.Count && !hasHostilePair; i++)
             for (var j = i + 1; j < owners.Count && !hasHostilePair; j++)
                 if (diplomacy.AreHostile(owners[i], owners[j])) hasHostilePair = true;
-        if (!hasHostilePair)
+
+        // M24 — siege gating. SiegeableStructureOn returns null for the
+        // indestructible kinds (Cache / Canal / Rubble) and for any
+        // already-razed structure (Health == 0), so the round naturally
+        // skips them. Defender shielding is start-of-round: if any unit
+        // of the structure's owner is on the tile at gather, siege damage
+        // is SUPPRESSED this round even if they die in step 4 below — the
+        // defender's death must "cost a round" to justify their presence.
+        var siegeTarget = CombatRules.SiegeableStructureOn(world, Tile);
+        var hostileSiege = siegeTarget is not null
+            && CombatRules.AnyHostileToStructure(diplomacy, owners, siegeTarget.OwnerId);
+        var hadDefendersAtStart = siegeTarget is not null
+            && forces.ContainsKey(siegeTarget.OwnerId);
+
+        if (!hasHostilePair && !hostileSiege)
         {
             world.CombatStates.Remove(Tile);
             return;
@@ -62,19 +76,33 @@ public sealed class CombatRoundEvent : ScheduledEvent
 
         // 3b) No-progress guard. If no belligerent can deal positive damage
         //     (e.g. two hostile but power-0 forces — empty boats pinned by the
-        //     engagement trigger), the fight can never resolve. End it now
-        //     instead of rescheduling a zero-damage round forever.
+        //     engagement trigger; or a zero-power siege), the fight can never
+        //     resolve. End it now instead of rescheduling a zero-damage round
+        //     forever.
         var anyDamage = false;
+        // Unit-vs-unit?
         foreach (var a in owners)
         {
             foreach (var b in owners)
                 if (b != a && diplomacy.AreHostile(a, b) && startPower[b] > 0) { anyDamage = true; break; }
             if (anyDamage) break;
         }
+        // Siege damage (only counts when defenders aren't shielding,
+        // and bandits never contribute — same rule as the AnyHostile
+        // gate in CombatRules)?
+        if (!anyDamage && hostileSiege && !hadDefendersAtStart)
+        {
+            foreach (var (oid, p) in startPower)
+            {
+                if (p <= 0) continue;
+                if (oid == Sim.Core.Bandits.BanditConstants.OwnerId) continue;
+                if (diplomacy.AreHostile(oid, siegeTarget!.OwnerId)) { anyDamage = true; break; }
+            }
+        }
         if (!anyDamage) { world.CombatStates.Remove(Tile); return; }
 
-        // 4) Apply damage. Each owner takes damage = sum of all hostile
-        //    counterparts' start-of-round power.
+        // 4) Apply damage to units. Each owner takes damage = sum of all
+        //    hostile counterparts' start-of-round power.
         foreach (var ownerId in owners)
         {
             var damage = 0;
@@ -88,9 +116,34 @@ public sealed class CombatRoundEvent : ScheduledEvent
             ApplyDamageToOwnerForce(sim, ownerId, forces[ownerId], damage);
         }
 
-        // 5) Re-check after damage. If hostile pairs still exist on the
-        //    tile (re-gather from current state — dead units removed),
-        //    schedule next round. Otherwise end combat.
+        // 4b) Apply siege damage to the structure (M24). Only fires when no
+        //     defending units of the structure's owner were on the tile at
+        //     ROUND START — a defender's death this round still costs the
+        //     attackers a round of shielding. Damage = sum of all attackers'
+        //     start-of-round power (any unit hostile to the structure owner).
+        //     On HP → 0 the structure becomes Rubble; if it was the owner's
+        //     Castle, a PlayerDefeatedEvent is scheduled (Phase D).
+        if (siegeTarget is not null && !hadDefendersAtStart && siegeTarget.Health > 0)
+        {
+            var siegeDamage = 0;
+            foreach (var (oid, p) in startPower)
+            {
+                if (oid == Sim.Core.Bandits.BanditConstants.OwnerId) continue;
+                if (diplomacy.AreHostile(oid, siegeTarget.OwnerId)) siegeDamage += p;
+            }
+            if (siegeDamage > 0)
+            {
+                siegeTarget.Health -= siegeDamage;
+                if (siegeTarget.Health <= 0)
+                {
+                    Sim.Core.Sieges.SiegeDamage.RazeStructure(sim, siegeTarget);
+                    siegeTarget = null;  // gone — subsequent reads must re-look up
+                }
+            }
+        }
+
+        // 5) Re-check after damage. Combat continues if a hostile UNIT pair
+        //    remains OR a hostile siege remains. Otherwise end combat.
         var post = CombatRules.GatherForcesOnTile(world, Tile);
         var postOwners = post.Keys.OrderBy(k => k).ToList();
         var stillHostile = false;
@@ -98,7 +151,11 @@ public sealed class CombatRoundEvent : ScheduledEvent
             for (var j = i + 1; j < postOwners.Count && !stillHostile; j++)
                 if (diplomacy.AreHostile(postOwners[i], postOwners[j])) stillHostile = true;
 
-        if (!stillHostile)
+        var postSiegeTarget = CombatRules.SiegeableStructureOn(world, Tile);
+        var stillSiege = postSiegeTarget is not null
+            && CombatRules.AnyHostileToStructure(diplomacy, postOwners, postSiegeTarget.OwnerId);
+
+        if (!stillHostile && !stillSiege)
         {
             world.CombatStates.Remove(Tile);
             return;

@@ -18,4 +18,5 @@ public enum StructureKind : byte
     Lodge = 13, // M20 — intelligence structure; gates DispatchScoutIntent
     Canal = 14, // M21 — build job that floods a path of land into Water (docs/canals.md)
     Cache = 15, // M23 — unowned loot cache scattered in the fog (docs/loot-caches.md)
+    Rubble = 16, // M24 — destroyed-structure remains; blocks placement, owner-sentinel -3 (docs/sieges-and-conquest.md)
 }

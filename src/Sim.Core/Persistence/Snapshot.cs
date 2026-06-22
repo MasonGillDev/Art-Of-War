@@ -78,7 +78,18 @@ public static class Snapshot
     //       observation log). Pure durable data — the log is appended only
     //       by ScoutObservation.Capture (no new scheduled events), so
     //       RegenerateQueue is untouched.
-    public const int FormatVersion = 18;
+    //  19 — M24 sieges (Structure.Health + Player.Defeated). Health is
+    //       persisted right after OwnerId in the structure block, ahead of
+    //       every kind-specific payload — so a partially razed Castle
+    //       restores at its damaged HP, and BaseHealth-0 kinds (Cache /
+    //       Canal) round-trip a stored 0 without auto-init re-filling
+    //       them. Player.Defeated round-trips so a player whose castle
+    //       was razed before the snapshot stays muted across restore
+    //       (the IntentEvent gate is the consumer). Zero new anchors:
+    //       PlayerDefeatedEvent / GameOverEvent both schedule at sim.Now
+    //       and fire that same tick, so the queue never carries them
+    //       across a snapshot.
+    public const int FormatVersion = 19;
 
     public static string Hash(Simulation sim)
     {
@@ -200,11 +211,14 @@ public static class Snapshot
     private static void WritePlayers(BinaryWriter bw, GameWorld world)
     {
         bw.Write(world.Players.Count);
-        foreach (var (id, _) in world.Players)  // SortedDictionary → id order
+        foreach (var (id, p) in world.Players)  // SortedDictionary → id order
+        {
             bw.Write(id);
-        // M13: Player.PopulationCount is NOT serialised — it's
-        // re-derived as Snapshot.ReadUnits calls world.AddUnit for each
-        // restored unit, which increments the owner's count.
+            // M24 (v19) — defeated state. Persists so the IntentEvent
+            // gate keeps the player muted across restore. PopulationCount
+            // is still re-derived from the restored units below.
+            bw.Write(p.Defeated);
+        }
     }
 
     private static void ReadPlayers(BinaryReader br, GameWorld world)
@@ -213,7 +227,10 @@ public static class Snapshot
         for (var i = 0; i < count; i++)
         {
             var id = br.ReadInt32();
-            world.Players[id] = new Player(id);
+            var defeated = br.ReadBoolean();
+            var p = new Player(id);
+            if (defeated) p.Defeated = true;
+            world.Players[id] = p;
         }
     }
 
@@ -440,6 +457,10 @@ public static class Snapshot
             bw.Write(s.At.Y);
             bw.Write((byte)s.Kind);
             bw.Write(s.OwnerId);
+            // M24 (v19) — siege HP. Written ahead of every kind-specific
+            // payload so the common header stays uniform; restored before
+            // AddStructure runs so a damaged Castle keeps its damaged HP.
+            bw.Write(s.Health);
             switch (s)
             {
                 // House must come before StorageStructure: it IS a
@@ -458,6 +479,7 @@ public static class Snapshot
                 case Tower:               /* no fields */ break;
                 case School:              /* no fields */ break;
                 case Lodge:               /* no fields */ break;
+                case Rubble:              /* no fields */ break;
                 // M12 — Dock carries slip + production state.
                 case Dock d:
                     bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
@@ -479,6 +501,11 @@ public static class Snapshot
             var at = new TileCoord(br.ReadInt32(), br.ReadInt32());
             var kind = (StructureKind)br.ReadByte();
             var ownerId = br.ReadInt32();
+            // M24 (v19) — siege HP. Read here, written onto the constructed
+            // structure below BEFORE AddStructure runs, so the auto-init
+            // there is a no-op for restored structures (matches the
+            // Unit.Health restore pattern).
+            var health = br.ReadInt32();
             Structure s = kind switch
             {
                 StructureKind.Castle           => ReadCastleWithAnchors(br, at, ownerId),
@@ -494,9 +521,11 @@ public static class Snapshot
                 StructureKind.Lodge            => new Lodge(at) { OwnerId = ownerId },
                 StructureKind.Barracks         => ReadStorage(br, new Barracks(at) { OwnerId = ownerId }),
                 StructureKind.Cache            => ReadStorage(br, new Cache(at) { OwnerId = ownerId }),
+                StructureKind.Rubble           => new Rubble(at) { OwnerId = ownerId },
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };
+            s.Health = health;
             world.AddStructure(s);
         }
     }
