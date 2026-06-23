@@ -64,6 +64,22 @@ public sealed class ViewDto
     // client toasts each once; Prose updates in place when the async narration
     // lands a moment after the raw report appears.
     public ScoutReportDto[] ScoutReports { get; set; } = [];
+
+    // M25 — PUBLIC diplomatic state, mirroring Sim.Core's PlayerView. Diplomacy
+    // is public knowledge (docs/diplomacy-model.md): every player sees every
+    // faction, every relationship, and every pending war — fog hides positions
+    // and holdings, not who is at war with whom. Filled identically for every
+    // viewer. This is the FAIR CHANNEL through which the AI Rival (M25) learns
+    // hostility — exactly what a human client renders on its diplomacy screen.
+    public FactionDto[] Factions { get; set; } = [];
+    public RelationshipDto[] Relationships { get; set; } = [];
+    public PendingWarDto[] PendingWars { get; set; } = [];
+    // M25 — peace/ally offers ADDRESSED TO this viewer (own-scoped, like Orders:
+    // an offer is private to the proposer/target pair until accepted, per
+    // diplomacy-model.md). The Rival accepts an olive branch (Homesteader /
+    // Opportunist) or lets it expire (Warlord), through the same channel a human
+    // reads its diplomacy inbox.
+    public ProposalDto[] IncomingProposals { get; set; } = [];
 }
 
 // M20 — one returned scout's report: the narrated prose to read plus the
@@ -138,6 +154,49 @@ public sealed class NoticeDto
     public long Id { get; set; }
     public long Tick { get; set; }
     public string Text { get; set; } = "";
+}
+
+// M25 — public diplomacy projections, mirroring Sim.Core's PlayerView shapes
+// (FactionView / RelationshipView / PendingWarView). Diplomatic state is public
+// knowledge, so these are filled identically for every viewer. The bandit
+// faction is omitted from Factions (it's outside diplomacy — always hostile,
+// no proposals), exactly as PlayerView does; bandit UNITS still project when
+// visible. Pairs are canonical (Lo < Hi) so iteration order is deterministic.
+public sealed class FactionDto
+{
+    public int Id { get; set; }
+    // M24/M25 — true once this faction's Castle has been razed (Player.Defeated).
+    // Public: a defeat is an observable fact of the world. Lets the AI Rival
+    // know when a rival is eliminated (campaign won) or when it is itself out.
+    public bool Defeated { get; set; }
+}
+
+public sealed class RelationshipDto
+{
+    public int LoId { get; set; }
+    public int HiId { get; set; }
+    public int State { get; set; }                       // Sim.Core.Diplomacy.RelationshipState byte
+    public long PendingEffectiveTick { get; set; } = -1; // -1 = no pending war on this pair
+}
+
+public sealed class PendingWarDto
+{
+    public int LoId { get; set; }
+    public int HiId { get; set; }
+    public long EffectiveTick { get; set; }
+}
+
+// M25 — one diplomatic offer addressed to the viewer (mirrors PlayerView's
+// ProposalView). DesiredState is the RelationshipState the proposer wants
+// (Neutral = peace, Ally = alliance; Enemy never appears — aggression is the
+// unilateral DeclareWar path).
+public sealed class ProposalDto
+{
+    public int Id { get; set; }
+    public int ProposerId { get; set; }
+    public int TargetId { get; set; }
+    public int DesiredState { get; set; }   // Sim.Core.Diplomacy.RelationshipState byte
+    public long ExpiryTick { get; set; }
 }
 
 public sealed class TileDto

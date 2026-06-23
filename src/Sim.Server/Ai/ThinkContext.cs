@@ -225,6 +225,118 @@ public sealed class ThinkContext
 
     public static TileCoord TileOf(StructDto s) => new(s.X, s.Y);
 
+    // M25 — is `ownerId` a faction THIS colony is at war with? Bandits are
+    // hostile to everyone (a RULE constant); a player faction is hostile only
+    // when the view's PUBLIC diplomacy shows the pair as Enemy (mirrors
+    // Sim.Core.Diplomacy.AreHostile, read through the fair channel — relationships
+    // are common knowledge, docs/diplomacy-model.md). Own and Neutral/Ally are
+    // never hostile. No relationship row = Neutral = not hostile.
+    public bool IsHostileFaction(int ownerId)
+    {
+        if (ownerId == PlayerId) return false;
+        if (ownerId == Sim.Core.Bandits.BanditConstants.OwnerId) return true;
+        var lo = Math.Min(PlayerId, ownerId);
+        var hi = Math.Max(PlayerId, ownerId);
+        foreach (var r in View.Relationships)
+            if (r.LoId == lo && r.HiId == hi)
+                return r.State == (int)Sim.Core.Diplomacy.RelationshipState.Enemy;
+        return false;
+    }
+
+    // M25 — combat-power estimate for force-parity math. OWN units carry their
+    // true EffectivePower on the wire (buffs included). For ENEMY units Power is
+    // hidden (-1, same private-activity rule as Activity), so the brain estimates
+    // from the visible ROLE via the combat catalog — exactly how a human reads
+    // "that's a soldier, about 3 power." The catalog prices every role, so this
+    // never throws on a civilian.
+    public static int EstimatedPower(UnitDto u) =>
+        u.Power >= 0 ? u.Power
+            : Sim.Core.Combat.UnitCombatCatalog.Spec((UnitRole)u.Role).BasePower;
+
+    // M25 — is there a war PENDING (declared, telegraph window still open)
+    // between me and `other`? Read off the view's public PendingWars (canonical
+    // Lo/Hi pairs). Used so the Rival doesn't re-declare a war that's already
+    // on its way (and so retaliation recognises an incoming declaration).
+    public bool HasPendingWarWith(int other)
+    {
+        var lo = Math.Min(PlayerId, other);
+        var hi = Math.Max(PlayerId, other);
+        foreach (var w in View.PendingWars)
+            if (w.LoId == lo && w.HiId == hi) return true;
+        return false;
+    }
+
+    // M25 — the public relationship state with `other` (int matching
+    // Sim.Core.Diplomacy.RelationshipState); Neutral when no row exists. The
+    // declarable test (a proactive casus belli only targets a Neutral rival —
+    // never an existing Enemy or an Ally).
+    public int RelationshipStateWith(int other)
+    {
+        var lo = Math.Min(PlayerId, other);
+        var hi = Math.Max(PlayerId, other);
+        foreach (var r in View.Relationships)
+            if (r.LoId == lo && r.HiId == hi) return r.State;
+        return (int)Sim.Core.Diplomacy.RelationshipState.Neutral;
+    }
+
+    // M25 — the player factions that aren't me or the bandits (bandits are
+    // already absent from Factions). The Rival's pool of potential rivals.
+    public IEnumerable<int> OtherFactions() =>
+        View.Factions.Select(f => f.Id).Where(id => id != PlayerId);
+
+    // M25 — my committable combat power: the EffectivePower of every soldier and
+    // archer I field (own units carry true Power on the wire). The number the
+    // opportunism gate and the march commit gate weigh against the enemy.
+    public int OwnArmyPower() =>
+        OwnUnits.Where(u => (UnitRole)u.Role is UnitRole.Soldier or UnitRole.Archer)
+            .Sum(EstimatedPower);
+
+    // M25 — visible structures owned by `faction` (any visible enemy structure
+    // is a potential siege target / a trespass marker). Pos/kind/owner are on
+    // the wire for any visible structure — no fog cheat.
+    public IEnumerable<StructDto> VisibleStructuresOf(int faction) =>
+        View.Structures.Where(s => s.OwnerId == faction);
+
+    // M25 — has `faction` been eliminated (its Castle razed)? Public fact of
+    // the world (FactionDto.Defeated). A defeated faction is no target.
+    public bool IsFactionDefeated(int faction)
+    {
+        foreach (var f in View.Factions)
+            if (f.Id == faction) return f.Defeated;
+        return false;
+    }
+
+    // M25 — Chebyshev distance from my castle to the NEAREST visible structure
+    // of `faction`, or null if I currently see none. The reach/encroachment
+    // yardstick.
+    public int? NearestStructureDistOf(int faction)
+    {
+        int? best = null;
+        foreach (var s in View.Structures)
+        {
+            if (s.OwnerId != faction) continue;
+            var d = Math.Max(Math.Abs(s.X - CastleTile.X), Math.Abs(s.Y - CastleTile.Y));
+            if (best is null || d < best) best = d;
+        }
+        return best;
+    }
+
+    // M25 — `faction`'s visible fighting strength: the role-priced power of its
+    // visible combat units (soldiers/archers/bandits). The guard the
+    // opportunism gate weighs my army against.
+    public int VisibleCombatPowerOf(int faction) =>
+        View.Units
+            .Where(u => u.OwnerId == faction
+                && (UnitRole)u.Role is UnitRole.Soldier or UnitRole.Archer or UnitRole.Bandit)
+            .Sum(EstimatedPower);
+
+    // M25 — peace offers addressed to me (the wire already scopes IncomingProposals
+    // to the viewer). DesiredState Neutral = an olive branch. The Rival decides
+    // whether to take it (Homesteader/Opportunist) or let it lapse (Warlord).
+    public IEnumerable<ProposalDto> IncomingPeaceProposals() =>
+        View.IncomingProposals
+            .Where(p => p.DesiredState == (int)Sim.Core.Diplomacy.RelationshipState.Neutral);
+
     // Doctrine helper (M17 Phase 2): is this tile inside the civilian
     // danger radius of any live sighting? The Defend rung (ladder top)
     // prunes the memory every think, so entries here are fresh; the

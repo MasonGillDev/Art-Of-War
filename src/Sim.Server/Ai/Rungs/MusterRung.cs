@@ -63,11 +63,21 @@ public sealed class MusterRung : IRung
         var war = hostiles == 0 ? 0
             : Math.Min(hostiles + 1,
                 ctx.View.Population / Math.Max(1, ctx.Cfg.WarPopulationPerSoldier));
-        var quota = Math.Max(peacetime, war);
+        // M25 — OFFENSIVE FOOTING: while this colony is prosecuting a campaign
+        // (RivalRung set the target), raise the roster to a field army —
+        // CampaignArmySize, capped by the same wartime population share as the
+        // levy (a war tax may hurt, not starve). The Rival rung directs the
+        // force this builds.
+        var campaign = ctx.Mem.CampaignTarget is not null
+            ? Math.Min(ctx.Cfg.CampaignArmySize,
+                ctx.View.Population / Math.Max(1, ctx.Cfg.WarPopulationPerSoldier))
+            : 0;
+        var quota = Math.Max(Math.Max(peacetime, war), campaign);
 
-        // The larder gate is PEACETIME discipline only — under attack,
-        // a free instant retrain beats a comfortable granary.
-        if (war == 0 && ctx.View.CastleFood <= ctx.Cfg.GrowthFoodFloor) return null;
+        // The larder gate is PEACETIME discipline only — under attack OR on
+        // campaign, a free instant retrain beats a comfortable granary (the
+        // proactive war was only declared above the growth floor anyway).
+        if (war == 0 && campaign == 0 && ctx.View.CastleFood <= ctx.Cfg.GrowthFoodFloor) return null;
 
         if (soldiers >= quota) return Demobilize(ctx, soldiers, peacetime);
 
@@ -157,6 +167,9 @@ public sealed class MusterRung : IRung
     // veteran walks to the School and goes back to the fields.
     private static Decision? Demobilize(ThinkContext ctx, int soldiers, int peacetime)
     {
+        // M25 — never disband the army while a campaign is on: the Rival needs
+        // every blade until the war ends (peace or the target's fall clears it).
+        if (ctx.Mem.CampaignTarget is not null) return null;
         if (ctx.Mem.SightedHostiles.Count > 0 || soldiers <= peacetime) return null;
         var school = ctx.OwnStructure(StructureKind.School);
         if (school is null) return null;

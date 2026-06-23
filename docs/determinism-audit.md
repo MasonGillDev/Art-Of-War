@@ -940,3 +940,42 @@ ints per buff (existing weapon buffs serialize them as 0, unchanged behavior).
 holdings/cargo/ground-pile serialization with no new code. Round-trip pinned by
 `CartTests.Cart_RoundTripsThroughSnapshot_PreservesModifiers`; the cart drops as
 an item via the existing `Equipment.DropEquipmentToGround` (one shared rule).
+
+## Update 2026-06-23 — M25 the Rival (war-capable AI)
+
+**Zero new sim mutation surfaces, zero new anchors.** The Rival is the fourth
+instance of the M16 driver shape (bandits → AI economy → automation → rival
+war): an ephemeral, out-of-sim brain that reads pure-read walls and acts ONLY
+through `SubmitIntent`. The war it wages is carried entirely by *existing*
+event-driven systems — `DeclareWarIntent`/`WarBecomesEffectiveEvent` (M6
+per-pair anchors), `CombatRoundEvent` (M7), and `SiegeDamage.RazeStructure` /
+`PlayerDefeatedEvent` (M24). M25 adds no `Apply`, no anchor, no snapshot field.
+
+NOT a mutation surface: the `AiPlayerDriver` / `HomesteaderBrain` / `RivalRung`
+(Sim.Server). The brain's personality is a pure function of `(worldSeed,
+ownerId)` (`RivalDoctrine.AssignPersonality`) held on the ephemeral `AiConfig` —
+not world state, not serialized. The fairness pin
+(`AiPlayerTests.Brain_TouchesOnlyTheView`) still sweeps the whole `Sim.Server.Ai`
+namespace for any `GameWorld`/`Simulation` parameter; the new rung and helpers
+pass it (they take only the `ViewDto`-derived `ThinkContext`).
+
+### The `ViewProjector` diplomacy/proposal projection is a pure read
+
+`ViewProjector.FillDiplomacy` reads `world.Diplomacy` (Relationships in canonical
+`FactionPair` order, Players for the defeated flag, Proposals scoped to the
+viewer) and writes only the wire `ViewDto`. It never touches sim state — the same
+pure-read discipline as `FillFood`/`FillOrders`. Diplomatic posture is *public
+knowledge* (`docs/diplomacy-model.md`), so this exposes nothing a human client
+doesn't already render; `IncomingProposals` is the one per-viewer-scoped field
+(filtered by `TargetId`). Pinned by
+`RivalWireTests.DiplomacyProjection_IsPureRead_NoMutation` (100× project, no hash
+change).
+
+### Determinism closure
+
+`RivalHeadlineTests`: a full-`AiPlayerDriver` Warlord-vs-Homesteader war is
+deterministic across **twin-run** (`War_TwinRun_HashesMatch`) and
+**replay-from-intent-log** (`War_ReplayFromIntentLog_HashesMatch`, the M16/M17
+proof re-earned for a war: live run with drivers vs. driverless replay of the
+round-tripped intent log, batched by tick in Seq order). No snapshot format
+change — every new wire DTO is presentation-only and never hashed.

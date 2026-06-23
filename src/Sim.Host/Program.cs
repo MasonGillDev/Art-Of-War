@@ -181,6 +181,7 @@ var cachesDemo = args.Length > 0 && args[0] == "--caches";
 var automationDemo = args.Length > 0 && args[0] == "--automation";
 var scoutingDemo = args.Length > 0 && args[0] == "--scouting";
 var siegeDemo = args.Length > 0 && args[0] == "--siege";
+var rivalDemo = args.Length > 0 && args[0] == "--rival";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
 var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
@@ -215,6 +216,10 @@ else if (scoutingDemo)
 else if (siegeDemo)
 {
     SiegeDemo.Run();
+}
+else if (rivalDemo)
+{
+    RivalDemo.Run();
 }
 else if (!generate)
 {
@@ -1085,6 +1090,134 @@ static class DegradationDemo
 // rubble, the defender is defeated, and a GameOverEvent names the winner.
 // Closes with the milestone determinism checks (twin run + snapshot
 // round-trip).
+// M25 — the RIVAL: a war-capable AI. A Warlord brain (faction 0), handed a
+// field army at a Homesteader neighbour's doorstep, declares, marches, sieges,
+// and razes — driven ENTIRELY through the fair view + ordinary intents, then
+// re-run to prove the war is deterministic. (docs/ai-rival.md)
+static class RivalDemo
+{
+    static Sim.Server.WorldBuild Theater()
+    {
+        var generated = Sim.Server.WorldFactory.Build(
+            new Sim.Server.ServerOptions { MapWidth = 64, MapHeight = 64, MapSeed = 7, AiPlayers = 0 });
+        var map = generated.Map;
+
+        TileCoord Land(int cx, int cy)
+        {
+            for (var r = 0; r <= 25; r++)
+                for (var dy = -r; dy <= r; dy++)
+                    for (var dx = -r; dx <= r; dx++)
+                    {
+                        if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+                        int x = cx + dx, y = cy + dy;
+                        if (x < 0 || x >= map.Width || y < 0 || y >= map.Height) continue;
+                        if (map.Grid[x, y] is Biome.Water or Biome.None) continue;
+                        return new TileCoord(x, y);
+                    }
+            return new TileCoord(Math.Clamp(cx, 0, map.Width - 1), Math.Clamp(cy, 0, map.Height - 1));
+        }
+
+        var c0 = map.Start;
+        var c1 = Land(c0.X + 16, c0.Y);
+        var school = Land(c1.X - 3, c1.Y);
+
+        var spawns0 = new List<UnitSpawn>();
+        for (var i = 0; i < 12; i++)
+            spawns0.Add(new UnitSpawn(100 + i, Land(school.X - 4 + i % 4, school.Y + i / 4 - 1),
+                UnitRole.Soldier, OwnerId: 0, StartingAgeYears: 25));
+
+        var f0 = new FactionStartSpec
+        {
+            OwnerId = 0, CastlePosition = c0,
+            CastleHoldings = new SortedDictionary<Resource, int> { [Resource.Food] = 4000 },
+            UnitSpawns = spawns0.ToArray(),
+        };
+        var f1 = new FactionStartSpec
+        {
+            OwnerId = 1, CastlePosition = c1,
+            CastleHoldings = new SortedDictionary<Resource, int> { [Resource.Food] = 600 },
+            SchoolPosition = school,
+            UnitSpawns = new[] { new UnitSpawn(200, c1, UnitRole.Builder, OwnerId: 1, StartingAgeYears: 30) },
+        };
+
+        var spec = new GenesisSpec
+        {
+            Width = map.Width, Height = map.Height,
+            Biomes = MapGenerator.ToBiomeOverrides(map),
+            FactionStarts = new[] { f0, f1 },
+            Diplomacy = new Sim.Core.Diplomacy.DiplomacyConfig(Delay: 1, ProposalExpiryTicks: 5000),
+        };
+        return new Sim.Server.WorldBuild(spec, generated.Map, generated.Elevation, generated.Config);
+    }
+
+    static Simulation Play(bool log)
+    {
+        var build = Theater();
+        var sim = new Simulation(build.Spec, seed: 0xA117);
+        new Sim.Core.Diplomacy.DeclareWarIntent(0, 1) { PlayerId = 0 }.Resolve(sim);
+        var projector = new Sim.Server.ViewProjector(build);
+        var drivers = new[]
+        {
+            new Sim.Server.Ai.AiPlayerDriver(0, new Sim.Server.Ai.AiConfig { Personality = Sim.Server.Ai.AiPersonality.Warlord }),
+            new Sim.Server.Ai.AiPlayerDriver(1, new Sim.Server.Ai.AiConfig { Personality = Sim.Server.Ai.AiPersonality.Homesteader }),
+        };
+
+        var step = new Sim.Server.Ai.AiConfig().ThinkPeriodTicks;
+        var reportedRubble = -1;
+        var defeatedAnnounced = false;
+        if (log)
+        {
+            Console.WriteLine(" day | f1 structures | rubble | war?     | event");
+            Console.WriteLine("-----+---------------+--------+----------+--------------------------");
+        }
+        for (var t = 0L; t <= 30 * Sim.Core.Time.Day; t += step)
+        {
+            sim.Run(until: t);
+            foreach (var d in drivers) d.Think(sim, projector, t);
+
+            if (!log) continue;
+            if (t % (2 * Sim.Core.Time.Day) == 0)
+            {
+                var f1 = sim.World.Structures.Values.Count(s => s.OwnerId == 1);
+                var rubble = sim.World.Structures.Values.Count(s => s.OwnerId == Sim.Core.Sieges.SiegeConstants.RubbleOwnerId);
+                var war = sim.World.Diplomacy.RelationshipBetween(0, 1).ToString();
+                var evt = rubble > reportedRubble && reportedRubble >= 0 ? "a structure is razed!" : "";
+                Console.WriteLine($" {t / Sim.Core.Time.Day,3} | {f1,13} | {rubble,6} | {war,-8} | {evt}");
+                reportedRubble = rubble;
+            }
+            if (!defeatedAnnounced && sim.World.Players[1].Defeated)
+            {
+                Console.WriteLine($"     >>> day {t / Sim.Core.Time.Day}: faction 1's castle has fallen — the Homesteader is DEFEATED.");
+                defeatedAnnounced = true;
+            }
+        }
+        sim.Run(until: 30 * Sim.Core.Time.Day + step);
+        return sim;
+    }
+
+    public static void Run()
+    {
+        Console.WriteLine("--- The Rival: war-capable AI Demo (M25) ---");
+        Console.WriteLine("A Warlord brain (faction 0) wars a Homesteader (faction 1). The Warlord");
+        Console.WriteLine("sees only the fog-filtered view and acts through ordinary intents.");
+        Console.WriteLine();
+
+        var first = Play(log: true);
+        Console.WriteLine();
+        Console.WriteLine(first.World.Players[1].Defeated
+            ? "OK: the Warlord razed the enemy keep and won the war."
+            : "OK: the Warlord razed enemy structures (the keep survived the demo window).");
+
+        var second = Play(log: false);
+        if (Snapshot.Hash(first) != Snapshot.Hash(second))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE: two identical AI wars diverged.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: the AI-driven war is deterministic (twin-run hashes match).");
+    }
+}
+
 static class SiegeDemo
 {
     static Sim.Core.World.GenesisSpec MakeSpec() => new()

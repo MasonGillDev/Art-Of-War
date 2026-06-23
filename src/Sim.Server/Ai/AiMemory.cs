@@ -34,14 +34,37 @@ public sealed class AiMemory
     // unwinding; cleared when they stop being a Soldier or die).
     public int? DesignatedVeteran;
     // THREAT MEMORY (Defend rung): last-known hostile sightings —
-    // tile → (tick seen, headcount). Refreshed on sight, cleared when
-    // the tile is re-observed empty, expired after ThreatMemoryTicks.
-    // Droppable like the rest: a restart re-spots anything still
-    // prowling the moment it enters sight.
-    public Dictionary<(int X, int Y), (long Tick, int Count)> SightedHostiles { get; } = new();
+    // tile → (tick seen, headcount, estimated combat power). Refreshed on
+    // sight, cleared when the tile is re-observed empty, expired after
+    // ThreatMemoryTicks. Droppable like the rest: a restart re-spots anything
+    // still prowling the moment it enters sight.
+    // M25 — hostiles are bandits OR a declared-Enemy faction (the view's
+    // public diplomacy), so a tile can hold soldiers/archers, not just
+    // bandits. Power is summed from each sighted unit's ROLE via the combat
+    // catalog (enemy Power is hidden in the fair view), so force-parity reads
+    // true strength instead of assuming everyone is a bandit.
+    public Dictionary<(int X, int Y), (long Tick, int Count, int Power)> SightedHostiles { get; } = new();
     // Cross-think OWNERSHIP of breeding candidates (arbitration lesson #6):
     // per-think reservations can't stop Eat from re-staffing a freed parent
     // the think after Grow freed them. Designation persists until the
     // breeding starts; every other selector skips designated units.
     public HashSet<int> DesignatedParents { get; } = new();
+
+    // M25 — THE CAMPAIGN (RivalRung): the faction this colony is currently
+    // prosecuting a war against, and a short reason for the trace. Set when a
+    // casus belli fires (or in retaliation for an incoming war); the offensive
+    // war machine (muster → form → march → siege) keys off it; cleared when the
+    // war ends (peace or the target's elimination). Droppable like the rest: a
+    // restart re-derives it from the view's diplomacy + the same triggers.
+    public int? CampaignTarget;
+    public string CampaignReason = "";
+    // The current siege OBJECTIVE: the tile of the enemy structure the field
+    // army is marching on, chosen by strike doctrine (military → economy →
+    // castle). Updated each think from the target's visible structures; held
+    // through re-fog so a column doesn't lose its target, dropped once reached.
+    public Sim.Core.World.TileCoord? CampaignObjective;
+    // The faction this colony has already sued for peace with (one olive branch
+    // per campaign — proposals don't dedup, so the flag throttles the offer).
+    // Cleared when the campaign ends.
+    public int? PeaceProposedTo;
 }

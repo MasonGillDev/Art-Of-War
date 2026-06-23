@@ -60,10 +60,15 @@ public sealed class GameHost : IDisposable
             _bandits = new Bandits.BanditDriver(banditConfig);
         // M17 — one AI driver per non-human faction in the genesis spec
         // (the human is faction 0; bandits aren't a FactionStartSpec).
+        // M25 — each gets a seeded PERSONALITY (Homesteader/Opportunist/Warlord)
+        // derived deterministically from (seed, ownerId): a twin-run reproduces
+        // the same cast. Tests/the balance lab build drivers directly and so
+        // stay Homesteader; only the live host deals the war-capable postures.
         if (aiConfig is { Enabled: true })
             foreach (var fs in build.Spec.FactionStarts)
                 if (fs.OwnerId != 0)
-                    _ais.Add(new Ai.AiPlayerDriver(fs.OwnerId, aiConfig));
+                    _ais.Add(new Ai.AiPlayerDriver(fs.OwnerId,
+                        aiConfig with { Personality = Ai.RivalDoctrine.AssignPersonality(seed, fs.OwnerId) }));
         // M18 — player standing orders. Always constructed (null config →
         // defaults): a world with no orders makes Think a cheap no-op, and
         // orders can arrive at any time over the wire.

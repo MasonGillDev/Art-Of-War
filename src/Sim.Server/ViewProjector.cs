@@ -32,7 +32,66 @@ public sealed class ViewProjector
         dto.Tick = now;   // world age in ticks (= game-minutes); the client's clock reads from this
         FillFood(dto, sim, now, playerId);
         FillOrders(dto, sim.World, playerId);
+        FillDiplomacy(dto, sim.World, playerId);
         return dto;
+    }
+
+    // M25 — PUBLIC diplomatic state onto the wire. Diplomacy is public
+    // knowledge (docs/diplomacy-model.md): this is the SAME data PlayerView
+    // surfaces, read straight off the world's Diplomacy aggregate. It is
+    // filled identically for every viewer — there is no per-viewer diplomatic
+    // fog (only IncomingProposals would be scoped, and the AI doesn't use
+    // proposals to LEARN hostility), so no playerId is needed. PURE READ:
+    // Relationships is a SortedDictionary keyed by canonical FactionPair, so
+    // iteration is order-stable; nothing here mutates. This is the channel
+    // through which the AI Rival (M25) learns who is at war with whom — the
+    // very thing a human reads off the diplomacy screen.
+    private static void FillDiplomacy(ViewDto dto, GameWorld world, int playerId)
+    {
+        // Factions: every registered player except the bandit faction, which
+        // is outside diplomacy (always hostile, no proposals) — mirrors
+        // View.BuildPlayerView so the wire and the core view never disagree.
+        var factions = new List<FactionDto>();
+        foreach (var (id, player) in world.Players)
+            if (id != Sim.Core.Bandits.BanditConstants.OwnerId)
+                factions.Add(new FactionDto { Id = id, Defeated = player.Defeated });
+        dto.Factions = factions.ToArray();
+
+        var relationships = new List<RelationshipDto>();
+        var pendingWars = new List<PendingWarDto>();
+        foreach (var (pair, rel) in world.Diplomacy.Relationships)   // canonical order
+        {
+            relationships.Add(new RelationshipDto
+            {
+                LoId = pair.Lo,
+                HiId = pair.Hi,
+                State = (int)rel.State,
+                PendingEffectiveTick = rel.PendingEffectiveTick ?? -1,
+            });
+            if (rel.PendingEffectiveTick is { } tick)
+                pendingWars.Add(new PendingWarDto { LoId = pair.Lo, HiId = pair.Hi, EffectiveTick = tick });
+        }
+        dto.Relationships = relationships.ToArray();
+        dto.PendingWars = pendingWars.ToArray();
+
+        // Incoming proposals are the ONE per-viewer-scoped diplomatic field
+        // (offers stay private to the pair until accepted): only those whose
+        // TargetId is this viewer. Iterated in id order (SortedDictionary) so the
+        // projection is deterministic.
+        var proposals = new List<ProposalDto>();
+        foreach (var (_, p) in world.Diplomacy.Proposals)
+        {
+            if (p.TargetId != playerId) continue;
+            proposals.Add(new ProposalDto
+            {
+                Id = p.Id,
+                ProposerId = p.ProposerId,
+                TargetId = p.TargetId,
+                DesiredState = (int)p.DesiredState,
+                ExpiryTick = p.ExpiryTick,
+            });
+        }
+        dto.IncomingProposals = proposals.ToArray();
     }
 
     // M18 — the viewer's OWN standing orders, definition + live cursor.

@@ -11,6 +11,14 @@ public sealed record AiConfig
 {
     public bool Enabled { get; init; } = true;
 
+    // M25 — the Rival's posture (docs/m25-rival-spec.md). Default Homesteader
+    // is the M17 peaceful brain, UNCHANGED: every existing scenario and test
+    // that constructs `new AiConfig()` keeps today's behavior, and the balance
+    // lab (which builds drivers directly) stays peaceful. The host assigns
+    // Opportunist/Warlord per faction via RivalDoctrine.AssignPersonality; tests
+    // set this directly to pin a posture.
+    public AiPersonality Personality { get; init; } = AiPersonality.Homesteader;
+
     // One brain evaluation per game-hour — same cadence reasoning as the
     // bandit driver: reacts within a fraction of any march, keeps the
     // intent log lean.
@@ -183,6 +191,34 @@ public sealed record AiConfig
     public bool RotateFarms { get; init; } = true;
     public int RestSoilBelow { get; init; } = 3200;
     public int ResumeSoilAbove { get; init; } = 4500;
+
+    // ===== M25 — THE RIVAL (offensive war; docs/m25-rival-spec.md) =====
+    // These gate the war-capable postures (Opportunist/Warlord); a Homesteader
+    // never reads them. Like every knob above, the thresholds ARE the
+    // arbitration — a strict casus-belli check has no weights.
+
+    // ENCROACHMENT: a rival STRUCTURE seen within this Chebyshev range of my
+    // castle is a trespass — close enough to contest my land bank / claims.
+    // Sized just inside SiteSearchRange so it fires on the rivals I'd actually
+    // be expanding into.
+    public int EncroachmentRadius { get; init; } = 28;
+
+    // OPPORTUNISM: strike a rival objective only when my committable army power
+    // is at least this PERCENT of the rival force defending it (visible units
+    // near the target). 200 = "twice their guard" — a predator picks fights it
+    // wins, not fair ones.
+    public int OpportunismPowerPercent { get; init; } = 200;
+
+    // The offensive CAMPAIGN army size (Phase 4): the soldier quota a colony
+    // musters once it has a campaign, and the force-parity floor before the
+    // column marches. Larger than the peacetime garrison floor — a siege needs
+    // a real army, not the home guard.
+    public int CampaignArmySize { get; init; } = 8;
+
+    // How far a campaign army will march from home to reach a target — the
+    // offensive cousin of the pursuit leash. Beyond it, a rival objective is
+    // too far to project force onto and isn't considered.
+    public int CampaignReachTiles { get; init; } = 120;
 
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;

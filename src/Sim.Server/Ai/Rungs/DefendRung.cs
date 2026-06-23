@@ -78,8 +78,11 @@ public sealed class DefendRung : IRung
         // the war-footing quota in Muster is meanwhile raising the
         // roster toward the counted headcount). Civilian recalls below
         // still run either way.
-        var hostilePower = actionable.Sum(kv => kv.Value.Count)
-            * Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Bandit).BasePower;
+        // M25 — hostile power is the SUMMED per-tile estimate the
+        // perception banked (role-priced; soldiers and archers, not
+        // just bandits), so parity is true strength, not a head-count
+        // times the bandit rate.
+        var hostilePower = actionable.Sum(kv => kv.Value.Power);
         var ownPower = soldiers.Sum(u => u.Power >= 0 ? u.Power
             : Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower);
         if (ownPower >= hostilePower)
@@ -129,17 +132,27 @@ public sealed class DefendRung : IRung
         Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
 
     // Sightings: refresh on sight, clear on re-observed-empty, expire
-    // on staleness. Bandits are the only hostiles today (faction -1 —
-    // a RULE constant, not world state); Rival extends this to
-    // declared-war factions via the view's diplomacy data.
+    // on staleness.
+    // M25 — a hostile is a bandit (faction -1, a RULE constant) OR a unit
+    // owned by a faction this colony is at WAR with (the view's public
+    // diplomacy — IsHostileFaction). Each tile banks both a head-count and a
+    // role-priced POWER estimate (enemy Power is hidden in the fair view, so we
+    // read it from the visible role like a human would). This is the same
+    // doctrine the M17 defender ran against bandits — now it guards the border
+    // against rival armies too, for EVERY personality (even a peaceful
+    // Homesteader defends its turf).
     private static void UpdateThreatMemory(ThinkContext ctx)
     {
-        var seen = new Dictionary<(int X, int Y), int>();
+        var seen = new Dictionary<(int X, int Y), (int Count, int Power)>();
         foreach (var u in ctx.View.Units)
-            if (u.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId)
-                seen[(u.X, u.Y)] = seen.GetValueOrDefault((u.X, u.Y)) + 1;
-        foreach (var (tile, count) in seen)
-            ctx.Mem.SightedHostiles[tile] = (ctx.Now, count);
+        {
+            if (!ctx.IsHostileFaction(u.OwnerId)) continue;
+            var key = (u.X, u.Y);
+            var prev = seen.GetValueOrDefault(key);
+            seen[key] = (prev.Count + 1, prev.Power + ThinkContext.EstimatedPower(u));
+        }
+        foreach (var (tile, agg) in seen)
+            ctx.Mem.SightedHostiles[tile] = (ctx.Now, agg.Count, agg.Power);
         foreach (var tile in ctx.Mem.SightedHostiles.Keys.ToList())
         {
             var expired = ctx.Now - ctx.Mem.SightedHostiles[tile].Tick > ctx.Cfg.ThreatMemoryTicks;

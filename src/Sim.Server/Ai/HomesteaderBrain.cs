@@ -39,6 +39,7 @@ public sealed class HomesteaderBrain
 {
     private readonly AiConfig _cfg;
     private readonly IRung[] _ladder;
+    private readonly RivalRung _rival = new();
 
     public HomesteaderBrain(AiConfig cfg)
     {
@@ -48,6 +49,12 @@ public sealed class HomesteaderBrain
         // threat perception every think), Muster between Train and
         // Grow: feed the army before raising it, garrison before
         // breeding (docs/m17-defender-spec.md).
+        //
+        // M25 — the Rival sits just BELOW Muster: the army has to be
+        // RAISED (Muster) before it can be DIRECTED (Rival), and a war
+        // never preempts the economy that feeds it. Its war DECISION,
+        // though, runs in the perception pass below — not the ladder —
+        // so a busy colony never starves the declaration.
         _ladder = new IRung[]
         {
             new DefendRung(),
@@ -55,6 +62,7 @@ public sealed class HomesteaderBrain
             new BuildRung(),
             new TrainRung(),
             new MusterRung(),
+            _rival,
             new GrowRung(),
             new ScoutRung(),
         };
@@ -81,6 +89,14 @@ public sealed class HomesteaderBrain
         var ctx = ThinkContext.Build(view, _cfg, mem, now);
         if (ctx.Castle is null) return new Decision("dead", "no castle", new List<Intent>());
 
+        // PERCEPTION (every think, before the ladder): the Rival's strategic
+        // clock — campaign bookkeeping + casus belli + the telegraphed war
+        // declaration (M25). Like the Defend rung's threat memory, the war
+        // DECISION must not be starved by a busy economy, so it runs
+        // unconditionally and its unit-free intents ship no matter who claims
+        // the think. Inert for a Homesteader.
+        var standing = _rival.Perceive(ctx);
+
         // STRATEGIC FIRST: decisions (place/staff/breed/scout) reserve
         // their units before logistics swarms the rest. The other order
         // let the haul swarm take every idle unit every think — the camp
@@ -89,13 +105,16 @@ public sealed class HomesteaderBrain
         foreach (var rung in _ladder)
             if ((strategic = rung.TryClaim(ctx)) is not null) break;
 
-        var intents = new List<Intent>();
+        var intents = new List<Intent>(standing);
         if (strategic is not null) intents.AddRange(strategic.Intents);
         var hauls = LogisticsLayer.Emit(ctx);
         intents.AddRange(hauls);
 
-        var rung_ = strategic?.Rung ?? (hauls.Count > 0 ? "logistics" : "idle");
-        var why = strategic?.Why ?? (hauls.Count > 0 ? $"{hauls.Count} haul(s)" : "all needs met");
+        var rung_ = strategic?.Rung ?? (standing.Count > 0 ? "rival" : hauls.Count > 0 ? "logistics" : "idle");
+        var why = strategic?.Why ?? (standing.Count > 0
+            ? $"war declaration ({mem.CampaignReason})"
+            : hauls.Count > 0 ? $"{hauls.Count} haul(s)" : "all needs met");
+        if (strategic is not null && standing.Count > 0) why = $"war ({mem.CampaignReason}) + {why}";
         if (strategic is not null && hauls.Count > 0) why += $" (+{hauls.Count} haul)";
 
         foreach (var intent in intents)
