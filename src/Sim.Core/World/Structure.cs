@@ -238,6 +238,16 @@ public sealed class Extractor : Structure
         // BiomeDegradation.OnProductionTransition.
         Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
             sim.World, this, sim.Now, sim.World.BiomeDegradationConfig);
+        // Anchor the re-arm reference point to Now — exactly as the normal
+        // production path (ProductionTickEvent) and the boat DockArmer already
+        // do. RegenerateQueue reconstructs the next tick as LastProductionTick +
+        // period; the tick scheduled just below is Now + period. Without this
+        // line a re-armed dormant extractor (buffer-full / crop-rotation, common
+        // in long-lived colonies) keeps a STALE LastProductionTick, so recovery
+        // reconstructs a past tick and Snapshot.Restore throws. No live code
+        // reads this field (only RegenerateQueue does), so twin-run determinism
+        // is unaffected.
+        LastProductionTick = sim.Now;
         TickArmed = true;
         NextProductionTickSeq = sim.Schedule(
             sim.Now + Spec.ProductionPeriodTicks,
