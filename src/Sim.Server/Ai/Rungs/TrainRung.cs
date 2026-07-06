@@ -113,7 +113,9 @@ public sealed class TrainRung : IRung
     {
         int Adults(UnitRole r) => ctx.OwnUnits.Count(u =>
             (UnitRole)u.Role == r && u.Age >= ctx.Cfg.MinAdultAgeYears);
-        if (Adults(UnitRole.Builder) < ctx.Cfg.BuilderFloor) return UnitRole.Builder;
+        // M27 — the floor rises to the largest crew a pending site needs
+        // (a canal's 3 builders vs the genesis floor of 2).
+        if (Adults(UnitRole.Builder) < ctx.BuilderDemand()) return UnitRole.Builder;
         if (Adults(UnitRole.Hauler) < ctx.Cfg.HaulerFloor) return UnitRole.Hauler;
         if (Adults(UnitRole.Scout) < ctx.Cfg.ScoutFloor) return UnitRole.Scout;
         var (pool, _, handsDemanded) = ctx.LaborLedger();

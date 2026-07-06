@@ -334,3 +334,42 @@ whose path is fully walled gets a rejected `MoveGroupIntent` and stalls
 plan-time "no path → besiege the nearest segment" rung is future work).
 Wall REPAIR doesn't exist for anyone (rubble breaches are permanent,
 M26's deliberate deferral).
+
+## Update 2026-07-06 (later) — M27: the Irrigate rung (canals for farms)
+
+Both brains gained an `IrrigateRung` directly below Fortify (safety, then
+soil — and the same slot in both ladders, so the Sparta discipline holds).
+When at least `IrrigateMinDryClaimTiles` of the colony's live farm claims
+sit beyond the world's water-recovery radius, and the treasury clears
+`IrrigateStoneFloor` (the quarry INCOME exists — the `ResourceStockTarget`
+haul cap makes banking a canal's full per-tile price impossible by
+design), the rung digs a canal from the known water frontier into the
+farm belt. Irrigated fields rest at `WaterRecoveryAmount` — double
+rainfall by default (the M21 deferred knob, cashed in by M27) — so the
+crop-rotation cycle shortens and the same land feeds more mouths.
+
+The doctrine reuses every M26 lesson:
+
+- **Surplus-only** — the four Fortify gates verbatim; a canal is the
+  longest-horizon spend the brain makes and bread always outranks it.
+- **One canal at a time**, crewed via `EnsureBuilders`;
+  `ThinkContext.BuilderDemand()` raises TrainRung's builder floor to the
+  largest crew any pending site needs (a canal takes 3 against the
+  genesis floor of 2 — without this the dig waits forever for a third
+  pair of hands nobody had reason to train).
+- **Deterministic planning** — a multi-source BFS seeded from the known
+  water tiles in canonical order, over KNOWN-diggable land only
+  (mirroring `PlaceCanalIntent`'s tile rules; unknown land is
+  undiggable, so the plan grows with scouting), to the shortest path
+  whose END waters the threshold of dry claims.
+- **Observational rejection feedback** — `PendingCanal` in BrainCore: a
+  refused dig blacklists its anchor tile and the BFS reroutes from a
+  different stretch of the frontier (a canal cannot bisect like a wall
+  line — it must stay rooted at water — so the anchor is the one retry
+  lever).
+
+Pinned by `IrrigateTests`: the emitted intent passes the SERVER's own
+validation (the real proof of the plan), the flood turns the belt
+watered and retires the rung, and the gates hold without need or stone.
+Boats remain untaught — no cargo-over-water mechanics exist for the AI
+to leverage; seamanship waits for a sim-level payoff.

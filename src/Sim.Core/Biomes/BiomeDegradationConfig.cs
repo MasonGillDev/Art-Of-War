@@ -46,7 +46,16 @@ public readonly record struct BiomeDegradationConfig(
     // degraded ladder land, letting it recover toward its original biome.
     // Defaulted so existing positional/named construction stays source-
     // compatible. See WaterProximity + docs/canals.md.
-    int WaterRecoveryRadius = 2)
+    int WaterRecoveryRadius = 2,
+    // M27 — IRRIGATION: recovery amount for degraded land within
+    // WaterRecoveryRadius of water — the M21 "canals visibly rejuvenate
+    // faster than rainfall" knob, deferred there and cashed in here so
+    // canal-side fields rest in half the time (2 vs 1 per RecoveryPeriod).
+    // Set equal to RecoveryAmount to restore exact M21 behavior. Same
+    // rate-invariance argument as the latch lift: water proximity only
+    // changes at canal completion, which runs the OnWaterProximityChanged
+    // catch-up. See docs/canals.md update.
+    int WaterRecoveryAmount = 2)
 {
     // SCALE NOTE: the fertility space is ×100 the original M9 scale
     // (10000/5000/1000 instead of 100/50/10). The point space is fine-
@@ -99,6 +108,10 @@ public readonly record struct BiomeDegradationConfig(
         // tiles of water (lake/sea/canal) escapes the permanent latch and
         // recovers. Lakeside/canal-side fields are renewable; inland land
         // still has a hard desert floor.
-        WaterRecoveryRadius: 2)
+        WaterRecoveryRadius: 2,
+        // M27 — irrigated recovery at DOUBLE the rainfall rate: canal-side
+        // fields rest in half the time, which is what makes digging one a
+        // real farm investment rather than latch insurance.
+        WaterRecoveryAmount: 2)
     { }
 }

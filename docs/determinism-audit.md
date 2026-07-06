@@ -1041,3 +1041,17 @@ extractor — razing is a RATE-CHANGING event for the claim tiles, and the
 mutates (the same rule as production stop and canal flooding; the missing
 call was a latent M24 gap). Pinned by
 `ReclaimTests.RazingAProducingFarm_AnchorsItsSoilDamage`.
+
+### M27 addendum — irrigation (WaterRecoveryAmount)
+
+`DeriveRate`'s recovery branch now selects `WaterRecoveryAmount` inside
+`WaterRecoveryRadius` — still a PURE READ (the added water scan mirrors
+the latch-lift branch's, and is skipped entirely when the knob equals
+`RecoveryAmount`). Rate-invariance between transitions holds unchanged:
+water proximity only changes at canal completion, whose
+`OnWaterProximityChanged` catch-up anchors affected tiles before the grid
+mutates — the boosted rate rides the SAME transition event. Snapshot
+`FormatVersion` 19→20 (one config int). Pinned by the Irrigation section
+of `WaterRestorationTests` (boost math, radius boundary, 100×-no-mutation,
+config round-trip). The AI side (IrrigateRung) adds no sim surface: one
+ordinary durable `PlaceCanalIntent` per project, planned from the view.

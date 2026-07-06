@@ -181,3 +181,31 @@ single tunable knob.
   the sanctioned exception to; M21 addendum).
 - `docs/extraction-claims.md` (`Claims.ClaimantAt` — the reservation-by-scan
   pattern `CanalReservation` mirrors).
+
+## Update 2026-07-06 — M27: the boosted-recovery knob lands, and the AI digs
+
+Two of this doc's deferrals are paid:
+
+**`WaterRecoveryAmount` is real** ("Boosted recovery near water", Future
+expansion). `BiomeDegradationConfig` gains the knob (default 2 — irrigated
+land recovers at DOUBLE the rainfall rate); `DeriveRate`'s recovery branch
+selects it inside `WaterRecoveryRadius`. Setting it equal to
+`RecoveryAmount` restores exact M21 behavior, and the proximity scan is
+skipped entirely in that case. Rate-invariance holds by the same argument
+as the latch lift: water proximity only changes at canal completion, which
+runs the `OnWaterProximityChanged` catch-up before the grid mutates.
+Snapshot `FormatVersion` 19→20 (one int in the config block). This
+supersedes the M21 locked rule "Recovery uses the existing rate" — the
+M21 pins in `WaterRestorationTests` keep their exact arithmetic by
+explicitly disabling the boost; the boosted math has its own pins.
+
+**The AI digs canals** (`IrrigateRung`, both brains — see
+`docs/ai-players.md` M27 update): when enough of its farm belt sits beyond
+the recovery radius, a colony with a primed stone economy digs a
+deterministically-planned canal (multi-source BFS from the known water
+frontier over known-diggable land) whose end waters the dry claims.
+Surplus-gated like Fortify; one canal at a time;
+`ThinkContext.BuilderDemand` raises the training floor to the canal's
+3-builder crew. Boats remain un-taught: there are no cargo-over-water
+mechanics for the AI to leverage yet (boats cannot reach land structures
+to load), so seamanship waits for a sim-level payoff.

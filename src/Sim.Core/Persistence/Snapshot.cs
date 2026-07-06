@@ -89,7 +89,10 @@ public static class Snapshot
     //       PlayerDefeatedEvent / GameOverEvent both schedule at sim.Now
     //       and fire that same tick, so the queue never carries them
     //       across a snapshot.
-    public const int FormatVersion = 19;
+    // v20 — M27 irrigation: BiomeDegradationConfig gains WaterRecoveryAmount
+    //       (boosted recovery within WaterRecoveryRadius of water — the M21
+    //       deferred knob). One int in the config block; no new anchors.
+    public const int FormatVersion = 20;
 
     public static string Hash(Simulation sim)
     {
@@ -1055,6 +1058,7 @@ public static class Snapshot
         bw.Write(c.DegradePeriod);
         bw.Write(c.DegradeRadius);
         bw.Write(c.WaterRecoveryRadius); // M21
+        bw.Write(c.WaterRecoveryAmount); // M27 (v20)
 
         // Sparse fertility dict in canonical (y, x) order — serialized
         // FAITHFULLY, including Deviation == 0 entries. Those are the M9
@@ -1137,10 +1141,11 @@ public static class Snapshot
         var degradePeriod = br.ReadInt64();
         var degradeRadius = br.ReadInt32();
         var waterRecoveryRadius = br.ReadInt32(); // M21
+        var waterRecoveryAmount = br.ReadInt32(); // M27 (v20)
         world.RestoreBiomeDegradationConfig(new Sim.Core.Biomes.BiomeDegradationConfig(
             forestBase, grassBase, desertBase, hillsBase, mountainBase, waterBase,
             forestThresh, desertThresh, recoveryAmount, recoveryPeriod, degradePeriod, degradeRadius,
-            waterRecoveryRadius));
+            waterRecoveryRadius, waterRecoveryAmount));
 
         var count = br.ReadInt32();
         for (var i = 0; i < count; i++)

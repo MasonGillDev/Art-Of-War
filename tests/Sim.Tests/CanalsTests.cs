@@ -218,10 +218,12 @@ public class CanalsTests
         PlaceAndCompleteCanal(sim, path);
         var anchor = sim.Now; // recovery anchors at completion
 
-        // Now within WaterRecoveryRadius of canal water → recovers. It climbs
-        // `margin` points to cross DesertThreshold; one period short it is
-        // still Desert, at the crossing it is Grassland.
-        var periods = (margin + cfg.RecoveryAmount - 1) / cfg.RecoveryAmount;
+        // Now within WaterRecoveryRadius of canal water → recovers at the
+        // IRRIGATED rate (M27 — WaterRecoveryAmount; equals RecoveryAmount
+        // when the boost is disabled). It climbs `margin` points to cross
+        // DesertThreshold; one period short it is still Desert, at the
+        // crossing it is Grassland.
+        var periods = (margin + cfg.WaterRecoveryAmount - 1) / cfg.WaterRecoveryAmount;
         var crossTick = anchor + periods * cfg.RecoveryPeriod;
         Assert.Equal(Biome.Desert,    BiomeDegradation.BiomeAt(sim.World, field, anchor, cfg));
         Assert.Equal(Biome.Desert,    BiomeDegradation.BiomeAt(sim.World, field, crossTick - cfg.RecoveryPeriod, cfg));

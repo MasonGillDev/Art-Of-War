@@ -33,7 +33,11 @@ public class WaterRestorationTests
         RecoveryPeriod:     30,
         DegradePeriod:      40,
         DegradeRadius:       2,
-        WaterRecoveryRadius: 2);
+        WaterRecoveryRadius: 2,
+        // M27 — boost DISABLED (== RecoveryAmount) so this file's exact
+        // M21 arithmetic pins stay valid; the boosted-rate pins live in
+        // the Irrigation section below with their own config.
+        WaterRecoveryAmount: 1);
 
     private static GameWorld MakeWorld(TileGrid grid) => new(
         grid, new Sim.Core.Diplomacy.DiplomacyConfig(),
@@ -206,6 +210,89 @@ public class WaterRestorationTests
         var sim2 = Snapshot.Restore(Snapshot.Serialize(sim), seed: 1);
 
         Assert.Equal(3, sim2.World.BiomeDegradationConfig.WaterRecoveryRadius);
+        Assert.Equal(cfg, sim2.World.BiomeDegradationConfig);
+    }
+
+    // ====================================================================
+    // M27 — IRRIGATION: the boosted near-water recovery rate (the M21
+    // "rejuvenates faster than rainfall" knob, cashed in). Exact math on
+    // an explicit config: boost 3 vs base 1 per 30-tick period.
+    // ====================================================================
+
+    private static readonly BiomeDegradationConfig BoostCfg =
+        Cfg with { WaterRecoveryAmount = 3 };
+
+    private static GameWorld MakeWorld(TileGrid grid, BiomeDegradationConfig cfg) => new(
+        grid, new Sim.Core.Diplomacy.DiplomacyConfig(),
+        new Sim.Core.Combat.CombatConfig(), new Sim.Core.Population.PopulationConfig(),
+        cfg);
+
+    [Fact]
+    public void Irrigation_NearWater_RecoversAtWaterRecoveryAmount()
+    {
+        // Same fixture as the headline softening, boost armed: dev -30
+        // climbs at 3/period instead of 1 — the canal-side field rests in a
+        // third of the time (300 ticks to baseline vs 900 unboosted).
+        var grid = new TileGrid(12, 12, Biome.Grassland);
+        var tile = new TileCoord(5, 5);
+        grid.SetBiome(new TileCoord(5, 7), Biome.Water);   // Chebyshev 2 → irrigated
+        var world = MakeWorld(grid, BoostCfg);
+        world.Fertility[tile] = new Fertility(-30, 0);
+
+        Assert.Equal(35, BiomeDegradation.FertilityAt(world, tile, 150, BoostCfg)); // 5 periods × 3
+        Assert.Equal(50, BiomeDegradation.FertilityAt(world, tile, 300, BoostCfg)); // at baseline
+        Assert.Equal(50, BiomeDegradation.FertilityAt(world, tile, 100000, BoostCfg)); // no overshoot
+    }
+
+    [Fact]
+    public void Irrigation_BeyondRadius_KeepsTheBaseRate()
+    {
+        // Water 3 tiles away (> radius 2): the boost never leaks inland.
+        // Unlatched degraded grass (fert 30 ≥ threshold 25) recovers at the
+        // BASE 1/period even with the boost configured.
+        var grid = new TileGrid(12, 12, Biome.Grassland);
+        var tile = new TileCoord(5, 5);
+        grid.SetBiome(new TileCoord(5, 8), Biome.Water);   // Chebyshev 3 → dry land
+        var world = MakeWorld(grid, BoostCfg);
+        world.Fertility[tile] = new Fertility(-20, 0);
+
+        Assert.Equal(35, BiomeDegradation.FertilityAt(world, tile, 150, BoostCfg)); // 5 periods × 1
+        Assert.Equal(50, BiomeDegradation.FertilityAt(world, tile, 600, BoostCfg));
+    }
+
+    [Fact]
+    public void Irrigation_FertilityAt_IsPureRead_NoMutation()
+    {
+        // The boosted branch adds a water scan on the recovery path — it
+        // must still never mutate sim state.
+        var grid = new TileGrid(12, 12, Biome.Grassland);
+        var tile = new TileCoord(5, 5);
+        grid.SetBiome(new TileCoord(5, 7), Biome.Water);
+        var world = MakeWorld(grid, BoostCfg);
+        world.Fertility[tile] = new Fertility(-30, 0);
+        var sim = new Simulation(world, seed: 1);
+        var hashBefore = Snapshot.Hash(sim);
+
+        for (var i = 0; i < 100; i++)
+        {
+            BiomeDegradation.FertilityAt(world, tile, 450, BoostCfg);
+            BiomeDegradation.BiomeAt(world, tile, 450, BoostCfg);
+        }
+
+        Assert.Equal(hashBefore, Snapshot.Hash(sim));
+    }
+
+    [Fact]
+    public void SnapshotRoundTrip_PreservesWaterRecoveryAmount()
+    {
+        var cfg = Cfg with { WaterRecoveryAmount = 5 };
+        var grid = new TileGrid(4, 4, Biome.Grassland);
+        var world = MakeWorld(grid, cfg);
+        var sim = new Simulation(world, seed: 1);
+
+        var sim2 = Snapshot.Restore(Snapshot.Serialize(sim), seed: 1);
+
+        Assert.Equal(5, sim2.World.BiomeDegradationConfig.WaterRecoveryAmount);
         Assert.Equal(cfg, sim2.World.BiomeDegradationConfig);
     }
 }

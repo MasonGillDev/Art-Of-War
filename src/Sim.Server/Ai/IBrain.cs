@@ -76,6 +76,19 @@ public static class BrainCore
             mem.PendingWall = null;
         }
 
+        // M27 — canal feedback: a rejected dig (fog-hidden claim or
+        // reservation mid-path) leaves no site at the anchor — blacklist
+        // the anchor so the next plan reroutes from a different stretch of
+        // the water frontier. A canal path can't bisect (it must stay
+        // rooted at water), so the anchor is the one retry lever.
+        if (mem.PendingCanal is { } pc && now > pc.OrderedAt)
+        {
+            var anchor = pc.Tiles[0];
+            if (!view.Structures.Any(s => s.X == anchor.X && s.Y == anchor.Y))
+                mem.BlacklistedTiles.Add(anchor);
+            mem.PendingCanal = null;
+        }
+
         var ctx = ThinkContext.Build(view, cfg, mem, now);
         if (ctx.Castle is null) return new Decision("dead", "no castle", new List<Intent>());
 
@@ -103,6 +116,8 @@ public static class BrainCore
                 mem.PendingSite = (p.Tile, now);
             else if (intent is Sim.Core.Fortifications.PlaceWallIntent w)
                 mem.PendingWall = (w.Path.Select(t => (t.X, t.Y)).ToList(), now);
+            else if (intent is Sim.Core.Canals.PlaceCanalIntent c)
+                mem.PendingCanal = (c.Path.Select(t => (t.X, t.Y)).ToList(), now);
         return new Decision(rung_, why, intents);
     }
 }

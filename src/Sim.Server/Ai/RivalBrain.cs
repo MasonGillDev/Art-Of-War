@@ -56,6 +56,8 @@ public sealed class RivalBrain : IBrain
             // above Scout), so the peacetime curves stay identical (the
             // Sparta pin) — even conquerors wall their own keep.
             new FortifyRung(),
+            // M27 — and water their fields (same slot as the Homesteader).
+            new IrrigateRung(),
             new ScoutRung(),
         };
     }

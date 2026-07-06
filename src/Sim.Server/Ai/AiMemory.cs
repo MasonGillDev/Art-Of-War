@@ -24,6 +24,12 @@ public sealed class AiMemory
     // (an accepted segment resets it). Droppable: worst case a restart
     // re-orders one rejected segment and re-learns.
     public int? WallSegmentCap;
+    // M27 — the canal order awaiting confirmation (IrrigateRung), same
+    // observation discipline: if the anchor tile (path[0]) grew no site
+    // by the next think, the server rejected the dig (a fog-hidden claim
+    // or reservation mid-path) — blacklist the anchor so the BFS reroutes
+    // from a different stretch of the water frontier.
+    public (List<(int X, int Y)> Tiles, long OrderedAt)? PendingCanal;
     // Set when the known-land inventory drops below the bank floor —
     // re-opens scouting past its budget. ForestStarved is Build's
     // distress flag (no known forest for a replacement camp); Eat ORs it

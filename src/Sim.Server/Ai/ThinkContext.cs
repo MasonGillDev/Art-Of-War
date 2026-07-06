@@ -235,6 +235,43 @@ public sealed class ThinkContext
         && b is not ((int)Biome.Water or (int)Biome.None)
         && !_blocked.Contains((x, y));
 
+    // M27 — Irrigate's queries. Diggable mirrors PlaceCanalIntent's
+    // TileEligible over the brain's own map: known land, not Mountain
+    // (rock — too solid to dig), free of structures/claims/blacklist.
+    public bool KnownDiggable(int x, int y) =>
+        _biome.TryGetValue((x, y), out var b)
+        && b is not ((int)Biome.Water or (int)Biome.None or (int)Biome.Mountain)
+        && !_blocked.Contains((x, y));
+
+    // Any KNOWN water tile within Chebyshev `radius` of (x, y)?
+    public bool KnownWaterNear(int x, int y, int radius)
+    {
+        for (var dy = -radius; dy <= radius; dy++)
+        for (var dx = -radius; dx <= radius; dx++)
+            if (_biome.TryGetValue((x + dx, y + dy), out var b) && b == (int)Biome.Water)
+                return true;
+        return false;
+    }
+
+    // Every known water tile, canonical (y, x) order — the canal BFS seeds.
+    public IEnumerable<(int X, int Y)> KnownWaterTiles() =>
+        _biome.Where(kv => kv.Value == (int)Biome.Water)
+            .Select(kv => kv.Key)
+            .OrderBy(t => t.Y).ThenBy(t => t.X);
+
+    // M27 — the builder demand: the configured floor, raised to the largest
+    // crew any own pending site requires. A canal takes 3 builders against
+    // the genesis floor of 2 — without this, the dig would wait forever for
+    // a third pair of hands TrainRung had no reason to train. Lab-neutral:
+    // with no oversized site pending, this IS Cfg.BuilderFloor.
+    public int BuilderDemand()
+    {
+        var need = Cfg.BuilderFloor;
+        foreach (var s in OwnSites())
+            if (s.BuildersRequired > need) need = s.BuildersRequired;
+        return need;
+    }
+
     public static int AmountOf(ResAmtDto[] holdings, Resource r) =>
         holdings.FirstOrDefault(h => h.Resource == (int)r)?.Amount ?? 0;
 

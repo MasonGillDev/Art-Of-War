@@ -197,7 +197,23 @@ public static class BiomeDegradation
         // No degrade source. Recovery applies only when deviation < 0 (the
         // tile has something to recover). At deviation == 0 the tile is at
         // baseline; no further movement.
-        if (storedDev < 0) return (config.RecoveryAmount, config.RecoveryPeriod);
+        //
+        // M27 — IRRIGATION: within WaterRecoveryRadius of any Water tile
+        // (lake/sea/canal) recovery runs at WaterRecoveryAmount — the M21
+        // "rejuvenates faster than rainfall" knob made real. Rate-invariance
+        // holds by the same argument as the latch lift above: water
+        // proximity only changes at canal completion, which catches up every
+        // affected tile via OnWaterProximityChanged before the grid mutates.
+        // The proximity scan is skipped entirely when the knob equals the
+        // base rate (exact M21 behavior).
+        if (storedDev < 0)
+        {
+            var amount = config.RecoveryAmount;
+            if (config.WaterRecoveryAmount != config.RecoveryAmount
+                && WaterProximity.IsNearWater(world, tile, config.WaterRecoveryRadius))
+                amount = config.WaterRecoveryAmount;
+            return (amount, config.RecoveryPeriod);
+        }
         return (0, 1);
     }
 

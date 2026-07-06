@@ -66,6 +66,10 @@ public sealed class HomesteaderBrain : IBrain
             // (mouths before masonry) and above Scout (whose budget
             // already bounds it from starving).
             new FortifyRung(),
+            // M27 — irrigation after safety: canals shorten the farm rest
+            // cycle (docs/canals.md update); the longest-horizon spend
+            // takes the quietest thinks.
+            new IrrigateRung(),
             new ScoutRung(),
         };
     }

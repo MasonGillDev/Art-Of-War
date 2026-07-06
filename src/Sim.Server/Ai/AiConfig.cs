@@ -266,6 +266,31 @@ public sealed record AiConfig
     // every day or two without bleeding the farm ledger.
     public int FortifyQuarryWorkers { get; init; } = 2;
 
+    // M27 — IRRIGATE (canals for farms, docs/canals.md update). The colony
+    // digs a canal from known water into its farm belt once enough farm
+    // claims sit beyond the water-recovery radius: irrigated fields rest
+    // at WaterRecoveryAmount (double rainfall by default), so the same
+    // land sustains more mouths. Longest dig per project; 0 disables the
+    // rung entirely.
+    public int IrrigateMaxCanalTiles { get; init; } = 6;
+    // A camp doesn't dig canals — same reasoning as the Fortify floor.
+    public int IrrigatePopulationFloor { get; init; } = 25;
+    // Dig only when the canal's END tile would put at least this many DRY
+    // farm-claim tiles inside the recovery radius (and don't bother
+    // planning below this many dry tiles total). The dig must water a
+    // real field, not a hedgerow.
+    public int IrrigateMinDryClaimTiles { get; init; } = 6;
+    // Start the dig only above this castle stone stock. The site drains
+    // the warehouse for weeks (canal cost is PER TILE) — the floor means
+    // the quarry income exists, not that the full price is banked (the
+    // ResourceStockTarget haul cap makes banking the full price
+    // impossible by design).
+    public int IrrigateStoneFloor { get; init; } = 200;
+    // Mirror of the world's BiomeDegradationConfig.WaterRecoveryRadius
+    // (config, not on the wire — the demographic-mirror convention;
+    // update if the world knob is retuned).
+    public int IrrigateWaterRadius { get; init; } = 2;
+
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
 
