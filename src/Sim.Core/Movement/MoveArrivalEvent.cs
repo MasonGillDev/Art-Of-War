@@ -36,6 +36,24 @@ public sealed class MoveArrivalEvent : ScheduledEvent
             return;
         }
 
+        // M26 — fortification gate at fire time (ground truth, mirrors the
+        // cap rejection below): a wall may have COMPLETED, or a gate turned
+        // hostile, during this hop's travel time. The unit yields on its
+        // previous tile and — stopped at the face of the blocker — opens a
+        // siege if it's hostile. docs/walls-and-gates.md.
+        if (Fortification.BlocksMover(sim.World, To, unit.OwnerId))
+        {
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            unit.TrySetActivity(Activity.Idle);
+            FortSiege.MaybeBeginSiegeAdjacentTo(sim, unit.Position);
+            Outcome = IntentOutcome.Reject(
+                $"tile {To.X},{To.Y} is blocked by a fortification");
+            return;
+        }
+
         // HARD CAP: if accepting this arrival would push To over the cap,
         // the unit yields on its previous tile, becomes Idle, and clears
         // its committed path. The player can re-issue MoveIntent. This
@@ -98,6 +116,14 @@ public sealed class MoveArrivalEvent : ScheduledEvent
 
             // Dispatch any waiting follow-up that lives on Unit state.
             DispatchOnFinalArrival(sim, unit);
+            // M26 — the march is truly over only if the dispatch above
+            // scheduled no onward leg (a scout advancing to its next
+            // waypoint or a haul continuing is still traveling). A mover
+            // that ENDS beside a hostile standing fortification opens the
+            // siege — presence-gated, the M24 idiom. Marching PAST a wall
+            // (mid-path hops) never triggers. docs/walls-and-gates.md.
+            if (unit.NextArrivalSeq is null)
+                FortSiege.MaybeBeginSiegeAdjacentTo(sim, unit.Position);
             return;
         }
 

@@ -71,6 +71,10 @@ public static class IntentJson
         [typeof(Sim.Core.Canals.PlaceCanalIntent)]               = "PlaceCanalIntent",
         // M23 — loot a discovered cache.
         [typeof(Sim.Core.Caches.LootCacheIntent)]                = "LootCacheIntent",
+        // M26 — wall line (whole-line placement, per-tile sites).
+        [typeof(Sim.Core.Fortifications.PlaceWallIntent)]        = "PlaceWallIntent",
+        // M26 — reclaim razed ground (rubble → clearing job → empty tile).
+        [typeof(Sim.Core.Sieges.ClearRubbleIntent)]              = "ClearRubbleIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -116,6 +120,8 @@ public static class IntentJson
             "DispatchScoutIntent"          => JsonSerializer.Deserialize<Sim.Core.Scouting.DispatchScoutIntent>(payload, Options),
             "PlaceCanalIntent"             => JsonSerializer.Deserialize<Sim.Core.Canals.PlaceCanalIntent>(payload, Options),
             "LootCacheIntent"              => JsonSerializer.Deserialize<Sim.Core.Caches.LootCacheIntent>(payload, Options),
+            "PlaceWallIntent"              => JsonSerializer.Deserialize<Sim.Core.Fortifications.PlaceWallIntent>(payload, Options),
+            "ClearRubbleIntent"            => JsonSerializer.Deserialize<Sim.Core.Sieges.ClearRubbleIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

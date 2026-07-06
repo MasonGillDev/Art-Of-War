@@ -19,4 +19,6 @@ public enum StructureKind : byte
     Canal = 14, // M21 — build job that floods a path of land into Water (docs/canals.md)
     Cache = 15, // M23 — unowned loot cache scattered in the fog (docs/loot-caches.md)
     Rubble = 16, // M24 — destroyed-structure remains; blocks placement, owner-sentinel -3 (docs/sieges-and-conquest.md)
+    Wall = 17, // M26 — blocks movement for everyone; placed as a line via PlaceWallIntent (docs/walls-and-gates.md)
+    Gate = 18, // M26 — blocks movement except owner + allies (docs/walls-and-gates.md)
 }

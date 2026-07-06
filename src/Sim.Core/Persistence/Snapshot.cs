@@ -480,6 +480,8 @@ public static class Snapshot
                 case School:              /* no fields */ break;
                 case Lodge:               /* no fields */ break;
                 case Rubble:              /* no fields */ break;
+                case Wall:                /* no fields */ break;   // M26
+                case Gate:                /* no fields */ break;   // M26
                 // M12 — Dock carries slip + production state.
                 case Dock d:
                     bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
@@ -522,6 +524,8 @@ public static class Snapshot
                 StructureKind.Barracks         => ReadStorage(br, new Barracks(at) { OwnerId = ownerId }),
                 StructureKind.Cache            => ReadStorage(br, new Cache(at) { OwnerId = ownerId }),
                 StructureKind.Rubble           => new Rubble(at) { OwnerId = ownerId },
+                StructureKind.Wall             => new Wall(at) { OwnerId = ownerId },   // M26
+                StructureKind.Gate             => new Gate(at) { OwnerId = ownerId },   // M26
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };

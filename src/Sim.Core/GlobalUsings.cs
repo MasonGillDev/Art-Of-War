@@ -2,6 +2,7 @@ global using Sim.Core.Biomes;
 global using Sim.Core.Caches;
 global using Sim.Core.Canals;
 global using Sim.Core.Engine;
+global using Sim.Core.Fortifications;
 global using Sim.Core.Groups;
 global using Sim.Core.Intents;
 global using Sim.Core.Logistics;

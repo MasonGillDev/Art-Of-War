@@ -26,6 +26,19 @@ public static class SiegeDamage
         var razedKind = structure.Kind;
         var formerOwner = structure.OwnerId;
 
+        // M26 — razing a PRODUCING extractor is a rate-changing event for
+        // its claimed tiles (the M9/§2.5 anchor discipline): catch their
+        // fertility up under the OLD rate — the extractor is still in the
+        // world and armed here, so the derivation includes it — BEFORE the
+        // removal changes the rate. Without this, a later read re-interprets
+        // the whole producing window under the post-raze rate and the soil
+        // damage evaporates retroactively. (Its claims themselves free the
+        // moment the removal lands — Claims.ClaimantAt scans live
+        // structures only; razed kingdoms' land is immediately claimable.)
+        if (structure is Extractor razedExtractor)
+            Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
+                world, razedExtractor, sim.Now, world.BiomeDegradationConfig);
+
         // Direct dictionary mutation: we are REPLACING the entry, not
         // adding a fresh one. The structure being razed is already keyed
         // here; Remove + AddStructure would also work, but the explicit

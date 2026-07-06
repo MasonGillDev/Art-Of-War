@@ -275,3 +275,36 @@ The milestone's pinned contracts:
 * `SiegeHeadlineTests` — twin-run hash equality across a full
   siege-to-game-over scenario (M0 contract); mid-siege snapshot →
   restore → finish-the-siege hash equality (M4 contract).
+
+## Update 2026-07-06 — rubble clearing lands (the reclaim loop)
+
+The "rubble decay / clearing" deferral above is paid: `ClearRubbleIntent`
+(M26) swaps a Rubble pile for an ordinary `ConstructionSite` targeting
+`StructureKind.Rubble` — a MATERIALS-FREE labor job (catalog: no cost, one
+builder, one game-day) whose completion leaves the tile empty and
+buildable. The whole construction stack is reused verbatim (assignment,
+pause/resume fencing, snapshot, recovery); `BuildCompleteEvent` gained a
+clearing branch beside the canal's (the "no resulting structure" pattern).
+ANY player may clear ANY rubble — reclaiming the land of fallen kingdoms
+is the point — and the clearing site belongs to whoever ordered it,
+contestable like any site (razing it turns the tile back to rubble).
+`PlaceSiteIntent` rejects `Kind == Rubble` (the spec is buildable only so
+the site ctor accepts the target). The conquest flow is therefore:
+destroy → clear → build.
+
+Two razing rules sharpened alongside:
+
+- **A razed extractor frees its claim tiles IMMEDIATELY** (pinned by
+  `ReclaimTests`): `Claims.ClaimantAt` scans live structures and rubble
+  carries no claims, so the fallen kingdom's worked land is claimable
+  before anyone clears anything. Only the structure's own tile awaits
+  clearing.
+- **Razing a producing extractor is a rate transition** (bug fix): 
+  `SiegeDamage.RazeStructure` now runs the M9/§2.5 catch-up
+  (`BiomeDegradation.OnProductionTransition`) BEFORE removing the
+  extractor, banking the producing window's soil damage under the old
+  rate and anchoring `lastUpdate` at the raze tick. Previously the
+  removal changed the derived rate without a catch-up, and a later read
+  re-interpreted the whole producing window under the post-raze rate —
+  the degradation evaporated retroactively (latent since M24; razing
+  extractors only became common with M25 wars).

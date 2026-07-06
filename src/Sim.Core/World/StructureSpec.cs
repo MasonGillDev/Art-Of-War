@@ -73,4 +73,19 @@ public sealed record StructureSpec
     // onto Structure.Health by GameWorld.AddStructure at insertion time,
     // mirroring UnitCombatCatalog → Unit.Health.
     public int BaseHealth { get; init; }
+
+    // M26 — fortifications (docs/walls-and-gates.md). A blocking structure's
+    // tile cannot be ENTERED by ground movement while it stands (entry-only:
+    // a unit already on the tile can walk off). Enforced fog-split in
+    // MovementCost.PlanCost (planner sees own + visible blockers) and
+    // ground-truth at hop-schedule / arrival-fire time. Blocking kinds are
+    // besieged from adjacent tiles (Fortifications.FortSiege) since nobody
+    // can stand on them.
+    public bool BlocksMovement { get; init; }
+
+    // M26 — the Gate: a blocking kind the owner and RelationshipState.Ally
+    // factions pass through freely. Evaluated live at every enforcement
+    // point, so a broken alliance closes the gate mid-march. Meaningless
+    // when BlocksMovement is false.
+    public bool AlliedPassage { get; init; }
 }

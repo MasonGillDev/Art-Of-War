@@ -422,6 +422,29 @@ public sealed class Tower : Structure
     public Tower(TileCoord at) : base(at) { }
 }
 
+// M26 — Wall. One standing segment of a defensive line
+// (docs/walls-and-gates.md). Its entire effect lives in its spec
+// (BlocksMovement) and its Health: the tile cannot be ENTERED by any
+// ground mover while the wall stands, and adjacent hostiles besiege it
+// via Fortifications.FortSiege until it razes to Rubble (the breach).
+// Entry-only blocking: a unit already on the tile (e.g. the builder who
+// finished it) can always walk off. No storage, no production, no vision.
+public sealed class Wall : Structure
+{
+    public override StructureKind Kind => StructureKind.Wall;
+    public Wall(TileCoord at) : base(at) { }
+}
+
+// M26 — Gate. A Wall with a door: spec adds AlliedPassage, so the owner
+// and Ally factions move through it freely while everyone else treats it
+// as a Wall. Passage is re-evaluated live at plan / hop-schedule /
+// arrival time — a broken alliance closes the gate on a column mid-march.
+public sealed class Gate : Structure
+{
+    public override StructureKind Kind => StructureKind.Gate;
+    public Gate(TileCoord at) : base(at) { }
+}
+
 // M24 — Rubble. What's left when a structure is razed (Castle, Barracks,
 // etc.). Indestructible (BaseHealth = 0), no holdings, no production, no
 // owner (OwnerId = OwnerIds.Destroyed, the -3 sentinel — never a living

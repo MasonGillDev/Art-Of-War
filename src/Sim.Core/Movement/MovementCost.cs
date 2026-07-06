@@ -98,6 +98,13 @@ public static class MovementCost
         int playerId, HashSet<TileCoord> visibleTiles, long now,
         Traversal trav = Traversal.Foot)
     {
+        // M26 — fortifications. A blocking structure the planner KNOWS about
+        // (own, or on a currently-visible tile) is a hard no-go; an unseen
+        // one stays invisible to A* — the mover learns about it by bonking
+        // into the ground-truth checks. Same fog contract as crowding below.
+        // docs/walls-and-gates.md.
+        if (Fortification.BlocksPlan(world, tile, playerId, visibleTiles))
+            return Sim.Core.World.Biomes.Impassable;
         var visibleCount = CountVisibleUnitsOnTile(world, tile, playerId, visibleTiles);
         if (visibleCount >= MovementConstants.MaxUnitsPerTile)
             return Sim.Core.World.Biomes.Impassable;

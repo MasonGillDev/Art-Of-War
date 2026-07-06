@@ -10,7 +10,9 @@ namespace Sim.Tests;
 // M24 Phase B — Rubble StructureKind + placement gate. Pins:
 //   1. Rubble has Health = 0 (indestructible; the combat round will skip it
 //      in Phase C, the same way it skips Cache / Canal).
-//   2. Rubble is NOT player-buildable.
+//   2. Rubble is NOT player-buildable (M26: enforced by PlaceSiteIntent's
+//      explicit rejection — the spec flag itself is true so the CLEARING
+//      site can target Rubble; see docs/sieges-and-conquest.md update).
 //   3. PlaceSiteIntent rejects when the target tile holds rubble — falls out
 //      of the existing "tile already has a structure" guard for free.
 //   4. PlaceCanalIntent rejects when any path tile holds rubble (same guard).
@@ -26,7 +28,13 @@ public class RubbleTests
 
         Assert.Equal(0, StructureCatalog.Spec(StructureKind.Rubble).BaseHealth);
         Assert.Equal(0, r.Health);
-        Assert.False(StructureCatalog.Spec(StructureKind.Rubble).IsPlayerBuildable);
+        // M26 — the spec flag flipped to true so ClearRubbleIntent's clearing
+        // site can TARGET Rubble; the "you can't build rubble" contract now
+        // lives in PlaceSiteIntent's explicit rejection (and is pinned by
+        // ReclaimTests.PlaceSite_RejectsRubbleKind + the clearing flow tests).
+        var sim = new Simulation(world, seed: 1);
+        Assert.True(new PlaceSiteIntent(new TileCoord(2, 2), StructureKind.Rubble)
+        { PlayerId = 0 }.Resolve(sim).IsRejected);
         Assert.Equal(SiegeConstants.RubbleOwnerId, r.OwnerId);
     }
 

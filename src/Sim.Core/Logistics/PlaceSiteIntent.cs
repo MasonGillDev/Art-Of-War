@@ -48,6 +48,17 @@ public sealed class PlaceSiteIntent : Intent
         if (Kind == StructureKind.Canal)
             return IntentOutcome.Reject("Canal must be placed via PlaceCanalIntent (whole-path build)");
 
+        // M26 — a Wall is a whole-LINE build with its own validation; single
+        // entry point is PlaceWallIntent (a lone segment is a path of 1).
+        if (Kind == StructureKind.Wall)
+            return IntentOutcome.Reject("Wall must be placed via PlaceWallIntent (whole-line build)");
+
+        // M26 — Rubble's spec is buildable only so the CLEARING job's site
+        // can target it (ClearRubbleIntent); you clear wreckage, you don't
+        // build it.
+        if (Kind == StructureKind.Rubble)
+            return IntentOutcome.Reject("Rubble is cleared via ClearRubbleIntent, not built");
+
         if (!sim.World.Grid.InBounds(Tile))
             return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} out of bounds");
 
@@ -78,6 +89,17 @@ public sealed class PlaceSiteIntent : Intent
             if (biome != spec.RequiredBiome)
                 return IntentOutcome.Reject(
                     $"{Kind} requires {spec.RequiredBiome} but tile is {biome}");
+        }
+
+        // M26 — blocking kinds (the Gate here; Wall rejects above) need a
+        // land tile: no fortifications standing in open water.
+        if (spec.BlocksMovement)
+        {
+            var gateBiome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                sim.World, Tile, sim.Now, sim.World.BiomeDegradationConfig);
+            if (gateBiome == Biome.Water || gateBiome == Biome.None)
+                return IntentOutcome.Reject(
+                    $"{Kind} requires a land tile but {Tile.X},{Tile.Y} is {gateBiome}");
         }
 
         // M12 — Dock placement requires:

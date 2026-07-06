@@ -35,6 +35,21 @@ public sealed class GroupArrivalEvent : ScheduledEvent
             return;
         }
 
+        // M26 — fortification gate at fire time (ground truth; mirrors the
+        // unit-level MoveArrivalEvent check): a wall may have completed, or
+        // a gate turned hostile, during this hop. The column yields on its
+        // previous tile and opens a siege if the blocker is hostile.
+        if (Fortification.BlocksMover(world, To, group.OwnerId))
+        {
+            MoveGroupIntent.ClearMovementAnchors(group);
+            group.State = GroupState.Idle;
+            group.BumpEpoch();
+            FortSiege.MaybeBeginSiegeAdjacentTo(sim, group.Position);
+            Outcome = IntentOutcome.Reject(
+                $"tile {To.X},{To.Y} is blocked by a fortification");
+            return;
+        }
+
         // HARD CAP: a group hop would deposit `group.Members.Count` units
         // onto `To` (all members at once, atomic arrival semantics from M5).
         // The current occupants of `To` are all non-members (group invariant:
@@ -81,6 +96,9 @@ public sealed class GroupArrivalEvent : ScheduledEvent
         {
             MoveGroupIntent.ClearMovementAnchors(group);
             group.State = GroupState.Idle;
+            // M26 — an army that ENDS its march beside a hostile standing
+            // fortification opens the siege (docs/walls-and-gates.md).
+            FortSiege.MaybeBeginSiegeAdjacentTo(sim, To);
             return;
         }
 

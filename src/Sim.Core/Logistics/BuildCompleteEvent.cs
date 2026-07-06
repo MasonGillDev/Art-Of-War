@@ -65,6 +65,13 @@ public sealed class BuildCompleteEvent : ScheduledEvent
             return;
         }
 
+        // M26 — a rubble-CLEARING job produces no structure either: the site
+        // was the work vehicle (ClearRubbleIntent swapped it in over the
+        // pile), and completion leaves the tile EMPTY — reclaimed ground,
+        // buildable again. Builders were already freed above.
+        if (site.TargetKind == StructureKind.Rubble)
+            return;
+
         // OwnerId inherits from the ConstructionSite (which got it from
         // PlaceSiteIntent's PlayerId at submission time).
         var built = BuildStructure(site.TargetKind, SiteTile, site.OwnerId, site.DockSlip);
@@ -181,6 +188,11 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         StructureKind.School     => new School(at) { OwnerId = ownerId },
         StructureKind.Barracks   => new Barracks(at) { OwnerId = ownerId },
         StructureKind.Lodge      => new Lodge(at) { OwnerId = ownerId },
+        // M26 — fortifications. Blocking starts NOW (entry-only): a builder
+        // still standing here can walk off, but nobody re-enters while the
+        // wall stands. docs/walls-and-gates.md.
+        StructureKind.Wall       => new Wall(at) { OwnerId = ownerId },
+        StructureKind.Gate       => new Gate(at) { OwnerId = ownerId },
         StructureKind.Dock       => new Dock(at, dockSlip
             ?? throw new InvalidOperationException(
                 $"Dock at {at.X},{at.Y} has no DockSlip recorded on its ConstructionSite."))

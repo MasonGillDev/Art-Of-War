@@ -112,6 +112,19 @@ public sealed class MoveGroupIntent : Intent
             || group.PathFinalDest is null)
             return;
         var next = group.PathRemaining[0];
+        // M26 — GROUND-TRUTH fortification gate, the group flavor of
+        // MoveIntent.ScheduleNextHop's check: a wall the planner couldn't
+        // see (fog) or one that completed mid-march stops the whole column
+        // here. Yield-idle + epoch bump (fences any queued arrival), then
+        // open a siege if the blocker is hostile. docs/walls-and-gates.md.
+        if (Fortification.BlocksMover(sim.World, next, group.OwnerId))
+        {
+            ClearMovementAnchors(group);
+            group.State = GroupState.Idle;
+            group.BumpEpoch();
+            FortSiege.MaybeBeginSiegeAdjacentTo(sim, group.Position);
+            return;
+        }
         // GROUND-TRUTH HOP COST: source crowding is what makes large groups
         // slow — the group always sits on its own member crowd, so a
         // 10-member group hops more slowly than a 2-member group on the

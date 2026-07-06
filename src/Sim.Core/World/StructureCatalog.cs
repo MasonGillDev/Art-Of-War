@@ -286,10 +286,63 @@ public static class StructureCatalog
         // OCCUPYING THE TILE so PlaceSiteIntent / PlaceCanalIntent reject any
         // attempt to build on top of the wreckage. See
         // docs/sieges-and-conquest.md.
+        //
+        // M26 — rubble is CLEARABLE: ClearRubbleIntent swaps the pile for an
+        // ordinary ConstructionSite targeting Rubble — a materials-free
+        // labor job whose completion leaves the tile EMPTY (reclaimed
+        // ground; the BuildCompleteEvent clearing branch). The build fields
+        // below price that job: no materials, one laborer, a day of work.
+        // IsPlayerBuildable=true only so the ConstructionSite ctor accepts
+        // the target — PlaceSiteIntent rejects Rubble explicitly (you clear
+        // wreckage, you don't build it).
         [StructureKind.Rubble] = new StructureSpec
         {
             Kind = StructureKind.Rubble,
-            IsPlayerBuildable = false,
+            IsPlayerBuildable = true,
+            BuildDurationTicks = 1 * Time.Day,
+            RequiredBuilderCount = 1,
+        },
+        // M26 — Wall. One segment of a defensive line; placed ONLY via
+        // PlaceWallIntent (PlaceSiteIntent rejects it — the line intent is
+        // the single entry point, like Canal). Cost/time below are PER
+        // SEGMENT; the line intent expands into N independent sites, so a
+        // long wall is priced by honest multiplication, not scaling.
+        // Stone-heavy, tough (between Barracks 200 and Castle 1000): razing
+        // a segment is a real siege, and the Rubble it leaves is a permanent
+        // breach (no rubble clearing yet). docs/walls-and-gates.md.
+        [StructureKind.Wall] = new StructureSpec
+        {
+            Kind = StructureKind.Wall,
+            IsPlayerBuildable = true,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Stone] = 20,
+                [Resource.Wood] = 5,
+            },
+            BuildDurationTicks = 12 * Time.Hour,
+            RequiredBuilderCount = 1,
+            BaseHealth = 500,
+            BlocksMovement = true,
+        },
+        // M26 — Gate. The doorway in a wall line: blocks like a Wall but the
+        // owner + allies pass through freely (AlliedPassage). Deliberately
+        // softer than a Wall — the gate is the classic siege target — and
+        // pricier per tile (moving parts). Placed via ordinary
+        // PlaceSiteIntent on a land tile.
+        [StructureKind.Gate] = new StructureSpec
+        {
+            Kind = StructureKind.Gate,
+            IsPlayerBuildable = true,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Stone] = 25,
+                [Resource.Wood] = 15,
+            },
+            BuildDurationTicks = 20 * Time.Hour,
+            RequiredBuilderCount = 1,
+            BaseHealth = 300,
+            BlocksMovement = true,
+            AlliedPassage = true,
         },
     };
 

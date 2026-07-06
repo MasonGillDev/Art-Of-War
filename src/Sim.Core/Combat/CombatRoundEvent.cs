@@ -36,6 +36,15 @@ public sealed class CombatRoundEvent : ScheduledEvent
             return;
         }
 
+        // M26 — fortification siege round. A standing Wall/Gate on this tile
+        // means nobody can co-locate with it: forces gather from the tile's
+        // 4-neighborhood instead and only the structure takes damage (unit
+        // fights happen on the attackers' own tiles, per-tile as always).
+        // Handles the round entirely when it applies; a razed fort leaves
+        // Rubble and falls through to the normal path below, which sees no
+        // hostiles and ends the combat. docs/walls-and-gates.md.
+        if (Sim.Core.Fortifications.FortSiege.TryResolveFortRound(sim, Tile, state)) return;
+
         // 1) Gather start-of-round forces by owner.
         var forces = CombatRules.GatherForcesOnTile(world, Tile);
 

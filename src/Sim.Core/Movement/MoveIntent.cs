@@ -144,6 +144,21 @@ public sealed class MoveIntent : Intent
             return;
         var next = unit.PathRemaining[0];
         var world = sim.World;
+        // M26 — GROUND-TRUTH fortification gate. The committed path may run
+        // through a wall the planner couldn't see (fog) or one that completed
+        // after planning. The unit yields HERE — same semantics as the
+        // arrival-time cap rejection — and, having been stopped face-to-wall,
+        // opens a siege if the blocker is hostile (docs/walls-and-gates.md).
+        if (Fortification.BlocksMover(world, next, unit.OwnerId))
+        {
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            unit.TrySetActivity(Activity.Idle);
+            FortSiege.MaybeBeginSiegeAdjacentTo(sim, unit.Position);
+            return;
+        }
         // GROUND-TRUTH HOP COST: includes BOTH source and destination
         // crowding (whichever is more crowded), regardless of fog. The
         // unit pays the real cost of this hop even if it differs from
