@@ -49,12 +49,20 @@ public readonly record struct PopulationConfig(
     // the gestation invariant follow.
     private const long DefaultTicksPerYear = 3 * Time.Day;
 
-    // Resulting demographic timeline (2 game-days per age-year):
-    //   gestation 1.5 days · trainable at 26 days · fertile 36–90 days ·
-    //   lifespan 100–160 days. tps stays a pure pace dial.
+    // Resulting demographic timeline (3 game-days per age-year):
+    //   gestation 2.25 days · trainable at 18 days (MinTrainAge 6) ·
+    //   fertile 54–135 days · lifespan 195–285 days. tps stays a pure pace dial.
+    //
+    // NOTE on the two levers (see the famine finding): TicksPerYear sets the
+    // whole demographic SPEED (breeding + aging + death together). Speeding it
+    // grows mouths faster than the food economy (tuned here) can feed — the
+    // balance lab (AiPlayerTests) starves at 1–2 game-days/year. MinTrainAge is
+    // separate: it only sets when a unit becomes a productive WORKER, adding no
+    // mouths — so it was lowered 13 → 6 (39 → 18 game-days to a worker) to make
+    // home-grown labour responsive WITHOUT touching the food-balanced clock.
     public PopulationConfig() : this(
         TicksPerYear: DefaultTicksPerYear,
-        MinTrainAge: 13,
+        MinTrainAge: 6,
         MinFertileAge: 18,
         MaxFertileAge: 45,
         GestationTicks: 9 * DefaultTicksPerYear / 12,   // "nine months" — scales with the clock

@@ -57,7 +57,10 @@ public class TrainUnitTests
     [Fact]
     public void TrainUnit_TooYoung_Rejected()
     {
-        var (sim, _, citizen) = MakeSchoolAndCitizen(startingAge: 10);
+        // Config-derived: one age-year under the trainable gate, so this pins the
+        // "too young to train" contract no matter how MinTrainAge is tuned.
+        var tooYoung = new Sim.Core.Population.PopulationConfig().MinTrainAge - 1;
+        var (sim, _, citizen) = MakeSchoolAndCitizen(startingAge: tooYoung);
         var outcome = new TrainUnitIntent(citizen.Id, UnitRole.Builder)
             { PlayerId = 0 }.Resolve(sim);
         Assert.False(outcome.IsApplied);
