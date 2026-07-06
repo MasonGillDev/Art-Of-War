@@ -14,18 +14,25 @@ namespace Sim.Server.Ai;
 public sealed class AiPlayerDriver
 {
     public int PlayerId { get; }
+    public BrainKind Kind { get; }
     public DecisionTrace Trace { get; }
 
     private readonly AiConfig _cfg;
-    private readonly HomesteaderBrain _brain;
+    private readonly IBrain _brain;
     private readonly AiMemory _mem = new();
     private long _lastThink = long.MinValue;
 
-    public AiPlayerDriver(int playerId, AiConfig cfg)
+    // M25 — the host picks the brain per faction (--rivals K → the highest
+    // K AI faction ids run the Rival ladder). Kind is pinned here so tests
+    // and the trace can tell WHO a faction is without probing behavior.
+    public AiPlayerDriver(int playerId, AiConfig cfg, BrainKind kind = BrainKind.Homesteader)
     {
         PlayerId = playerId;
+        Kind = kind;
         _cfg = cfg;
-        _brain = new HomesteaderBrain(cfg);
+        _brain = kind == BrainKind.Rival
+            ? new RivalBrain(cfg)
+            : new HomesteaderBrain(cfg);
         Trace = new DecisionTrace(cfg.TraceCapacity);
     }
 

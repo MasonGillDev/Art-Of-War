@@ -62,6 +62,12 @@ public sealed class ThinkContext
         if (mem.DesignatedTrainee is { } trainee) d._designated.Add(trainee.Id);
         if (mem.DesignatedRecruit is { } recruit) d._designated.Add(recruit);
         if (mem.DesignatedVeteran is { } veteran) d._designated.Add(veteran);
+        // M25 — campaign soldiers belong to ConquerRung (and raiders to
+        // RaidRung) until the war ends: Defend's sortie, Muster's demob
+        // and every staffing selector skip them through the same IsFree
+        // gate.
+        foreach (var id in mem.CampaignSoldiers) d._designated.Add(id);
+        foreach (var id in mem.RaidParty) d._designated.Add(id);
         foreach (var t in view.Visible)
         {
             d._biome[(t.X, t.Y)] = t.Biome;
@@ -220,6 +226,15 @@ public sealed class ThinkContext
         return null;
     }
 
+    // M26 — Fortify's per-tile query: does the brain's OWN map say this
+    // tile is buildable land (biome remembered, not Water/None, free of
+    // structures/claims/blacklist)? Unknown counts as NO — the ring grows
+    // as knowledge does.
+    public bool KnownBuildableLand(int x, int y) =>
+        _biome.TryGetValue((x, y), out var b)
+        && b is not ((int)Biome.Water or (int)Biome.None)
+        && !_blocked.Contains((x, y));
+
     public static int AmountOf(ResAmtDto[] holdings, Resource r) =>
         holdings.FirstOrDefault(h => h.Resource == (int)r)?.Amount ?? 0;
 
@@ -234,6 +249,42 @@ public sealed class ThinkContext
             Now - kv.Value.Tick <= Cfg.ThreatMemoryTicks
             && Math.Max(Math.Abs(kv.Key.X - t.X), Math.Abs(kv.Key.Y - t.Y))
                 <= Cfg.CivilianDangerRadius);
+
+    // ---- M25: diplomacy digest (public knowledge on the wire) ----------------
+
+    // The relationship row between US and `ownerId` (either pair order;
+    // absent row = Neutral, the sparse default).
+    private RelationshipDto? RelWith(int ownerId) =>
+        View.Relationships.FirstOrDefault(r =>
+            (r.LoId == PlayerId && r.HiId == ownerId)
+            || (r.LoId == ownerId && r.HiId == PlayerId));
+
+    // Effective war — combat's AreHostile would say yes. (Bandits are
+    // hostile OUTSIDE diplomacy; callers test their owner id separately.)
+    public bool AtWarWith(int ownerId) =>
+        ownerId != PlayerId
+        && RelWith(ownerId)?.State == (int)Sim.Core.Diplomacy.RelationshipState.Enemy;
+
+    // Declared-but-not-yet-effective — the telegraph window. TRUE also
+    // for the war's own aggressor (mobilization runs inside it).
+    public bool PendingWarWith(int ownerId) =>
+        ownerId != PlayerId && RelWith(ownerId) is { PendingEffectiveTick: >= 0 };
+
+    public bool IsDefeated(int ownerId) =>
+        View.Factions.FirstOrDefault(f => f.Id == ownerId)?.Defeated ?? false;
+
+    // Foreign factions we are effectively at war with (never bandits —
+    // they have no faction row; never the defeated — inert wreckage).
+    public IEnumerable<int> HostileFactions() =>
+        View.Factions.Where(f => f.Id != PlayerId && !f.Defeated && AtWarWith(f.Id))
+            .Select(f => f.Id);
+
+    // Any live war involving us, effective OR telegraphed — the window
+    // in which the offense budget applies (mobilization runs INSIDE the
+    // telegraph; that's what the Delay is for).
+    public bool AtWarOrMobilizing() =>
+        View.Factions.Any(f => f.Id != PlayerId && !f.Defeated
+            && (AtWarWith(f.Id) || PendingWarWith(f.Id)));
 
     // ---- shared plays: used by more than one rung ---------------------------
 

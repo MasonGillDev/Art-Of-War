@@ -20,6 +20,22 @@ public sealed class AckDto
     public string Reason { get; set; } = "";
 }
 
+// GET /map/elevation response: the FULL per-tile elevation grid (the whole map, NOT
+// fog-filtered) for client-side terrain synthesis (hydraulic erosion). Static,
+// generation-time data — terrain never changes — so it is fetched once and is safe
+// to read without the sim lock. Elevation is a flat row-major array (index =
+// y * Width + x) of the raw quantized heights, [0, 1000], matching the per-tile
+// Elevation already carried on TileDto. Note: this deliberately exposes terrain
+// topology to the client (a design choice — terrain is treated as non-secret; fog
+// still hides it visually). Units/structures/economy remain fog-gated as before.
+public sealed class ElevationDto
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public int WaterLevel { get; set; }    // sea level on the 0..1000 scale
+    public int[] Elevation { get; set; } = [];
+}
+
 // GET /view/{playerId} response: the fog-filtered slice of the world.
 public sealed class ViewDto
 {
@@ -64,6 +80,62 @@ public sealed class ViewDto
     // client toasts each once; Prose updates in place when the async narration
     // lands a moment after the raw report appears.
     public ScoutReportDto[] ScoutReports { get; set; } = [];
+
+    // M25 — diplomatic state (docs/diplomacy-model.md). Factions /
+    // Relationships / PendingWars are PUBLIC knowledge, identical for every
+    // viewer; IncomingProposals is the one per-viewer slice (offers stay
+    // private to the proposer/target pair). This is the war telegraph on
+    // the wire: a pending war is visible to its target for
+    // DiplomacyConfig.Delay ticks before it bites — the human client and
+    // the AI brains read the same channel (the fairness contract).
+    public FactionDto[] Factions { get; set; } = [];
+    public RelationshipDto[] Relationships { get; set; } = [];
+    public PendingWarDto[] PendingWars { get; set; } = [];
+    public ProposalDto[] IncomingProposals { get; set; } = [];
+}
+
+// M25 — one known faction. Negative sentinel owners (bandits -1, caches -2,
+// rubble -3) are not diplomatic actors and never appear — same discipline as
+// PlayerDefeatedEvent's live-player count. Defeated is public: a fallen
+// castle is world news.
+public sealed class FactionDto
+{
+    public int Id { get; set; }
+    public bool Defeated { get; set; }
+}
+
+// M25 — one relationship row (sparse: an absent pair reads Neutral, the
+// default). State crosses as the Sim.Core RelationshipState byte.
+// PendingEffectiveTick: -1 = none; otherwise the tick a declared war takes
+// effect (the telegraph window's far edge).
+public sealed class RelationshipDto
+{
+    public int LoId { get; set; }
+    public int HiId { get; set; }
+    public int State { get; set; }
+    public long PendingEffectiveTick { get; set; } = -1;
+}
+
+// M25 — a declared-but-not-yet-effective war. Redundant with the
+// Relationships row's PendingEffectiveTick by design (same as PlayerView):
+// clients alert off this list without scanning every relationship.
+public sealed class PendingWarDto
+{
+    public int LoId { get; set; }
+    public int HiId { get; set; }
+    public long EffectiveTick { get; set; }
+}
+
+// M25 — a diplomatic offer addressed to the viewing player. DesiredState
+// crosses as the RelationshipState byte; respond via RespondToProposalIntent
+// before ExpiryTick (lazy expiry — a stale response simply rejects).
+public sealed class ProposalDto
+{
+    public int Id { get; set; }
+    public int ProposerId { get; set; }
+    public int TargetId { get; set; }
+    public int DesiredState { get; set; }
+    public long ExpiryTick { get; set; }
 }
 
 // M20 — one returned scout's report: the narrated prose to read plus the

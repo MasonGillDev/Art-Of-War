@@ -1,5 +1,3 @@
-using Sim.Core.Intents;
-using Sim.Core.Logistics;
 using Sim.Server.Ai.Rungs;
 using Sim.Server.Wire;
 
@@ -35,7 +33,11 @@ namespace Sim.Server.Ai;
 // exists, the buffer fell, the unit arrived), never from remembered
 // promises — a restarted server re-derives every goal. AiMemory holds
 // droppable hints only (scout rotation, rejected-site blacklist).
-public sealed class HomesteaderBrain
+//
+// M25: the two-layer think loop itself moved to BrainCore (move-only —
+// the Rival runs the identical arbiter over a different ladder). This
+// file is now purely the Homesteader's COMPOSITION: its rung order.
+public sealed class HomesteaderBrain : IBrain
 {
     private readonly AiConfig _cfg;
     private readonly IRung[] _ladder;
@@ -50,57 +52,24 @@ public sealed class HomesteaderBrain
         // breeding (docs/m17-defender-spec.md).
         _ladder = new IRung[]
         {
+            // M25 — answer white flags first: ending a war the
+            // Homesteader never wanted beats maneuvering in it (fires
+            // only when a Neutral offer is pending — otherwise free).
+            new AcceptPeaceRung(),
             new DefendRung(),
             new EatRung(),
             new BuildRung(),
             new TrainRung(),
             new MusterRung(),
             new GrowRung(),
+            // M26 — fortification is what quiet thinks buy: below Grow
+            // (mouths before masonry) and above Scout (whose budget
+            // already bounds it from starving).
+            new FortifyRung(),
             new ScoutRung(),
         };
     }
 
-    public Decision Think(ViewDto view, long now, AiMemory mem)
-    {
-        // Site-placement feedback by OBSERVATION (the brain can't see
-        // rejection notices): we ordered a site last think and the view
-        // shows nothing at that tile → the placement was rejected
-        // (insufficient claimable land, contested tile, …). Blacklist the
-        // tile so NearestFreeTile offers the next candidate. MUST run
-        // BEFORE the digest is built — the digest snapshots the blacklist,
-        // and updating it afterwards made every rejected tile get retried
-        // exactly once (off-by-one-think, seen live as doubled PlaceSite
-        // attempts).
-        if (mem.PendingSite is { } pending && now > pending.OrderedAt)
-        {
-            var occupied = view.Structures.Any(s => s.X == pending.Tile.X && s.Y == pending.Tile.Y);
-            if (!occupied) mem.BlacklistedTiles.Add((pending.Tile.X, pending.Tile.Y));
-            mem.PendingSite = null;
-        }
-
-        var ctx = ThinkContext.Build(view, _cfg, mem, now);
-        if (ctx.Castle is null) return new Decision("dead", "no castle", new List<Intent>());
-
-        // STRATEGIC FIRST: decisions (place/staff/breed/scout) reserve
-        // their units before logistics swarms the rest. The other order
-        // let the haul swarm take every idle unit every think — the camp
-        // sat unstaffed for 29 days while food piled up.
-        Decision? strategic = null;
-        foreach (var rung in _ladder)
-            if ((strategic = rung.TryClaim(ctx)) is not null) break;
-
-        var intents = new List<Intent>();
-        if (strategic is not null) intents.AddRange(strategic.Intents);
-        var hauls = LogisticsLayer.Emit(ctx);
-        intents.AddRange(hauls);
-
-        var rung_ = strategic?.Rung ?? (hauls.Count > 0 ? "logistics" : "idle");
-        var why = strategic?.Why ?? (hauls.Count > 0 ? $"{hauls.Count} haul(s)" : "all needs met");
-        if (strategic is not null && hauls.Count > 0) why += $" (+{hauls.Count} haul)";
-
-        foreach (var intent in intents)
-            if (intent is PlaceSiteIntent p)
-                mem.PendingSite = (p.Tile, now);
-        return new Decision(rung_, why, intents);
-    }
+    public Decision Think(ViewDto view, long now, AiMemory mem) =>
+        BrainCore.Think(_ladder, _cfg, view, now, mem);
 }

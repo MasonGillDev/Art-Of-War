@@ -18,10 +18,11 @@ namespace Sim.Core.Diplomacy;
 public readonly record struct DiplomacyConfig(long Delay, long ProposalExpiryTicks)
 {
     // Sensible defaults; tests and the host can override at world-build time.
-    // War telegraph = 6 game-hours, matching the "effective in 6 hours" line
-    // from the original design doc — a half-day window in which the target
-    // can see the pending war in their PlayerView before it bites.
-    // ProposalExpiryTicks left at the legacy ~3.3-hour value, pending a
-    // dedicated tuning pass.
-    public DiplomacyConfig() : this(Delay: 1 * Time.Month, ProposalExpiryTicks: 2 * Time.Week) { }
+    // War telegraph = 2 game-days (user-retuned 2026-07-06 with M25's Rival:
+    // the constant had drifted to a full game-month against this comment's
+    // original 6-hour intent, and a month of warning made live wars feel
+    // like they never came). Two days is enough to muster and reposition —
+    // the M25 Rival mobilizes its offense budget inside exactly this window
+    // — while keeping a declaration a THREAT, not a diary entry.
+    public DiplomacyConfig() : this(Delay: 2 * Time.Day, ProposalExpiryTicks: 2 * Time.Week) { }
 }

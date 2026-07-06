@@ -22,6 +22,11 @@ public sealed class GameHost : IDisposable
     private readonly List<Ai.AiPlayerDriver> _ais = new();
     private readonly Automation.AutomationDriver? _automation;
 
+    // M25 — observability seam: which faction runs which brain (read-only;
+    // the assignment test and smoke tooling read Kind/PlayerId off each
+    // driver). The drivers themselves are only ever ticked by ClockLoop.
+    public IReadOnlyList<Ai.AiPlayerDriver> AiDrivers => _ais;
+
     private readonly object _gate = new();
     private long _virtualTick;        // current virtual tick; read/written only under _gate
     private volatile bool _running;
@@ -60,10 +65,24 @@ public sealed class GameHost : IDisposable
             _bandits = new Bandits.BanditDriver(banditConfig);
         // M17 — one AI driver per non-human faction in the genesis spec
         // (the human is faction 0; bandits aren't a FactionStartSpec).
+        // M25 — deterministic brain assignment: the HIGHEST RivalCount AI
+        // faction ids run the Rival ladder, the rest stay Homesteaders.
+        // Highest-first keeps faction 1 (the balance lab's baseline in every
+        // pre-M25 test) a Homesteader. Rank by the ids actually present —
+        // FindAiStart can skip a faction (no viable start), so ids aren't
+        // guaranteed contiguous.
         if (aiConfig is { Enabled: true })
-            foreach (var fs in build.Spec.FactionStarts)
-                if (fs.OwnerId != 0)
-                    _ais.Add(new Ai.AiPlayerDriver(fs.OwnerId, aiConfig));
+        {
+            var aiIds = build.Spec.FactionStarts
+                .Where(fs => fs.OwnerId != 0)
+                .Select(fs => fs.OwnerId)
+                .OrderBy(id => id)
+                .ToList();
+            var rivals = Math.Clamp(aiConfig.RivalCount, 0, aiIds.Count);
+            for (var i = 0; i < aiIds.Count; i++)
+                _ais.Add(new Ai.AiPlayerDriver(aiIds[i], aiConfig,
+                    i >= aiIds.Count - rivals ? Ai.BrainKind.Rival : Ai.BrainKind.Homesteader));
+        }
         // M18 — player standing orders. Always constructed (null config →
         // defaults): a world with no orders makes Think a cheap no-op, and
         // orders can arrive at any time over the wire.
@@ -169,6 +188,12 @@ public sealed class GameHost : IDisposable
         return JsonSerializer.Serialize(dto, ServerJson.Options);
     }
 
+    // GET /map/elevation: the full per-tile elevation grid for client-side terrain
+    // synthesis. Generation-time, immutable data (terrain never changes), so unlike
+    // BuildViewJson this reads nothing live and takes no _gate lock.
+    public string BuildElevationJson() =>
+        JsonSerializer.Serialize(_projector.BuildElevationDto(), ServerJson.Options);
+
     // Scan newly-resolved events for rejected PLAYER intents and record a per-player
     // notice. Only IntentEvents carry a PlayerId; consequence-event rejections (e.g. a
     // haul pickup finding an empty source) aren't attributed here. Called under _gate
@@ -178,7 +203,37 @@ public sealed class GameHost : IDisposable
         var log = _sim.ResolvedLog;
         for (; _resolvedCursor < log.Count; _resolvedCursor++)
         {
+            // M25 — WORLD NEWS: wars, falls, and the end of the game reach
+            // every living player's notice feed plus the console (the
+            // headless run's only window). Diplomatic state is public
+            // knowledge (docs/diplomacy-model.md), so broadcasting leaks
+            // nothing. Fenced no-ops (peace voided the telegraph) carry a
+            // Reject outcome and stay silent; applied consequence events
+            // leave Outcome null.
+            switch (log[_resolvedCursor])
+            {
+                case Sim.Core.Diplomacy.WarBecomesEffectiveEvent w when w.Outcome is null:
+                    Broadcast(w.At, $"WAR: factions {w.Pair.Lo} and {w.Pair.Hi} are now at war.");
+                    continue;
+                case Sim.Core.Sieges.PlayerDefeatedEvent pd when pd.Outcome is null:
+                    Broadcast(pd.At, $"Faction {pd.OwnerId}'s castle has FALLEN — they are out of the game.");
+                    continue;
+                case Sim.Core.Sieges.GameOverEvent over:
+                    Broadcast(over.At, over.WinnerId is { } w2
+                        ? $"GAME OVER — faction {w2} has won."
+                        : "GAME OVER — mutual ruin; no one remains.");
+                    continue;
+            }
             if (log[_resolvedCursor] is not IntentEvent ie) continue;
+            // A war DECLARATION is the telegraph itself — the whole point
+            // is that everyone (especially the target) sees it coming.
+            if (!ie.Outcome.IsRejected && ie.Intent is Sim.Core.Diplomacy.DeclareWarIntent dw)
+            {
+                var delay = _sim.World.Diplomacy.Config.Delay;
+                Broadcast(ie.At, $"Faction {dw.DeclarerId} has declared war on faction {dw.TargetId} — " +
+                    $"effective in {delay / Sim.Core.Time.Day} game-day(s).");
+                continue;
+            }
             // M18 — an APPLIED auto-disable is news the player must see:
             // their standing order stopped (retry budget exhausted). The
             // failing action's rejections were already noticed above this
@@ -273,6 +328,16 @@ public sealed class GameHost : IDisposable
     {
         var names = new[] { "Maddox", "Ren", "Coll", "Brannon", "Hew", "Garrick", "Tam", "Osric", "Wat", "Joss" };
         return names[((scoutId % names.Length) + names.Length) % names.Length];
+    }
+
+    // M25 — world news goes to every real faction's notice feed (negative
+    // sentinel owners have no clients) and the console. Called under _gate.
+    private void Broadcast(long tick, string text)
+    {
+        Console.WriteLine($"[world] t{tick} {text}");
+        foreach (var (id, _) in _sim.World.Players)
+            if (id >= 0)
+                AddNotice(id, tick, text);
     }
 
     private void AddNotice(int playerId, long tick, string text)

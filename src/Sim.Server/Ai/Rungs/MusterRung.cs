@@ -32,8 +32,19 @@ namespace Sim.Server.Ai.Rungs;
 //     a house. When the memory goes fully cold, veterans DEMOBILIZE
 //     one at a time (Soldier → Farmer at the School), so the levy
 //     unwinds instead of becoming a permanent Sparta.
+// M25 — the OFFENSE budget (Rival only; the Homesteader constructs this
+// rung bare and behaves exactly as before): while a war involving us is
+// telegraphed or effective, the quota gains pop/OffensePopulationPerSoldier
+// on top of peacetime, clamped by the same wartime ceiling as the levy.
+// Mobilization runs INSIDE the telegraph window — that's what the Delay
+// is for — and the drawdown floor rises with it so the attack army isn't
+// demobilized at home before it ever marches.
 public sealed class MusterRung : IRung
 {
+    private readonly bool _offense;
+
+    public MusterRung(bool offense = false) { _offense = offense; }
+
     public Decision? TryClaim(ThinkContext ctx)
     {
         // Prune: recruit graduated/died; veteran demobilized/died.
@@ -63,13 +74,26 @@ public sealed class MusterRung : IRung
         var war = hostiles == 0 ? 0
             : Math.Min(hostiles + 1,
                 ctx.View.Population / Math.Max(1, ctx.Cfg.WarPopulationPerSoldier));
-        var quota = Math.Max(peacetime, war);
+        // M25 — the offense budget, live only while a war involving us is
+        // telegraphed or effective, clamped by the wartime ceiling.
+        var standing = peacetime;
+        if (_offense && ctx.AtWarOrMobilizing())
+            standing = Math.Min(
+                peacetime + ctx.View.Population / Math.Max(1, ctx.Cfg.OffensePopulationPerSoldier),
+                ctx.View.Population / Math.Max(1, ctx.Cfg.WarPopulationPerSoldier));
+        var quota = Math.Max(standing, war);
 
         // The larder gate is PEACETIME discipline only — under attack,
-        // a free instant retrain beats a comfortable granary.
+        // a free instant retrain beats a comfortable granary. (Offense
+        // mobilization does NOT waive it: the war was picked from
+        // strength — WarRung gates on the runway — so a mid-mobilization
+        // dip pausing training is the Sparta brake working.)
         if (war == 0 && ctx.View.CastleFood <= ctx.Cfg.GrowthFoodFloor) return null;
 
-        if (soldiers >= quota) return Demobilize(ctx, soldiers, peacetime);
+        // Drawdown floor = the standing target, not bare peacetime: an
+        // attack army mustered into a quiet home front must not be
+        // demobilized before it marches.
+        if (soldiers >= quota) return Demobilize(ctx, soldiers, standing);
 
         var barracks = ctx.OwnStructure(StructureKind.Barracks);
         var site = ctx.OwnSite(StructureKind.Barracks);
@@ -153,11 +177,12 @@ public sealed class MusterRung : IRung
 
     // The war levy unwinds: threat memory fully cold (ANY sighting —
     // even outside the leash — pauses the drawdown; that's the
-    // hysteresis) and the roster above the peacetime budget → one
-    // veteran walks to the School and goes back to the fields.
-    private static Decision? Demobilize(ThinkContext ctx, int soldiers, int peacetime)
+    // hysteresis) and the roster above the standing floor (peacetime,
+    // or peacetime + the live offense budget) → one veteran walks to
+    // the School and goes back to the fields.
+    private static Decision? Demobilize(ThinkContext ctx, int soldiers, int floor)
     {
-        if (ctx.Mem.SightedHostiles.Count > 0 || soldiers <= peacetime) return null;
+        if (ctx.Mem.SightedHostiles.Count > 0 || soldiers <= floor) return null;
         var school = ctx.OwnStructure(StructureKind.School);
         if (school is null) return null;
         var schoolTile = ThinkContext.TileOf(school);
@@ -172,7 +197,7 @@ public sealed class MusterRung : IRung
         }
         var veteran = ctx.OwnUnits.First(u => u.Id == ctx.Mem.DesignatedVeteran);
         if (veteran.X == schoolTile.X && veteran.Y == schoolTile.Y && ctx.IsIdleStill(veteran))
-            return new Decision("muster", $"demobilizing a veteran ({soldiers} > {peacetime} peacetime)",
+            return new Decision("muster", $"demobilizing a veteran ({soldiers} > {floor} standing)",
                 new List<Intent> { new TrainUnitIntent(veteran.Id, UnitRole.Farmer) { PlayerId = ctx.PlayerId } });
         if (ctx.IsIdleStill(veteran))
             return new Decision("muster", "veteran walking to the school",

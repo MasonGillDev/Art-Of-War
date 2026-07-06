@@ -184,6 +184,88 @@ public sealed record AiConfig
     public int RestSoilBelow { get; init; } = 3200;
     public int ResumeSoilAbove { get; init; } = 4500;
 
+    // M25 — how many of the AI factions run the Rival (conquest) ladder
+    // instead of the Homesteader (docs/m25-rival-spec.md). The host gives
+    // the HIGHEST AI faction ids to Rivals, so faction 1 — the balance
+    // lab's baseline Homesteader in every pre-M25 test — keeps its golden
+    // curve. 0 = a fully peaceful field (the pre-M25 world, and the
+    // default: aggression is opt-in via --rivals).
+    public int RivalCount { get; init; } = 0;
+
+    // M25 — ENEMY INTEL. Castle intel older than this is not a war plan
+    // (the target may have grown a garrison since); WarRung refuses it
+    // and ProbeRung re-earns it. 6 game-days ≈ two probe round-trips at
+    // enemy-castle distances.
+    public long IntelStaleTicks { get; init; } = 6 * Time.Day;
+    // Probe legs before the Rival's scouting pressure rests (every
+    // standing job has a bound — ledger #9). The budget REFRESHES when
+    // the castle map changes (EnemyIntel resets ProbeLeg on a castle
+    // discovered or observed razed), so it bounds continuous blind
+    // sweeping, not lifetime exploration. 24 = 1.5 spiral revolutions
+    // at growing reach.
+    public int ProbeLegBudget { get; init; } = 24;
+
+    // M25 — WAR POLICY (WarRung). Young colonies homestead: below the
+    // population floor the Rival's early curve is EXACTLY the
+    // Homesteader's (the pre-M25 golden signature, by construction).
+    public int CampaignPopulationFloor { get; init; } = 30;
+    // Declare only from strength: own military power ×100 must clear the
+    // enemy estimate × this. Wars are picked, not stumbled into.
+    public int WarAdvantageRatioPercent { get; init; } = 150;
+    // The GO gate at campaign launch (ConquerRung) — declaration is
+    // strategic, marching is operational; the enemy may have mustered
+    // during the telegraph window, so the ratio is re-checked with
+    // fresher eyes before anyone walks.
+    public int AttackOvermatchPercent { get; init; } = 150;
+    // Below this percent of the enemy estimate the campaign withdraws
+    // and the war sues for peace — parity lost is campaign over, not a
+    // death spiral. 100 = retreat the moment we're no longer ahead.
+    public int RetreatBelowPercent { get; init; } = 100;
+    // The OFFENSE budget: one campaign soldier per this many mouths, ON
+    // TOP of the peacetime garrison, clamped by the wartime ceiling
+    // (WarPopulationPerSoldier) — the budget scales with the society
+    // that pays it (ledger #11), and the garrison never marches.
+    public int OffensePopulationPerSoldier { get; init; } = 6;
+    // Raid party size (RaidRung; ledger #9 — a bounded job, not a
+    // horde). 0 disables raiding entirely — the doctrine A/B switch
+    // (raid-first vs siege-rush) the Phase-5 lab measures.
+    public int RaidPartySize { get; init; } = 3;
+    // Never plan against zero: fog hides garrisons, so the enemy
+    // estimate is floored here (≈4 bare soldiers) no matter how empty
+    // their fields look.
+    public int AssumedGarrisonPower { get; init; } = 12;
+
+    // M26 — FORTIFY (walls & gates, docs/walls-and-gates.md). The colony
+    // rings its castle once it's a town with stone to spare. The radius
+    // is Chebyshev — a square ring around the keep; 0 disables the rung.
+    // 6 sits just outside the castle's vision disc (5): far enough that
+    // the inner farms/houses keep their ground, close enough that ring
+    // tiles enter the remembered map from ordinary near-castle traffic.
+    public int FortifyRadius { get; init; } = 6;
+    // Placement waits behind this castle STONE stock. Walls are
+    // stone-heavy (per-tile cost × a ~48-tile ring is a war-chest-sized
+    // project) and Fortify must never outbid the Barracks bootstrap or
+    // any other stone use — the floor is the fortification's own
+    // savings account, comfortably under ResourceStockTarget so the
+    // haul cap can actually fill it.
+    public int FortifyStoneFloor { get; init; } = 120;
+    // ...and behind this population: a camp doesn't build city walls.
+    // Below the floor the rung is entirely inert — the pre-M26 curve.
+    public int FortifyPopulationFloor { get; init; } = 25;
+    // Longest wall LINE per think (one PlaceWallIntent). Short segments
+    // localize server-side rejections — the whole line fails clean on
+    // one bad tile, and BrainCore's bisect feedback hunts it down.
+    public int FortifySegmentMax { get; init; } = 6;
+    // Outstanding fort construction sites cap. Every open site claims a
+    // background delivery carrier per think (LogisticsLayer), so an
+    // unbounded ring of sites would starve the food hauls — the cap IS
+    // the fortification's logistics budget.
+    public int FortifyMaxOpenSites { get; init; } = 6;
+    // Quarry staffing target while the stone floor is unmet. Two hands
+    // ≈ 8 stone/game-day with the Quarryman bonus — a wall segment
+    // every day or two without bleeding the farm ledger.
+    public int FortifyQuarryWorkers { get; init; } = 2;
+
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
 

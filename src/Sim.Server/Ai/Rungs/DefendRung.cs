@@ -129,14 +129,25 @@ public sealed class DefendRung : IRung
         Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
 
     // Sightings: refresh on sight, clear on re-observed-empty, expire
-    // on staleness. Bandits are the only hostiles today (faction -1 —
-    // a RULE constant, not world state); Rival extends this to
-    // declared-war factions via the view's diplomacy data.
+    // on staleness. Hostile = the bandit faction (-1 — a RULE constant,
+    // not world state) OR any faction the view's diplomacy says we are
+    // effectively at war with (M25 — the extension this comment always
+    // promised). Pending wars do NOT count: until AreHostile flips, the
+    // neighbor's units are neutrals walking past your fields, and the
+    // telegraph window is exactly the time you're given to prepare —
+    // Muster's war-footing quota keys off THIS memory, so garrisons
+    // grow when the war is real, not when it's threatened.
+    //
+    // Pricing note: sighted counts are priced at bandit base power by
+    // the parity gates (count carries no role). Enemy Soldiers price
+    // the same; Archers run 5 vs 3 — a conservative gate the overmatch
+    // margins upstream absorb.
     private static void UpdateThreatMemory(ThinkContext ctx)
     {
         var seen = new Dictionary<(int X, int Y), int>();
         foreach (var u in ctx.View.Units)
-            if (u.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId)
+            if (u.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId
+                || (u.OwnerId >= 0 && u.OwnerId != ctx.PlayerId && ctx.AtWarWith(u.OwnerId)))
                 seen[(u.X, u.Y)] = seen.GetValueOrDefault((u.X, u.Y)) + 1;
         foreach (var (tile, count) in seen)
             ctx.Mem.SightedHostiles[tile] = (ctx.Now, count);

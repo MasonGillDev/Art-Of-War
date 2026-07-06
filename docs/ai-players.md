@@ -222,8 +222,20 @@ at this scale runs ~2 minutes per 300-day match (pop ~140, two brains).
   pop 10 — war-footing quota / pressure retune / equipment are the
   priced candidates), loot recovery (cargo piles aren't on the wire
   for anyone — core/wire work item), group sorties.
-- **Rival** (phase 3) — scouting pressure, diplomacy through the normal
-  intents, supply-line raids. Conquest waits on win conditions.
+- **Rival** (phase 3) — SHIPPED 2026-07-05 (docs/m25-rival-spec.md),
+  full conquest: the composition promise kept (`RivalBrain` = the shared
+  rungs reordered + War/Conquer/Raid/Probe, over the `BrainCore` arbiter
+  extracted move-only from this brain). Scouting pressure (Probe,
+  budgeted per ledger #9), war declared only from strength and through
+  the normal telegraphed intents, supply raids (extractors only — the
+  KIND names the loot; holdings stay fogged), sieges through M24's
+  machinery, peace sued when losing — and the Homesteader gained
+  `AcceptPeaceRung` (answering a white flag is table stakes; initiating
+  diplomacy stays deferred). Two new ladder lessons for the ledger:
+  **War above Muster** (the demob drawdown must know the surplus is a
+  war chest, or it walks the army to the School before the declaration)
+  and **Raid above Conquer** (ledger #5 again — the campaign's PREP
+  sweeps every free soldier, so the party must reserve first).
 - **Training** — the Homesteader lives with its genesis roster; a School
   + TrainUnitIntent rung (more Haulers!) is the highest-value economy
   upgrade and the natural fix for arbitration find #4.
@@ -239,3 +251,86 @@ at this scale runs ~2 minutes per 300-day match (pop ~140, two brains).
 - `docs/food-consumption.md` — the famine-debt opening the Eat rung
   beats; `docs/extraction-claims.md` — auto-select placement the brain
   leans on.
+
+## Update 2026-07-06 — M26: the Fortify rung (walls & gates)
+
+Both brains gained a `FortifyRung` in the same ladder slot — below Grow
+(mouths before masonry), above Scout — so the peacetime Rival curve stays
+identical to the Homesteader's (the Sparta pin, preserved by construction).
+The colony rings its castle at `FortifyRadius` (Chebyshev) once it clears
+`FortifyPopulationFloor` and `FortifyStoneFloor`. See
+`docs/walls-and-gates.md` for the underlying mechanics.
+
+**Fortification is a SURPLUS-ONLY activity** — the lesson this rung paid
+for on arrival: the first version fired on population + stone alone, and
+both long balance labs (160-day sprawl, crop-rotation A/B) ended their
+mature colonies in famine — wall-site deliveries outrank nothing in the
+logistics loop, so six open fort sites quietly drained the carriers that
+food hauls needed. The whole rung now pauses — placements, quarry
+staffing, even builder assignment — in famine, under a thin food runway
+(2× the Eat floor), below Grow's food floor, or without labor slack (the
+same `GrowthLaborSlackPercent` gate that brakes breeding). Masonry
+yields to bread at least as readily as babies do. Both labs pass again
+with the gates in.
+
+Doctrine, in firing order, with the lessons that shaped it:
+
+1. **Builders for fort sites first** — finish what's started, the
+   BuildRung discipline reused (`EnsureBuilders` assigns only when
+   provisioned, lesson #10 unchanged).
+2. **The stone bootstrap.** No other rung has EVER mined stone (the
+   Barracks' 20 came from genesis stock), so Fortify owns the quarry:
+   below the stone floor it places one — M22 makes every mountain common
+   knowledge, so the brain always knows where — and staffs it to
+   `FortifyQuarryWorkers`. The quarry idles at the `ResourceStockTarget`
+   haul cap once the ring is paid for, same demand-driven shape as the
+   forest-sparing camp cap.
+3. **Gate first, and never wall without one.** Own walls block own units
+   (the spec has no owner exemption): a gateless ring would wall the
+   colony's haulers in, permanently. One gate per ring side, midpoint
+   first, SHIFTING along the side when the midpoint is blocked — the
+   first lab colony sat on the coast with every midpoint under water or
+   farm claims and would have deadlocked gateless forever (caught by
+   `FortifyTests` before it shipped). A side with no placeable tile has
+   no door: the sea is its own wall.
+4. **Bounded work, two ways** (ledger #9 — every open-ended job needs a
+   budget): `FortifySegmentMax` caps each wall line (short lines localize
+   the server's fail-clean rejections), and `FortifyMaxOpenSites` caps
+   outstanding fort sites — every open site claims a background delivery
+   carrier per think, and an unbounded ring would starve the food hauls.
+5. **Breach mending.** Rubble sitting on the ring — a razed segment, or
+   fallen wreckage in the wall's path — gets a materials-free
+   `ClearRubbleIntent` BEFORE any new placement, and deliberately ahead
+   of the stone floor (clearing costs labor only; a stone-poor colony
+   still mends its breach). The cleared tile rejoins the missing runs
+   and is re-walled by the ordinary segment flow: breach → clear →
+   rebuild, the full M26 reclaim loop, threat-nearest pile first. The
+   intent is self-confirming (success grows a site at the tile), so no
+   pending-feedback machinery was needed. Pinned by
+   `FortifyTests.Fortify_ClearsRingRubble_ThenReWallsTheBreach`.
+6. **Threat-facing build order.** With a live threat picture, the ring
+   builds its threat-nearest arc first and grows each segment from the
+   hot end. The picture is deliberately narrow: fresh `SightedHostiles`
+   (raids teach both brains where danger comes from) plus a war
+   partner's known castle ONLY once war is declared or telegraphed —
+   peacetime intel does not count, so a peaceful Rival walls exactly
+   like a Homesteader (the Sparta discipline), and the wall effort
+   pivots to the front the moment the telegraph starts. No threats →
+   plain clockwise walk, the deterministic default. Pinned by
+   `FortifyTests.Fortify_WallsTheThreatArcFirst` (a southern sighting
+   flips the first wall from the east arc to the south arc).
+
+**Rejection feedback is a bisect.** The brain can't see rejection
+notices (observation-driven, as always): `BrainCore` watches the ordered
+segment's tiles; none grew a site → the whole line was rejected
+fail-clean → the next attempt halves (`AiMemory.WallSegmentCap`), and a
+length-1 rejection blacklists that exact tile. An accepted line resets
+the cap. This is `PendingSite`'s discipline extended to multi-tile
+orders.
+
+**Deferred:** the Rival still has no *breach* doctrine — a campaign
+whose path is fully walled gets a rejected `MoveGroupIntent` and stalls
+(the blocked-hop siege trigger handles walls met mid-march, but a
+plan-time "no path → besiege the nearest segment" rung is future work).
+Wall REPAIR doesn't exist for anyone (rubble breaches are permanent,
+M26's deliberate deferral).

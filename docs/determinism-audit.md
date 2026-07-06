@@ -940,3 +940,104 @@ ints per buff (existing weapon buffs serialize them as 0, unchanged behavior).
 holdings/cargo/ground-pile serialization with no new code. Round-trip pinned by
 `CartTests.Cart_RoundTripsThroughSnapshot_PreservesModifiers`; the cart drops as
 an item via the existing `Equipment.DropEquipmentToGround` (one shared rule).
+
+## Update 2026-07-05 — M25 Rival: offensive AI (zero new sim surface)
+
+The Rival is Sim.Server brain work end to end: **no new Sim.Core mutation
+points, no new events, no new anchors, no snapshot format change.** Every
+lever the Rival pulls is a pre-existing player intent (`DeclareWarIntent`,
+`ProposeRelationshipIntent`, `RespondToProposalIntent`, `MoveIntent`,
+`TrainUnitIntent`, `LoadCargoIntent`, `UnloadCargoIntent`) resolving through
+the standard `IntentEvent` wrapper.
+
+### FillDiplomacy is a pure-read wall
+
+`ViewProjector.FillDiplomacy` copies `world.Players` (id + `Defeated`) and
+`world.Diplomacy` (relationship rows, pending wars, the viewer's incoming
+proposals) onto the wire DTOs. Reads public getters only; writes nothing.
+Pinned by `RivalTests.Wire_Diplomacy_IsPureRead` (300 projections across
+three viewers, `Snapshot.Hash` unchanged) — the same discipline as
+`View.BuildPlayerView` (M3 Phase F) and `Road.ConditionAt`.
+
+### Driver replay re-proven with three driver kinds interleaved
+
+`RivalTests.Rival_ReplayFromIntentLog_HashesMatch` runs bandits +
+Homesteader + Rival on one clock loop for 15 game-days (war declared,
+telegraph, mobilization), then replays the durable intent log driverless in
+chronological same-tick batches (the docs/bandits.md interleave rule) into a
+fresh sim: `Snapshot.Hash` equality. AI memory (enemy intel, campaign
+roster, raid party) stays droppable-hints-only — the durable log carries
+every decision, so the replay needs no brain.
+
+## Update 2026-07-06 — M26 walls & gates (first movement-blocking structures)
+
+Fortifications add two pure-read predicates, one new intent, and a new
+consumer of the existing combat anchor — **no new anchors, no snapshot
+format change** (Wall/Gate serialize as field-less kinds on the common
+header, like Tower/Rubble).
+
+### `Fortification.BlocksMover` / `BlocksPlan` are pure reads
+
+Both are a single `world.Structures` lookup + spec read + (for gates) a
+`Diplomacy.RelationshipBetween` read. `BlocksPlan` is called by A* many
+times per query inside `MovementCost.PlanCost`; `BlocksMover` per hop at
+schedule time (`MoveIntent.ScheduleNextHop`, `MoveGroupIntent
+.ScheduleNextHop`) and at fire time (`MoveArrivalEvent`,
+`GroupArrivalEvent`). Pinned by
+`WallsAndGatesTests.BlockingChecks_ArePureReads` (100×-no-mutation).
+
+The fog split mirrors crowding: `BlocksPlan` counts a blocker only when
+owned by the planner or on a currently-visible tile; the ground-truth
+checks are visibility-blind. Same-visible-set ⇒ same plan, so the M3 fog
+headline (view spam never touches the hash) is untouched.
+
+### Blocked-hop yields have bounded call sites
+
+Four, all mirroring the M2 hard-cap rejection byte for byte (clear
+movement anchors → Idle/epoch semantics): the two hop schedulers (early
+exit before scheduling a doomed arrival) and the two arrival events
+(a wall can complete, or a gate turn hostile, during the hop). No other
+code path interprets blocking.
+
+### Fort sieges reuse the M7/M24 combat anchor unchanged
+
+`FortSiege.MaybeBeginSiegeAdjacentTo` (called from final arrivals and
+blocked-hop yields) writes `world.CombatStates[fortTile]` with the same
+`NextRoundTick/NextRoundSeq` fencing token; `RegenerateQueue` rebuilds
+mid-siege rounds with zero new code (pinned by
+`WallsAndGatesTests.MidSiegeSnapshot_RecoversAndFinishesIdentically`).
+`FortSiege.TryResolveFortRound` computes damage as an order-independent
+SUM over `world.Units.Values` (owner-hostility + 4-adjacency filter), so
+dictionary iteration order cannot leak into the hash — the same argument
+as `CombatRules.ForcePower`.
+
+### `PlaceWallIntent` is atomic-validate, then N ordinary sites
+
+All validation (bounds, land, structure/claim/canal-reservation
+exclusion, distinctness, 4-connectivity) runs before any mutation
+(fail-clean); on success it adds N standard `ConstructionSite`s — no new
+build machinery, no reservation system (the sites themselves occupy the
+tiles). Registered in `IntentJson` as durable type-name
+`PlaceWallIntent`.
+
+### Headline
+
+`WallsAndGatesTests.Walls_TwinRun_HashesMatch` — intent-built wall line →
+fog-blind march bonks → adjacency siege → breach (Rubble) → march through,
+twice, `Snapshot.Hash` equality.
+
+### M26 addendum — rubble clearing + the raze rate-transition fix
+
+`ClearRubbleIntent` is a resolution-time swap (Rubble out, a clearing
+`ConstructionSite` in) with no new anchors — the site rides the existing
+build machinery and `RegenerateQueue` path. `BuildCompleteEvent` gained a
+second no-structure branch (TargetKind == Rubble → tile left empty),
+shaped exactly like the canal's.
+
+`SiegeDamage.RazeStructure` now calls
+`BiomeDegradation.OnProductionTransition` before removing a razed
+extractor — razing is a RATE-CHANGING event for the claim tiles, and the
+§2.5 anchor discipline requires the old-rate catch-up before the world
+mutates (the same rule as production stop and canal flooding; the missing
+call was a latent M24 gap). Pinned by
+`ReclaimTests.RazingAProducingFarm_AnchorsItsSoilDamage`.

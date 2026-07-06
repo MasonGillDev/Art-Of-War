@@ -26,13 +26,78 @@ public sealed class ViewProjector
         _waterLevel = (int)Math.Round(build.Config.WaterMax * 1000.0); // sea level on the 0..1000 scale
     }
 
+    // The FULL per-tile elevation grid (whole map, NOT fog-filtered) for client-side
+    // terrain synthesis (erosion). Immutable, generation-time data — terrain never
+    // changes — so this reads nothing live and needs no sim lock. Flattened row-major
+    // (index = y * Width + x) to match the client's heightmap layout; values are the
+    // raw quantized elevation, [0, 1000].
+    public ElevationDto BuildElevationDto()
+    {
+        var w = _map.Width;
+        var h = _map.Height;
+        var flat = new int[w * h];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+                flat[y * w + x] = _elevation[x, y];
+        return new ElevationDto { Width = w, Height = h, WaterLevel = _waterLevel, Elevation = flat };
+    }
+
     public ViewDto Project(Simulation sim, long now, int playerId, bool reveal)
     {
         var dto = reveal ? ProjectRevealed(sim.World, now, playerId) : ProjectFogged(sim.World, now, playerId);
         dto.Tick = now;   // world age in ticks (= game-minutes); the client's clock reads from this
         FillFood(dto, sim, now, playerId);
+        FillDiplomacy(dto, sim.World, playerId);
         FillOrders(dto, sim.World, playerId);
         return dto;
+    }
+
+    // M25 — diplomatic state onto the wire. Mirrors View.BuildPlayerView's
+    // projection rules (docs/diplomacy-model.md): Factions / Relationships /
+    // PendingWars are public knowledge, identical for every viewer, fog or
+    // no fog; IncomingProposals is the one per-viewer slice. Negative
+    // sentinel owners (bandits -1 / caches -2 / rubble -3) sit outside
+    // diplomacy and are never listed — the same id >= 0 discipline as
+    // PlayerDefeatedEvent's live-player count. Pure read, same as FillFood;
+    // factions sorted by id so the payload is order-stable.
+    private static void FillDiplomacy(ViewDto dto, GameWorld world, int playerId)
+    {
+        var factions = new List<FactionDto>();
+        foreach (var (id, p) in world.Players.OrderBy(kv => kv.Key))
+            if (id >= 0)
+                factions.Add(new FactionDto { Id = id, Defeated = p.Defeated });
+
+        var relationships = new List<RelationshipDto>();
+        var pendingWars = new List<PendingWarDto>();
+        foreach (var (pair, rel) in world.Diplomacy.Relationships) // sorted by pair key
+        {
+            relationships.Add(new RelationshipDto
+            {
+                LoId = pair.Lo,
+                HiId = pair.Hi,
+                State = (int)rel.State,
+                PendingEffectiveTick = rel.PendingEffectiveTick ?? -1,
+            });
+            if (rel.PendingEffectiveTick is { } tick)
+                pendingWars.Add(new PendingWarDto { LoId = pair.Lo, HiId = pair.Hi, EffectiveTick = tick });
+        }
+
+        var proposals = new List<ProposalDto>();
+        foreach (var (_, p) in world.Diplomacy.Proposals) // sorted by id
+            if (p.TargetId == playerId)
+                proposals.Add(new ProposalDto
+                {
+                    Id = p.Id,
+                    ProposerId = p.ProposerId,
+                    TargetId = p.TargetId,
+                    DesiredState = (int)p.DesiredState,
+                    ExpiryTick = p.ExpiryTick,
+                });
+
+        dto.Factions = factions.ToArray();
+        dto.Relationships = relationships.ToArray();
+        dto.PendingWars = pendingWars.ToArray();
+        dto.IncomingProposals = proposals.ToArray();
     }
 
     // M18 — the viewer's OWN standing orders, definition + live cursor.
