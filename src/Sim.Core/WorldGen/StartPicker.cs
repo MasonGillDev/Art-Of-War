@@ -6,10 +6,14 @@ namespace Sim.Core.WorldGen;
 //     `radius` (so every extractor type — LumberCamp, Mine, Quarry —
 //     can eventually be built within reach).
 //
-// Scans the grid in (y, x) order and returns the first matching tile.
-// Deterministic for a given (grid, radius). Returns null if no
-// candidate qualifies — caller decides (retry with different seed,
-// relax thresholds, etc.).
+// Scans CENTER-OUTWARD in the codebase's standard deterministic
+// (dist, y, x) ring order and returns the first matching tile. Interior
+// bias matters since the ocean border landed (ContinentShaper): the old
+// top-left (y, x) scan systematically parked the castle on the northern
+// COAST — beach at its back, no meadow, and the balance lab watched
+// bandit pressure wipe such colonies. Center of the map ≈ heart of the
+// continent. Returns null if no candidate qualifies — caller decides
+// (retry with different seed, relax thresholds, etc.).
 //
 // Fair multi-player start placement is OUT of scope here (single-player
 // start only; multi-player concern lands with combat).
@@ -19,16 +23,23 @@ public static class StartPicker
     {
         var width = grid.GetLength(0);
         var height = grid.GetLength(1);
-        for (var y = 0; y < height; y++)
+        int cx = width / 2, cy = height / 2;
+
+        bool Qualifies(int x, int y) =>
+            x >= 0 && x < width && y >= 0 && y < height
+            && grid[x, y] == Biome.Grassland
+            && HasNearby(grid, x, y, radius, Biome.Forest)
+            && HasNearby(grid, x, y, radius, Biome.Hills)
+            && HasNearby(grid, x, y, radius, Biome.Mountain);
+
+        if (Qualifies(cx, cy)) return new TileCoord(cx, cy);
+        var maxR = Math.Max(width, height);
+        for (var r = 1; r <= maxR; r++)
+        for (var dy = -r; dy <= r; dy++)
+        for (var dx = -r; dx <= r; dx++)
         {
-            for (var x = 0; x < width; x++)
-            {
-                if (grid[x, y] != Biome.Grassland) continue;
-                if (HasNearby(grid, x, y, radius, Biome.Forest)
-                 && HasNearby(grid, x, y, radius, Biome.Hills)
-                 && HasNearby(grid, x, y, radius, Biome.Mountain))
-                    return new TileCoord(x, y);
-            }
+            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue; // perimeter only
+            if (Qualifies(cx + dx, cy + dy)) return new TileCoord(cx + dx, cy + dy);
         }
         return null;
     }

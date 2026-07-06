@@ -97,8 +97,10 @@ public class WorldGenTests
         double Share(Biome b) => counts.GetValueOrDefault(b) / (double)total;
 
         // Guards against degenerate maps. Tune thresholds if generator
-        // changes — these are sanity, not precision.
-        Assert.InRange(Share(Biome.Water),    0.00, 0.50);
+        // changes — these are sanity, not precision. Water's ceiling was
+        // raised from 0.50 when the ocean border landed (ContinentShaper):
+        // an island continent legitimately carries ~40-50% sea.
+        Assert.InRange(Share(Biome.Water),    0.10, 0.60);
         Assert.InRange(Share(Biome.Mountain), 0.00, 0.40);
         Assert.InRange(Share(Biome.Hills),    0.00, 0.50);
         // Desert is meant to be a minority biome — wide enough range to
@@ -141,6 +143,76 @@ public class WorldGenTests
         // tiles should differ.
         Assert.True(differences > a.Width * a.Height / 10,
             $"different seeds produced near-identical maps ({differences} tile differences)");
+    }
+
+    // -------- Ocean border (island continent — ContinentShaper) --------
+
+    [Theory]
+    [InlineData(42)]
+    [InlineData(1151)]   // the server's default map seed
+    [InlineData(7)]
+    public void OceanBorder_EveryEdgeTile_IsWater(int seed)
+    {
+        // The edge ramp forces elevation to 0 on the outermost ring — the
+        // HARD guarantee behind "every map edge is ocean". Not statistical:
+        // every single border tile, several seeds.
+        var map = MapGenerator.Build(DefaultConfig(seed));
+        for (var x = 0; x < map.Width; x++)
+        {
+            Assert.Equal(Biome.Water, map.Grid[x, 0]);
+            Assert.Equal(Biome.Water, map.Grid[x, map.Height - 1]);
+        }
+        for (var y = 0; y < map.Height; y++)
+        {
+            Assert.Equal(Biome.Water, map.Grid[0, y]);
+            Assert.Equal(Biome.Water, map.Grid[map.Width - 1, y]);
+        }
+    }
+
+    [Theory]
+    [InlineData(42)]
+    [InlineData(1151)]
+    [InlineData(7)]
+    public void Ocean_IsOneConnectedSea(int seed)
+    {
+        // Sail-anywhere: flood 4-connected water from one corner (guaranteed
+        // water by the edge ramp). Every border tile must be in that single
+        // component, and it must hold the large majority of all water — the
+        // remainder is inland lakes, which are allowed but must stay minor.
+        var map = MapGenerator.Build(DefaultConfig(seed));
+        var ocean = FloodWaterFrom(map.Grid, new TileCoord(0, 0));
+
+        for (var x = 0; x < map.Width; x++)
+        {
+            Assert.Contains(new TileCoord(x, 0), ocean);
+            Assert.Contains(new TileCoord(x, map.Height - 1), ocean);
+        }
+        for (var y = 0; y < map.Height; y++)
+        {
+            Assert.Contains(new TileCoord(0, y), ocean);
+            Assert.Contains(new TileCoord(map.Width - 1, y), ocean);
+        }
+
+        var water = 0;
+        for (var y = 0; y < map.Height; y++)
+            for (var x = 0; x < map.Width; x++)
+                if (map.Grid[x, y] == Biome.Water) water++;
+        Assert.True(ocean.Count >= water * 0.85,
+            $"only {ocean.Count}/{water} water tiles connect to the edge ocean — the sea is fragmented");
+    }
+
+    [Fact]
+    public void OceanBorder_Off_IsTheLegacyRawNoiseWorld()
+    {
+        // The escape hatch: OceanBorder=false must classify the RAW noise
+        // field, bit-identical to the pre-ocean generator.
+        var cfg = DefaultConfig() with { OceanBorder = false };
+        var map = MapGenerator.Build(cfg);
+        var elevation = NoiseField.Generate(cfg.Seed + cfg.ElevationSeedOffset, cfg);
+        var moisture = NoiseField.Generate(cfg.Seed + cfg.MoistureSeedOffset, cfg);
+        for (var y = 0; y < map.Height; y++)
+            for (var x = 0; x < map.Width; x++)
+                Assert.Equal(BiomeClassifier.Classify(elevation[x, y], moisture[x, y], cfg), map.Grid[x, y]);
     }
 
     // -------- Sim-side determinism intact on a generated genesis --------
@@ -224,6 +296,30 @@ public class WorldGenTests
             for (var x = xLo; x <= xHi; x++)
                 if (grid[x, y] == target) return true;
         return false;
+    }
+
+    // Flood fill through WATER tiles only, 4-connected (boat adjacency).
+    private static HashSet<TileCoord> FloodWaterFrom(Biome[,] grid, TileCoord start)
+    {
+        var w = grid.GetLength(0);
+        var h = grid.GetLength(1);
+        var reached = new HashSet<TileCoord>();
+        var queue = new Queue<TileCoord>();
+        if (grid[start.X, start.Y] != Biome.Water) return reached;
+        reached.Add(start);
+        queue.Enqueue(start);
+        while (queue.Count > 0)
+        {
+            var t = queue.Dequeue();
+            foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+            {
+                var n = new TileCoord(t.X + dx, t.Y + dy);
+                if (n.X < 0 || n.X >= w || n.Y < 0 || n.Y >= h) continue;
+                if (grid[n.X, n.Y] != Biome.Water) continue;
+                if (reached.Add(n)) queue.Enqueue(n);
+            }
+        }
+        return reached;
     }
 
     private static HashSet<TileCoord> FloodFrom(TileGrid grid, TileCoord start)

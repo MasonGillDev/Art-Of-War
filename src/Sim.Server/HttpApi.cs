@@ -4,9 +4,10 @@ using System.Text.Json;
 
 namespace Sim.Server;
 
-// HTTP transport: an HttpListener loop that routes the two endpoints to the GameHost.
-// Knows nothing about the sim beyond the host's two methods.
+// HTTP transport: an HttpListener loop that routes the endpoints to the GameHost.
+// Knows nothing about the sim beyond the host's methods.
 //   GET  /view/{playerId}[?reveal=1]
+//   GET  /map/elevation   — full per-tile elevation grid (client-side terrain erosion)
 //   POST /intent
 public sealed class HttpApi : IDisposable
 {
@@ -52,6 +53,12 @@ public sealed class HttpApi : IDisposable
                 }
                 var reveal = req.QueryString["reveal"] == "1"; // dev mode: ignore fog
                 WriteJson(ctx, 200, _host.BuildViewJson(pid, reveal));
+                return;
+            }
+
+            if (req.HttpMethod == "GET" && path == "/map/elevation")
+            {
+                WriteJson(ctx, 200, _host.BuildElevationJson());
                 return;
             }
 

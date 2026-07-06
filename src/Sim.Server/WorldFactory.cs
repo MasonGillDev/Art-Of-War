@@ -29,10 +29,10 @@ public static class WorldFactory
             StartSearchRadius = Math.Max(28, Math.Max(opts.MapWidth, opts.MapHeight) / 4),
         };
         var map = MapGenerator.Build(cfg);
-        // Regenerate the CONTINUOUS elevation field the classifier used (NoiseField is
-        // public — no core changes) so the client can build a smooth heightmap whose
-        // slopes line up with the biome bands.
-        var elevation = QuantizeElevation(NoiseField.Generate(cfg.Seed + cfg.ElevationSeedOffset, cfg));
+        // Regenerate the CONTINUOUS elevation field the classifier used — the SHAPED
+        // field (ocean-border mask included), not the raw noise — so the client builds
+        // a heightmap whose waterline and slopes line up with the biome grid.
+        var elevation = QuantizeElevation(ContinentShaper.BuildElevation(cfg));
         var spec = BuildSpec(map, opts.AiPlayers, opts.CacheCount);
         return new WorldBuild(spec, map, elevation, cfg);
     }
@@ -50,41 +50,17 @@ public static class WorldFactory
         // ~2-3 game-days at march pace, 200 ≈ 3.6 game-days of runway.
         FactionStartSpec MakeFaction(int ownerId, TileCoord castleAt)
         {
-            TileCoord Clamp(int x, int y) => new(
-                Math.Clamp(x, 0, map.Width - 1),
-                Math.Clamp(y, 0, map.Height - 1));
+            // A tile a unit can actually stand on: in-bounds and not water/void.
+            // Water is exactly what stranded starting units in the sea when a
+            // castle sat on the shoreline.
+            bool Walkable(int x, int y) =>
+                x >= 0 && x < map.Width && y >= 0 && y < map.Height &&
+                map.Grid[x, y] is not (Biome.Water or Biome.None);
 
-            // Two of each role — units to drive every initial task (build,
-            // haul, work each extractor, scout), gridded around the castle
-            // so they don't all stack on one tile.
-            var roster = new[]
-            {
-                UnitRole.Builder, UnitRole.Hauler, UnitRole.Lumberjack,
-                UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer, UnitRole.Scout,
-            };
-            var spawns = new List<UnitSpawn>();
-            var slot = 0;
-            foreach (var role in roster)
-                for (var copy = 0; copy < 2; copy++)
-                {
-                    var dx = (slot % 5) - 2;   // -2..2 across
-                    var dy = (slot / 5) - 1;   // a few rows around the castle
-                    // STAGGERED ages 18..40 (deterministic by slot). A
-                    // uniform-age roster hits a synchronized fertility
-                    // cliff — every founder ages past MaxFertileAge the
-                    // same game-day and births stop dead until the native
-                    // generation matures (the M17 balance lab caught the
-                    // population sawtooth). A spread roster breeds in
-                    // overlapping waves.
-                    var age = 18 + slot * 22 / 13;
-                    spawns.Add(new UnitSpawn(nextId++, Clamp(castleAt.X + dx, castleAt.Y + dy), role,
-                        OwnerId: ownerId, StartingAgeYears: age));
-                    slot++;
-                }
             // The genesis School (the circular-lock fix — see
-            // FactionStartSpec.SchoolPosition): the first walkable tile
-            // ringing the castle. Deterministic (dist, y, x) scan, the
-            // same shape as every other placement search here.
+            // FactionStartSpec.SchoolPosition): the first walkable tile ringing
+            // the castle. Computed FIRST so unit placement can avoid its tile.
+            // Deterministic (dist, y, x) scan.
             TileCoord? FindSchoolTile()
             {
                 for (var r = 1; r <= 3; r++)
@@ -92,12 +68,62 @@ public static class WorldFactory
                 for (var dx = -r; dx <= r; dx++)
                 {
                     if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
-                    int x = castleAt.X + dx, y = castleAt.Y + dy;
-                    if (x < 0 || x >= map.Width || y < 0 || y >= map.Height) continue;
-                    if (map.Grid[x, y] is Biome.Water or Biome.None) continue;
-                    return new TileCoord(x, y);
+                    if (Walkable(castleAt.X + dx, castleAt.Y + dy))
+                        return new TileCoord(castleAt.X + dx, castleAt.Y + dy);
                 }
                 return null;
+            }
+            var schoolTile = FindSchoolTile();
+
+            // Walkable land tiles ringing the castle, NEAREST-FIRST, skipping
+            // water, the castle tile, and the school tile — so starting units
+            // never spawn in the sea or buried inside a structure. (The old code
+            // gridded a fixed 5×3 block and merely clamped to bounds, which
+            // spilled into the water on any coastal start.) Deterministic
+            // (dist, y, x) ring scan — the same shape as every search here.
+            List<TileCoord> GatherSpawnTiles(int need)
+            {
+                var tiles = new List<TileCoord>(need);
+                var maxR = Math.Max(map.Width, map.Height);
+                for (var r = 1; r <= maxR && tiles.Count < need; r++)
+                for (var dy = -r; dy <= r; dy++)
+                for (var dx = -r; dx <= r; dx++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+                    int x = castleAt.X + dx, y = castleAt.Y + dy;
+                    if (!Walkable(x, y)) continue;
+                    if (x == castleAt.X && y == castleAt.Y) continue;
+                    if (schoolTile is { } s && x == s.X && y == s.Y) continue;
+                    tiles.Add(new TileCoord(x, y));
+                    if (tiles.Count >= need) return tiles;
+                }
+                return tiles;
+            }
+
+            // Two of each role — units to drive every initial task (build, haul,
+            // work each extractor, scout).
+            var roster = new[]
+            {
+                UnitRole.Builder, UnitRole.Hauler, UnitRole.Lumberjack,
+                UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer, UnitRole.Scout,
+            };
+            var need = roster.Length * 2;
+            var spawnTiles = GatherSpawnTiles(need);
+
+            var spawns = new List<UnitSpawn>(need);
+            for (var slot = 0; slot < need; slot++)
+            {
+                var role = roster[slot / 2];
+                // STAGGERED ages 18..40 (deterministic by slot). A uniform-age
+                // roster hits a synchronized fertility cliff — every founder ages
+                // past MaxFertileAge the same game-day and births stop dead until
+                // the native generation matures (the M17 balance lab caught the
+                // population sawtooth). A spread roster breeds in overlapping waves.
+                var age = 18 + slot * 22 / 13;
+                // Nearest free land tile; fall back to the castle tile only on a
+                // degenerate tiny-island start with too little land (never water).
+                var pos = slot < spawnTiles.Count ? spawnTiles[slot] : castleAt;
+                spawns.Add(new UnitSpawn(nextId++, pos, role, OwnerId: ownerId, StartingAgeYears: age));
             }
 
             return new FactionStartSpec
@@ -111,7 +137,7 @@ public static class WorldFactory
                     [Resource.Food] = 200,
                 },
                 UnitSpawns = spawns.ToArray(),
-                SchoolPosition = FindSchoolTile(),
+                SchoolPosition = schoolTile,
             };
         }
 

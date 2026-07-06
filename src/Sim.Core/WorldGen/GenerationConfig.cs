@@ -46,4 +46,45 @@ public sealed record GenerationConfig
     // Start picker scans for a Grassland tile within this Chebyshev radius
     // of Forest + Hills + Mountain (so every extractor can eventually be built).
     public int StartSearchRadius { get; init; } = 15;
+
+    // ---- Ocean border (island continent) — see ContinentShaper ----
+    // When on, the elevation field is multiplied by a radial falloff mask so
+    // the land forms one continent surrounded by ocean, and every map edge is
+    // guaranteed sea. The falloff distance is domain-warped by a third noise
+    // field so the coastline grows bays and peninsulas instead of tracing a
+    // circle. Off = the legacy unbounded-noise world.
+    public bool OceanBorder { get; init; } = true;
+
+    // Seed offset for the coast-warp noise field (sibling of Elevation/Moisture).
+    public int CoastSeedOffset { get; init; } = 2000;
+
+    // Frequency of the coast-warp noise. Lower than terrain Frequency →
+    // continent-scale lobes (whole bays and peninsulas), not per-tile jitter.
+    // Fixed like Frequency: a bigger map gets proportionally more coastline.
+    public double CoastWarpFrequency { get; init; } = 0.015;
+
+    // How far (in normalized radial-distance units: 0 = map center, 1 = map
+    // border) the warp noise can push the coastline in or out. The main
+    // "interesting coastline" dial — 0 degrades to a wobbly-edged disc.
+    public double CoastWarpAmplitude { get; init; } = 0.50;
+
+    // Radial falloff band: mask = 1 inside CoastInner (interior noise passes
+    // through, plus the ContinentDome below), smoothstepping to 0 at
+    // CoastOuter. Outer may exceed 1.0 — the edge ramp below still guarantees
+    // border ocean; a larger Outer just moves the average coast further out.
+    public double CoastInner { get; init; } = 0.50;
+    public double CoastOuter { get; init; } = 1.05;
+
+    // Smooth ramp (in tiles from the nearest map edge) forcing elevation to 0
+    // at the very border regardless of noise — the hard guarantee that the
+    // outermost ring is ocean, hence one connected sea touching all edges.
+    public int EdgeOceanTiles { get; init; } = 8;
+
+    // Gentle elevation dome added toward the continent interior (peaks at the
+    // warped center, gone by CoastInner). Continents keep highlands: without
+    // it, masking can erase every Mountain tile on an unlucky seed (seed 1151
+    // — the server default — did exactly that) and StartPicker finds no start.
+    // Also shapes geography the right way round: coastal lowlands, interior
+    // ranges. 0 = off.
+    public double ContinentDome { get; init; } = 0.15;
 }

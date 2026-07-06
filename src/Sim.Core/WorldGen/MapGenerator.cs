@@ -12,7 +12,10 @@ public static class MapGenerator
 {
     public static GeneratedMap Build(GenerationConfig cfg)
     {
-        var elevation = NoiseField.Generate(cfg.Seed + cfg.ElevationSeedOffset, cfg);
+        // ContinentShaper = raw noise + ocean-border mask (island continent).
+        // WorldFactory rebuilds the same field for the client heightmap — the
+        // two MUST stay one code path or sea and rendered terrain desync.
+        var elevation = ContinentShaper.BuildElevation(cfg);
         var moisture  = NoiseField.Generate(cfg.Seed + cfg.MoistureSeedOffset,  cfg);
 
         var grid = new Biome[cfg.Width, cfg.Height];
