@@ -61,6 +61,22 @@ live driver submits at tick T *after* T's events have run — front-
 loading the whole log gives intents earlier Seqs and reorders same-tick
 execution. The test encodes the correct discipline.
 
+### Why a spawn grace period (2026-07-07)
+
+The spawn target is `min(MaxLiveParties, worldStructures / StructuresPerParty)`,
+and `worldStructures` counts **every faction's** structures, not one
+colony's. With many AI factions this crosses the threshold *at genesis*
+(9 factions × ~2 genesis structures ÷ 8 ≈ 2 parties on think #1), so a
+human who opened with `--ai 8` got raided before building a Barracks —
+"bandits came right away and killed all my units." `SpawnGraceTicks`
+(default 7 game-days, `--bandit-grace N`) holds all spawns until colonies
+have had time to settle and raise a garrison; after it, prosperity draws
+wolves exactly as before. It is a driver-side policy knob only — no
+sim-state or determinism impact (the driver's decisions still land in the
+durable log; a longer grace just means the log's first spawn is later).
+The global-count scaling (more factions ⇒ more bandits) is unchanged and
+remains a separate balance lever if it needs one.
+
 ### Why spawn-in-darkness + a distance floor
 
 "Spawns only where no player can see" turns the design pillar

@@ -112,6 +112,10 @@ public sealed class BanditDriver
 
     private void MaybeSpawn(Simulation sim, long now, GameWorld world)
     {
+        // Grace period — no wolves until colonies have had time to settle
+        // and raise a garrison (see BanditConfig.SpawnGraceTicks).
+        if (now < _cfg.SpawnGraceTicks) return;
+
         var playerStructures = world.Structures.Values
             .Count(s => s.OwnerId != BanditConstants.OwnerId);
         var target = Math.Min(_cfg.MaxLiveParties, playerStructures / _cfg.StructuresPerParty);

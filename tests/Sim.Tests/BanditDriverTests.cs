@@ -48,6 +48,32 @@ public class BanditDriverTests
     }
 
     [Fact]
+    public void GracePeriod_NoSpawnsBeforeGrace_ThenSpawns()
+    {
+        var sim = MakeWorld(out var world);
+        world.AddStructure(new Stockpile(new TileCoord(7, 5)) { OwnerId = 0 });
+        // Rich enough to draw parties immediately (2 structures / 1), but a
+        // 5-game-day grace holds them off. The young colony gets to settle.
+        var grace = 5 * Sim.Core.Time.Day;
+        var driver = new BanditDriver(new BanditConfig
+        {
+            StructuresPerParty = 1, MaxLiveParties = 2,
+            PartySizeMin = 2, PartySizeMax = 2,
+            ThinkPeriodTicks = Sim.Core.Time.Hour, Seed = 7,
+            SpawnGraceTicks = grace,
+        });
+
+        // Just before grace: still nobody at the door.
+        RunWithDriver(sim, driver, until: grace - Sim.Core.Time.Hour, step: Sim.Core.Time.Hour);
+        Assert.Equal(0, world.Players[BanditConstants.OwnerId].PopulationCount);
+
+        // Past grace: prosperity draws wolves as before.
+        RunWithDriver(sim, driver, until: grace + 10 * Sim.Core.Time.Hour, step: Sim.Core.Time.Hour);
+        Assert.True(world.Players[BanditConstants.OwnerId].PopulationCount > 0,
+            "bandits should spawn once the grace period elapses");
+    }
+
+    [Fact]
     public void Spawns_ToProsperityTarget_AndRespectsCap()
     {
         var sim = MakeWorld(out var world);
@@ -58,6 +84,7 @@ public class BanditDriverTests
             StructuresPerParty = 1, MaxLiveParties = 2,
             PartySizeMin = 2, PartySizeMax = 3,
             ThinkPeriodTicks = 10, Seed = 7,
+            SpawnGraceTicks = 0,   // this test pins the post-grace spawn mechanic
         };
         var driver = new BanditDriver(cfg);
         RunWithDriver(sim, driver, until: 2_000, step: 10);
@@ -124,6 +151,7 @@ public class BanditDriverTests
             StructuresPerParty = 1, MaxLiveParties = 1,
             PartySizeMin = 1, PartySizeMax = 1,
             AmbusherEvery = 1, ThinkPeriodTicks = 30, Seed = 13,
+            SpawnGraceTicks = 0,   // pins the ambusher lurk mechanic, not the grace
         });
 
         RunWithDriver(sim, driver, until: 600, step: 30);

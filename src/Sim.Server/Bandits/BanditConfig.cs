@@ -18,6 +18,15 @@ public sealed record BanditConfig
     // reacting within a fraction of any march.
     public long ThinkPeriodTicks { get; init; } = Time.Hour;
 
+    // GRACE PERIOD: no party spawns before this tick. A young colony has
+    // no garrison yet — a wolf at the door on day 0 wipes undefended
+    // founders before they can build a Barracks and train a soldier
+    // (worse the more factions share the map: the spawn target reads the
+    // WORLD's structure count, so 8 AIs cross the threshold at genesis).
+    // The grace is the "settle in" window; after it, prosperity draws
+    // wolves as before. Tunable — --bandit-grace <game-days> on the host.
+    public long SpawnGraceTicks { get; init; } = 7 * Time.Day;
+
     // Prosperity scaler: one live party per this many player structures
     // (sprawl attracts wolves), capped at MaxLiveParties. At the default
     // 8, a starter base (castle + a few camps) draws zero or one party;

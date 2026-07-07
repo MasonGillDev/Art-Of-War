@@ -11,6 +11,7 @@ public sealed record ServerOptions
     public int MapHeight { get; init; } = 128;
     public ulong Seed { get; init; } = 0xC0FFEE;          // sim RNG seed
     public bool Bandits { get; init; } = true;            // M16 — --bandits 0 to disable the driver
+    public int BanditGraceDays { get; init; } = 7;        // M16 — --bandit-grace N: game-days before the first party spawns
     public int AiPlayers { get; init; } = 8;              // M17 — --ai N full AI factions (0 = none)
     public int Rivals { get; init; } = 0;                 // M25 — --rivals K of the AI factions play to conquer (0 = all peaceful)
     public bool AiTrace { get; init; } = false;           // M17 — --ai-trace 1 prints each brain decision
@@ -21,7 +22,7 @@ public sealed record ServerOptions
         int port = 8080, mapSeed = 230031, mapWidth = 126, mapHeight = 126;
         var tps = 20.0;
         var bandits = 1;
-        int ai = 8, rivals = 0, aiTrace = 0, caches = 30;
+        int ai = 8, rivals = 0, aiTrace = 0, caches = 30, banditGrace = 7;
         for (var i = 0; i + 1 < args.Length; i++)
         {
             switch (args[i])
@@ -32,6 +33,7 @@ public sealed record ServerOptions
                 case "--width":   int.TryParse(args[i + 1], out mapWidth); break;
                 case "--height":  int.TryParse(args[i + 1], out mapHeight); break;
                 case "--bandits": int.TryParse(args[i + 1], out bandits); break;
+                case "--bandit-grace": int.TryParse(args[i + 1], out banditGrace); break;
                 case "--ai":      int.TryParse(args[i + 1], out ai); break;
                 case "--rivals":  int.TryParse(args[i + 1], out rivals); break;
                 case "--ai-trace": int.TryParse(args[i + 1], out aiTrace); break;
@@ -46,6 +48,7 @@ public sealed record ServerOptions
             MapWidth = mapWidth,
             MapHeight = mapHeight,
             Bandits = bandits != 0,
+            BanditGraceDays = Math.Max(0, banditGrace),
             AiPlayers = Math.Max(0, ai),
             Rivals = Math.Clamp(rivals, 0, Math.Max(0, ai)),
             AiTrace = aiTrace != 0,

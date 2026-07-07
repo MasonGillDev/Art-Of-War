@@ -14,7 +14,11 @@ var options = ServerOptions.Parse(args);
 var build = WorldFactory.Build(options);
 
 using var host = new GameHost(build, options.Seed, options.TicksPerSecond,
-    new Sim.Server.Bandits.BanditConfig { Enabled = options.Bandits },
+    new Sim.Server.Bandits.BanditConfig
+    {
+        Enabled = options.Bandits,
+        SpawnGraceTicks = options.BanditGraceDays * Sim.Core.Time.Day,
+    },
     new Sim.Server.Ai.AiConfig { Enabled = options.AiPlayers > 0, TracePrint = options.AiTrace, RivalCount = options.Rivals });
 host.Start();
 
