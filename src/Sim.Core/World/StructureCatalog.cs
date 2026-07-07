@@ -265,9 +265,17 @@ public static class StructureCatalog
         {
             Kind = StructureKind.Canal,
             IsPlayerBuildable = true,
+            // M28 retune (2026-07-07): per-tile stone cut 150 -> 50 so a canal
+            // is a MID-game tool, not a late-game-only megaproject. A single
+            // quarry (~8-12 stone/day) could never fund 150/tile against a war
+            // + wall economy, so canals were never dug (observed live: 8
+            // rivals, 0 canals in 150 days). At 50/tile a 2-tile canal is 100
+            // stone — affordable in a week or two. Still a real investment
+            // (wood + 3 builders + build time), just a reachable one. Applies
+            // to the human game too (the user's call).
             BuildCost = new SortedDictionary<Resource, int>
             {
-                [Resource.Stone] = 150,
+                [Resource.Stone] = 50,
                 [Resource.Wood] = 50,
             },
             BuildDurationTicks = 1 * Time.Day,

@@ -209,3 +209,33 @@ Surplus-gated like Fortify; one canal at a time;
 3-builder crew. Boats remain un-taught: there are no cargo-over-water
 mechanics for the AI to leverage yet (boats cannot reach land structures
 to load), so seamanship waits for a sim-level payoff.
+
+## Update 2026-07-07 — canal cost cut so canals actually get dug
+
+Live observation (8 rivals, `--rivals 8`, 150 game-days): **zero canals
+dug.** Root cause was economic, not a rung bug — every IrrigateRung gate
+passed (61 dry farm claims, food surplus, labor slack) EXCEPT stone. The
+canal's original **150 stone/tile** meant a minimal 2-tile canal cost 300
+stone, but a colony's single quarry (~8–12 stone/day) against a war + wall
+economy banks only ~60 stone, and the AI's `IrrigateStoneFloor` of 200
+wasn't even reachable (nor enough for one old-priced tile).
+
+Fix (user's call, affects the human game too):
+
+- **Canal per-tile stone 150 → 50** (`StructureCatalog`). A 2-tile canal
+  is now 100 stone — a mid-game investment a stable colony affords in a
+  week or two, not a late-game megaproject. Still real: wood + 3 builders
+  + build time. This softens the M21 "a real investment / proportionally
+  huge commitment" framing — deliberately, because the huge version was
+  never actually built by anyone.
+- **`AiConfig.IrrigateStoneFloor` 200 → 80**, and `IrrigateRung` now
+  staffs the quarry toward cap (`IrrigateQuarryWorkers` = 3) when a dig is
+  wanted but stone is short.
+
+Result (same 8-rival seed): canal construction sites appear from ~day 105
+and **complete** (canal water tiles grow 0 → 3 by day 150), with total
+population higher than before the retune — canals are now a peacetime
+growth lever stable colonies use, without denting survival. War-torn
+factions still (correctly) prioritize walls and army over earthworks.
+Canal cost is a per-tile catalog knob; `CanalsTests` derive their cost
+assertions from the spec, so they track the number.

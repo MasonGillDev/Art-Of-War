@@ -280,12 +280,19 @@ public sealed record AiConfig
     // planning below this many dry tiles total). The dig must water a
     // real field, not a hedgerow.
     public int IrrigateMinDryClaimTiles { get; init; } = 6;
-    // Start the dig only above this castle stone stock. The site drains
-    // the warehouse for weeks (canal cost is PER TILE) — the floor means
-    // the quarry income exists, not that the full price is banked (the
-    // ResourceStockTarget haul cap makes banking the full price
-    // impossible by design).
-    public int IrrigateStoneFloor { get; init; } = 200;
+    // Start the dig only above this castle stone stock. The floor means
+    // the quarry income exists and a short canal is fundable soon, not
+    // that the full price is banked (logistics delivers stone to the
+    // site over the build). Retuned 200 -> 80 alongside the canal cost
+    // cut (150 -> 50 stone/tile): 200 was unreachable on a single-quarry
+    // economy AND wasn't even enough for one old-priced tile, so canals
+    // were never dug (observed: 8 rivals, 0 canals in 150 days).
+    public int IrrigateStoneFloor { get; init; } = 80;
+    // While a canal is WANTED but stone is short, staff the quarry to this
+    // many workers (the Quarry WorkerCap is 3) to accelerate the stone
+    // income specifically for the dig — canals compete with walls for
+    // stone, so a dig-in-waiting earns the extra pick.
+    public int IrrigateQuarryWorkers { get; init; } = 3;
     // Mirror of the world's BiomeDegradationConfig.WaterRecoveryRadius
     // (config, not on the wire — the demographic-mirror convention;
     // update if the world knob is retuned). Tracks the world default (4).

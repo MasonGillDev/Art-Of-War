@@ -70,9 +70,20 @@ public sealed class IrrigateRung : IRung
         var dry = DryFarmClaims(ctx);
         if (dry.Count < cfg.IrrigateMinDryClaimTiles) return null;
 
-        // 4. Primed treasury.
+        // 4. Primed treasury. Canals compete with walls for stone, so when a
+        // dig is WANTED but stone is short, first accelerate the income:
+        // staff the quarry toward cap (the extra pick a dig-in-waiting
+        // earns). Only then wait. Nothing to staff → just wait for the pile.
         if (ThinkContext.AmountOf(ctx.Castle!.Holdings, Resource.Stone)
-                < cfg.IrrigateStoneFloor) return null;
+                < cfg.IrrigateStoneFloor)
+        {
+            var quarry = ctx.Own.FirstOrDefault(s => (StructureKind)s.Kind == StructureKind.Quarry);
+            if (quarry is not null
+                && ctx.StaffExtractor(quarry, UnitRole.Quarryman, cfg.IrrigateQuarryWorkers)
+                    is { Count: > 0 } st)
+                return new Decision("irrigate", "staffing the quarry for canal stone", st);
+            return null;
+        }
 
         // 5. The plan.
         if (PlanCanal(ctx, dry) is { Count: > 0 } path)
