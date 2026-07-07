@@ -155,13 +155,16 @@ public sealed class MoveArrivalEvent : ScheduledEvent
 
         if (unit.HaulPlan is { } plan)
         {
+            // M28 — AtStop, not position equality: a boat's stop for a dock
+            // tile is the dock's SLIP (docs/boats.md update). Foot haulers
+            // keep the exact pre-M28 rule (position == plan tile).
             switch (plan.Phase)
             {
-                case HaulPhase.ToSource when unit.Position == plan.SourceTile:
+                case HaulPhase.ToSource when HaulStops.AtStop(sim.World, unit, plan.SourceTile):
                     sim.Schedule(sim.Now,
                         new HaulPickupEvent(unit.Id, plan.SourceTile, plan.DestTile, plan.Resource, unit.AssignmentEpoch));
                     break;
-                case HaulPhase.ToDest when unit.Position == plan.DestTile:
+                case HaulPhase.ToDest when HaulStops.AtStop(sim.World, unit, plan.DestTile):
                     sim.Schedule(sim.Now,
                         new HaulDepositEvent(unit.Id, plan.DestTile, unit.AssignmentEpoch));
                     break;

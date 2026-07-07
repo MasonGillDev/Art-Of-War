@@ -232,6 +232,10 @@ public static class StructureCatalog
         {
             Kind = StructureKind.Dock,
             IsPlayerBuildable = true,
+            // M28 — the quay warehouse: freight staged between land haulers
+            // and boats. Sized between the Barracks (200) and the Stockpile
+            // (500) — a transshipment buffer, not a second castle.
+            StorageCapacity = 400,
             // No RequiredBiome: PlaceSiteIntent does the dock-specific
             // "land tile with adjacent water" validation directly.
             BuildCost = new SortedDictionary<Resource, int>

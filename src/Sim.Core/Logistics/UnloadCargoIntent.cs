@@ -44,9 +44,16 @@ public sealed class UnloadCargoIntent : Intent
         // Deposit into an own structure on this tile if there is one; the remainder
         // (capacity/need overflow, or the whole load when there's no structure) goes
         // to the ground.
+        //
+        // M28 — a laden BOAT parked on an own dock's slip empties into that
+        // dock (the quay warehouse): boats never stand on a structure tile,
+        // and this is the recovery path for a stranded water haul.
         var deposited = 0;
         if (world.Structures.TryGetValue(tile, out var s) && s.OwnerId == PlayerId)
             deposited = CargoTransfer.DepositInto(sim, s, resource, amount);
+        else if (unit.Traversal == Traversal.Water
+                 && HaulStops.OwnDockBySlip(world, tile, PlayerId) is { } quay)
+            deposited = CargoTransfer.DepositInto(sim, quay, resource, amount);
 
         var leftover = amount - deposited;
         if (leftover > 0)

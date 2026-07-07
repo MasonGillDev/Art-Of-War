@@ -67,6 +67,20 @@ public sealed class HaulIntent : Intent
         if (!world.Structures.ContainsKey(DestTile))
             return IntentOutcome.Reject($"no structure at dest {DestTile.X},{DestTile.Y}");
 
+        // M28 — BOAT FREIGHT: a Water-traversal hauler serves DOCKS only
+        // (the sole land/water cargo interface — docs/boats.md update). It
+        // sails to each dock's SLIP; the cargo moves against the dock. The
+        // MoveTarget probe doubles as the dock check.
+        if (hauler.Traversal == Traversal.Water)
+        {
+            if (HaulStops.MoveTarget(world, hauler, SourceTile) is null)
+                return IntentOutcome.Reject(
+                    $"boat freight needs a Dock source; {SourceTile.X},{SourceTile.Y} has none");
+            if (HaulStops.MoveTarget(world, hauler, DestTile) is null)
+                return IntentOutcome.Reject(
+                    $"boat freight needs a Dock dest; {DestTile.X},{DestTile.Y} has none");
+        }
+
         hauler.TrySetActivity(Activity.Hauling);
 
         // M4 Phase A: state-anchored haul orchestration. HaulPlan carries the
@@ -74,15 +88,26 @@ public sealed class HaulIntent : Intent
         // arrival by reading the plan. No OnFinalArrival event field.
         hauler.HaulPlan = new HaulPlan(SourceTile, DestTile, Resource, HaulPhase.ToSource);
 
-        if (hauler.Position == SourceTile)
+        if (HaulStops.AtStop(world, hauler, SourceTile))
         {
-            // Already at source — go straight to pickup.
+            // Already at the stop — go straight to pickup.
             sim.Schedule(sim.Now,
                 new HaulPickupEvent(HaulerId, SourceTile, DestTile, Resource, hauler.AssignmentEpoch));
         }
         else
         {
-            MoveIntent.BeginMove(sim, hauler, SourceTile);
+            MoveIntent.BeginMove(sim, hauler, HaulStops.MoveTarget(world, hauler, SourceTile)!.Value);
+            // FAIL CLEAN when no route exists (a boat whose source dock sits
+            // on another lake; a walled-off yard): without this the hauler
+            // stays Hauling forever with no arrival scheduled — a zombie
+            // every selector ignores.
+            if (hauler.NextArrivalSeq is null)
+            {
+                hauler.HaulPlan = null;
+                hauler.TrySetActivity(Activity.Idle);
+                return IntentOutcome.Reject(
+                    $"no route from {hauler.Position.X},{hauler.Position.Y} to the {Resource} source");
+            }
         }
 
         return IntentOutcome.Applied;

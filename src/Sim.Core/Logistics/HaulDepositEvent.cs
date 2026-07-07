@@ -50,10 +50,11 @@ public sealed class HaulDepositEvent : ScheduledEvent
             Outcome = IntentOutcome.Reject("hauler is not Hauling");
             return;
         }
-        if (hauler.Position != DestTile)
+        // M28 — a boat's stop is the dest dock's SLIP, not the dock tile.
+        if (!HaulStops.AtStop(world, hauler, DestTile))
         {
             hauler.TrySetActivity(Activity.Idle);
-            Outcome = IntentOutcome.Reject($"hauler not on dest {DestTile.X},{DestTile.Y}");
+            Outcome = IntentOutcome.Reject($"hauler not at dest {DestTile.X},{DestTile.Y}");
             return;
         }
         if (hauler.CargoAmount == 0 || hauler.CargoResource == Resource.None)

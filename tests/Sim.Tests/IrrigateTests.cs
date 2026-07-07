@@ -53,6 +53,11 @@ public class IrrigateTests
         IrrigateMaxCanalTiles = 12,
         IrrigateMinDryClaimTiles = 4,   // the 8-claim ring caps end coverage at ~5
         IrrigateStoneFloor = 200,
+        // Pin the AI's water radius (independent of the world default, which
+        // is a balance knob that has moved): this test exercises the RUNG's
+        // planning against a fixed geometry, and the inland farm below is
+        // placed dry at radius 2.
+        IrrigateWaterRadius = 2,
     };
 
     // A hand-built INLAND farm southeast of the coastal castle: its claim

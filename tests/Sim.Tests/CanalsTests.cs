@@ -200,21 +200,30 @@ public class CanalsTests
     [Fact]
     public void Canal_Irrigation_RestoresDegradedLandBesideIt()
     {
-        var sim = MakeSim();
+        // Grid + geometry are CONFIG-DERIVED off WaterRecoveryRadius so the
+        // test survives any retune of that knob (it was pinned at radius 2
+        // when written; the world default has since moved). The source water
+        // sits r+1 tiles from the field — out of range, so the field starts
+        // latched — and the canal is dug down the column to a tile adjacent
+        // to the field.
+        var sim = MakeSim(size: 24);
         var cfg = sim.World.BiomeDegradationConfig;
-        // Source water far from the field; the field is latched (not near
-        // water) until the canal reaches it.
-        sim.World.Grid.SetBiome(new TileCoord(5, 8), Biome.Water);
+        var r = cfg.WaterRecoveryRadius;
         var field = new TileCoord(5, 5);
+        var sourceY = field.Y + r + 1;                       // out of range
+        sim.World.Grid.SetBiome(new TileCoord(5, sourceY), Biome.Water);
         var margin = 100; // points below DesertThreshold
         var dev = cfg.DesertThreshold - margin - cfg.GrasslandBaseline;
         sim.World.Fertility[field] = new Fertility(dev, 0);
 
-        // Before any canal: latched Desert (nearest water is 3 tiles away).
+        // Before any canal: latched Desert (nearest water is r+1 tiles away).
         Assert.Equal(Biome.Desert, BiomeDegradation.BiomeAt(sim.World, field, 0, cfg));
 
-        // Dig a canal from the source up to a tile adjacent to the field.
-        var path = new List<TileCoord> { new(5, 7), new(5, 6) }; // (5,6) is 1 tile from field
+        // Dig a canal from beside the source down to a tile adjacent to the
+        // field: (5, sourceY-1) … (5, 6). path[0] is 4-adjacent to the source
+        // water; the last tile is one north of the field.
+        var path = new List<TileCoord>();
+        for (var y = sourceY - 1; y >= field.Y + 1; y--) path.Add(new TileCoord(5, y));
         PlaceAndCompleteCanal(sim, path);
         var anchor = sim.Now; // recovery anchors at completion
 

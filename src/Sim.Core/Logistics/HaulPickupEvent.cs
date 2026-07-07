@@ -57,10 +57,11 @@ public sealed class HaulPickupEvent : ScheduledEvent
             Outcome = IntentOutcome.Reject("hauler is not Hauling");
             return;
         }
-        if (hauler.Position != SourceTile)
+        // M28 — a boat's stop is the source dock's SLIP, not the dock tile.
+        if (!HaulStops.AtStop(world, hauler, SourceTile))
         {
             hauler.TrySetActivity(Activity.Idle);
-            Outcome = IntentOutcome.Reject($"hauler not on source {SourceTile.X},{SourceTile.Y}");
+            Outcome = IntentOutcome.Reject($"hauler not at source {SourceTile.X},{SourceTile.Y}");
             return;
         }
         // M7 — three possible sources, checked in this order:
@@ -142,16 +143,36 @@ public sealed class HaulPickupEvent : ScheduledEvent
         if (hauler.HaulPlan is { } plan)
             plan.Phase = HaulPhase.ToDest;
 
-        // Second leg: walk to destination. On arrival, MoveArrivalEvent's
-        // DispatchOnFinalArrival reads HaulPlan and schedules deposit.
-        if (hauler.Position == DestTile)
+        // Second leg: travel to the destination stop (the dock's slip for a
+        // boat — M28). On arrival, MoveArrivalEvent's DispatchOnFinalArrival
+        // reads HaulPlan and schedules the deposit.
+        if (HaulStops.AtStop(world, hauler, DestTile))
         {
             sim.Schedule(sim.Now,
                 new HaulDepositEvent(HaulerId, DestTile, hauler.AssignmentEpoch));
         }
+        else if (HaulStops.MoveTarget(world, hauler, DestTile) is { } stop)
+        {
+            MoveIntent.BeginMove(sim, hauler, stop);
+            // FAIL CLEAN on no route (M28 hardening): a laden hauler left
+            // Hauling with no arrival scheduled is a zombie every selector
+            // ignores. Idle it WITH its cargo — UnloadCargoIntent (which
+            // now empties a slip-parked boat into its quay) is the recovery.
+            if (hauler.NextArrivalSeq is null)
+            {
+                hauler.HaulPlan = null;
+                hauler.TrySetActivity(Activity.Idle);
+                Outcome = IntentOutcome.Reject(
+                    $"no route to dest {DestTile.X},{DestTile.Y} — cargo stays aboard");
+            }
+        }
         else
         {
-            MoveIntent.BeginMove(sim, hauler, DestTile);
+            // The dest dock vanished mid-trip (razed) — fail clean, laden.
+            hauler.HaulPlan = null;
+            hauler.TrySetActivity(Activity.Idle);
+            Outcome = IntentOutcome.Reject(
+                $"dest {DestTile.X},{DestTile.Y} is no longer water-servable");
         }
     }
 

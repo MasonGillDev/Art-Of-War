@@ -239,6 +239,48 @@ event types reach durable storage (events are reconstructed by
 - **Population (M8)** — embarked units age and starve normally; their
   `BornTick` and death conditions don't depend on tile presence.
 
+## Update 2026-07-07 — M28: boats haul freight (the quay warehouse)
+
+Boats can now **carry cargo dock-to-dock**, closing the "boats move troops
+but not goods" gap. Two coupled changes, both reusing existing machinery:
+
+1. **The Dock is a `StorageStructure`** (the *quay warehouse*, capacity 400
+   — between a Barracks and a Stockpile). Land haulers stock and drain it
+   with ordinary `HaulIntent`s; it is the single land↔water cargo
+   interface, the exact "presence as investment" rule embark/disembark
+   already enforces for troops. Snapshot `FormatVersion` 20→21 (the dock
+   gains the standard storage payload between its slip and its production
+   anchors).
+
+2. **`HaulIntent` goes amphibious.** A `Traversal.Water` hauler (a boat)
+   serves docks: it sails to each dock's **slip** (it can never enter the
+   dock's land tile) while the cargo moves against the dock structure. The
+   whole seam is one new pure-read helper, `HaulStops` — *where does this
+   carrier stand for a stop at tile T* (T on foot; the dock's slip over
+   water) and *is it standing there now*. `HaulIntent`/`HaulPickupEvent`/
+   `HaulDepositEvent`/`MoveArrivalEvent` swap their `position == tile`
+   checks for `HaulStops.AtStop`; foot haulers keep byte-identical
+   behavior. Boat freight **requires dock endpoints** (rejects a
+   castle/extractor source or dest — you can't tie up to a wheat field).
+   `BoatCapacity` is 100 (4× a land hauler), so a boat is the bulk carrier
+   the design promised.
+
+The chain is therefore **castle → (land haul) → dock → (boat haul) → dock
+→ (land haul) → inland site**: three explicit legs, no auto-multimodal
+planner (the `MoveBoatIntent` deferral stands — the seams stay strategic).
+No new anchors, no new events: a boat haul rides the same `HaulPlan` +
+`MoveArrivalEvent` orchestration a cart does. Zombie-hauler hardening: a
+water haul with no route fails **clean and laden** (Idle at the source
+slip), and `UnloadCargoIntent` now empties a slip-parked boat into its own
+quay — the recovery path.
+
+**Deferred:** the AI does not yet *use* boat freight — it needs to detect
+a water-split economy, build the two docks + a boat, and route cross-water
+hauls, none of which the single-continent balance labs exercise (so the
+feature has no lab to validate an AI against yet). The headline
+`BoatFreightTests.Freight_TwinRun_HashesMatch` + mid-sail recovery pin the
+determinism; teaching a brain to sail is a separate milestone.
+
 ## Future expansion
 
 - **Canals** — turn a land tile into a Water tile via a build job. New pattern

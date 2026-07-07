@@ -92,7 +92,11 @@ public static class Snapshot
     // v20 — M27 irrigation: BiomeDegradationConfig gains WaterRecoveryAmount
     //       (boosted recovery within WaterRecoveryRadius of water — the M21
     //       deferred knob). One int in the config block; no new anchors.
-    public const int FormatVersion = 20;
+    // v21 — M28 boat freight: the Dock becomes a StorageStructure (the quay
+    //       warehouse) — its payload gains the standard storage block,
+    //       written between the slip and the production anchors. No new
+    //       anchors; boat hauls ride the existing HaulPlan machinery.
+    public const int FormatVersion = 21;
 
     public static string Hash(Simulation sim)
     {
@@ -476,6 +480,17 @@ public static class Snapshot
                 // M23 — Cache is a StorageStructure; its loot rides the same
                 // payload. Must precede the StorageStructure case.
                 case Cache cache:         WriteStorage(bw, cache); break;
+                // M12/M28 — Dock: slip first (the reader needs it to
+                // construct), then the quay-warehouse payload (v21), then
+                // the boat-production anchors. Must precede the
+                // StorageStructure case — a Dock IS one since M28.
+                case Dock d:
+                    bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
+                    WriteStorage(bw, d);
+                    bw.Write(d.ProductionArmed);
+                    bw.Write(d.LastProductionTick);
+                    WriteNullableLong(bw, d.NextProductionTickSeq);
+                    break;
                 case StorageStructure ss: WriteStorage(bw, ss); break;
                 case Extractor e:         WriteExtractor(bw, e); break;
                 case ConstructionSite c:  WriteConstruction(bw, c); break;
@@ -485,13 +500,6 @@ public static class Snapshot
                 case Rubble:              /* no fields */ break;
                 case Wall:                /* no fields */ break;   // M26
                 case Gate:                /* no fields */ break;   // M26
-                // M12 — Dock carries slip + production state.
-                case Dock d:
-                    bw.Write(d.Slip.X); bw.Write(d.Slip.Y);
-                    bw.Write(d.ProductionArmed);
-                    bw.Write(d.LastProductionTick);
-                    WriteNullableLong(bw, d.NextProductionTickSeq);
-                    break;
                 default:
                     throw new InvalidOperationException($"No serializer for {s.GetType().Name}");
             }
@@ -688,6 +696,7 @@ public static class Snapshot
     {
         var slip = new TileCoord(br.ReadInt32(), br.ReadInt32());
         var d = new Dock(at, slip) { OwnerId = ownerId };
+        ReadStorage(br, d);   // M28 (v21) — the quay-warehouse payload
         d.ProductionArmed = br.ReadBoolean();
         d.LastProductionTick = br.ReadInt64();
         d.NextProductionTickSeq = ReadNullableLong(br);

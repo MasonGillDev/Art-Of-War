@@ -480,11 +480,17 @@ public sealed class Lodge : Structure
 // tile. The Water tile chosen at build-time is the dock's "slip": new
 // boats spawn there (Phase C production-job) and embarking units must
 // be on this Dock's tile with the boat on its slip.
-public sealed class Dock : Structure
+//
+// M28 — the dock is also the QUAY WAREHOUSE (a StorageStructure): land
+// haulers serve it with ordinary HaulIntents, and a boat on the slip
+// loads/unloads against it — the sole land/water cargo interface, the
+// same "presence as investment" rule as embark/disembark.
+public sealed class Dock : StorageStructure
 {
     public override StructureKind Kind => StructureKind.Dock;
     public TileCoord Slip { get; }
-    public Dock(TileCoord at, TileCoord slip) : base(at) { Slip = slip; }
+    public Dock(TileCoord at, TileCoord slip)
+        : base(at, StructureCatalog.Spec(StructureKind.Dock).StorageCapacity) { Slip = slip; }
 
     // M12 Phase C — boat-production anchor.
     //

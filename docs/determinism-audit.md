@@ -1055,3 +1055,18 @@ mutates — the boosted rate rides the SAME transition event. Snapshot
 of `WaterRestorationTests` (boost math, radius boundary, 100×-no-mutation,
 config round-trip). The AI side (IrrigateRung) adds no sim surface: one
 ordinary durable `PlaceCanalIntent` per project, planned from the view.
+
+### M28 addendum — boat freight (the quay warehouse)
+
+The Dock becomes a `StorageStructure`; its holdings are ordinary
+snapshotted state (the storage payload, written between the slip and the
+production anchors — `FormatVersion` 20→21). `HaulStops.MoveTarget` /
+`AtStop` / `OwnDockBySlip` are PURE READS (dictionary lookups), consumed
+by `HaulIntent` resolution and the haul events to route a `Traversal.Water`
+carrier through dock slips. No new anchors and no new events: a boat haul
+uses the same `HaulPlan` + `MoveArrivalEvent` + `HaulPickup/Deposit`
+orchestration as any land haul, so `RegenerateQueue` reconstructs a
+mid-sail voyage from the boat's existing move anchors with zero new code.
+Pinned by `BoatFreightTests` (twin-run, snapshot-mid-sail recovery,
+quay-holdings round-trip). Foot-hauler behavior is byte-identical — the
+`AtStop`/`MoveTarget` helpers return `tile` unchanged for `Traversal.Foot`.

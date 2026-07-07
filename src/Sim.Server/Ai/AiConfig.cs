@@ -288,8 +288,8 @@ public sealed record AiConfig
     public int IrrigateStoneFloor { get; init; } = 200;
     // Mirror of the world's BiomeDegradationConfig.WaterRecoveryRadius
     // (config, not on the wire — the demographic-mirror convention;
-    // update if the world knob is retuned).
-    public int IrrigateWaterRadius { get; init; } = 2;
+    // update if the world knob is retuned). Tracks the world default (4).
+    public int IrrigateWaterRadius { get; init; } = 4;
 
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
