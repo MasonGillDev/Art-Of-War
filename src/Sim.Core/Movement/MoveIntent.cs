@@ -53,34 +53,11 @@ public sealed class MoveIntent : Intent
         return IntentOutcome.Applied;
     }
 
-    private static void CleanUpAssignment(Simulation sim, Unit unit)
-    {
-        var prevAssignment = unit.Assignment;
-        var prevActivity = unit.Activity;
-
-        // Idle the unit FIRST so the structure-side check below sees the
-        // updated builder count / worker count.
-        unit.TrySetActivity(Activity.Idle);
-
-        if (prevAssignment is not TileCoord at) return;
-        if (!sim.World.Structures.TryGetValue(at, out var s)) return;
-
-        switch (prevActivity)
-        {
-            case Activity.Working when s is Extractor ex:
-                ex.Workers.Remove(unit.Id);
-                // Production goes dormant naturally on the next ProductionTick fire
-                // (it sees Workers.Count and decides). No active intervention needed.
-                break;
-            case Activity.Building when s is ConstructionSite site:
-                // If this builder leaving drops the site below requirement,
-                // pause the build. The previously-scheduled BuildCompleteEvent
-                // will fence via site.ScheduledCompletion when it fires.
-                if (site.IsActive && site.BuildersPresent(sim.World) < site.RequiredBuilderCount)
-                    site.Pause(sim.Now);
-                break;
-        }
-    }
+    // Delegates to the shared release (Sim.Core.Logistics.WorkAssignment) so
+    // the move path and the DEATH path retire a job identically — they used to
+    // differ, and a dead worker stayed on an extractor's payroll forever.
+    private static void CleanUpAssignment(Simulation sim, Unit unit) =>
+        Sim.Core.Logistics.WorkAssignment.Release(sim, unit);
 
     // M4 Phase A: start a new movement chain to `finalDest`. Computes the full
     // committed path once, stores it on the unit, and schedules the first

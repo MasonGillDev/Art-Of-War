@@ -156,6 +156,134 @@ public class RivalTests
         Assert.All(KindsOf(all), x => Assert.Equal(BrainKind.Rival, x.Kind));
     }
 
+    // ---- the personality spread (M25 addendum 2026-07-13) --------------------
+
+    [Fact]
+    public void RivalPersonalities_OnlyTouchWarPolicyKnobs()
+    {
+        // A personality is a war TEMPERAMENT, not an economy: every knob
+        // outside the M25 war-policy block must match the baseline, or
+        // "a peacetime Rival's curve is EXACTLY a Homesteader's" (the
+        // invariant the Sparta pins ride on) silently dies. Reflection
+        // names the trespassing knob if a profile ever reaches wider.
+        var allowed = new HashSet<string>
+        {
+            nameof(AiConfig.CampaignPopulationFloor),
+            nameof(AiConfig.WarAdvantageRatioPercent),
+            nameof(AiConfig.AttackOvermatchPercent),
+            nameof(AiConfig.RetreatBelowPercent),
+            nameof(AiConfig.RaidPartySize),
+        };
+        var baseline = new AiConfig();
+        // The Conqueror IS the baseline — rank 0 ships the tuned defaults.
+        Assert.Equal(baseline, RivalPersonalities.Apply(baseline, RivalPersonality.Conqueror));
+        foreach (var p in Enum.GetValues<RivalPersonality>())
+        {
+            var applied = RivalPersonalities.Apply(baseline, p);
+            foreach (var prop in typeof(AiConfig).GetProperties()
+                         .Where(pr => !allowed.Contains(pr.Name)))
+                Assert.True(Equals(prop.GetValue(baseline), prop.GetValue(applied)),
+                    $"{p} touched {prop.Name} — personalities may only vary war-policy knobs");
+        }
+    }
+
+    [Fact]
+    public void RivalPersonality_Assignment_CyclesDeterministically()
+    {
+        var build = WorldFactory.Build(new ServerOptions
+        {
+            MapWidth = 96, MapHeight = 96, MapSeed = 7, AiPlayers = 4,
+        });
+
+        static List<(int Id, RivalPersonality? P)> Spread(GameHost host) =>
+            host.AiDrivers.OrderBy(d => d.PlayerId)
+                .Select(d => (d.PlayerId, d.Personality)).ToList();
+
+        // All-rival field: personalities cycle Conqueror → Warlord →
+        // Raider over the rivals in ascending faction-id order (rank 0
+        // first).
+        using var all = new GameHost(build, 0xA117, 20.0,
+            aiConfig: new AiConfig { RivalCount = 99 });
+        var spread = Spread(all);
+        Assert.True(spread.Count >= 3,
+            "expected enough AI factions for a full personality cycle");
+        for (var rank = 0; rank < spread.Count; rank++)
+            Assert.Equal((RivalPersonality)(rank % 3), spread[rank].P);
+
+        // Mixed field: Homesteaders carry NO personality, and the lone
+        // rival is the baseline Conqueror — `--rivals 1` changes no
+        // tuned curve.
+        using var mixed = new GameHost(build, 0xA117, 20.0,
+            aiConfig: new AiConfig { RivalCount = 1 });
+        var m = Spread(mixed);
+        Assert.All(m.Take(m.Count - 1), x => Assert.Null(x.P));
+        Assert.Equal(RivalPersonality.Conqueror, m[^1].P);
+
+        // Same build, same config → the same spread: a pure function of
+        // the ids present + RivalCount (no clock, no RNG).
+        using var again = new GameHost(build, 0xA117, 20.0,
+            aiConfig: new AiConfig { RivalCount = 99 });
+        Assert.Equal(spread, Spread(again));
+    }
+
+    [Fact]
+    public void Warlord_DeclaresWhereTheConquerorWaits()
+    {
+        // Same world, different temperament: 7 enemy soldiers (21pw) at
+        // their castle against our 27pw mobilizable ceiling. The
+        // Conqueror's bar is 21 × 150% = 31.5pw — it stays home; the
+        // Warlord's is 21 × 120% = 25.2pw — it declares.
+        static ViewDto Garrisoned(ViewDto view)
+        {
+            view.Units = view.Units.Concat(
+                Enumerable.Range(0, 7).Select(i => Soldier(200 + i, 40, 41, owner: 1)))
+                .ToArray();
+            return view;
+        }
+        var (view, mem, cfg) = WarBench();
+        Assert.Null(new WarRung().TryClaim(
+            ThinkContext.Build(Garrisoned(view), cfg, mem, now: 1000)));
+
+        var (wView, wMem, _) = WarBench();
+        var warlord = RivalPersonalities.Apply(cfg, RivalPersonality.Warlord);
+        var d = new WarRung().TryClaim(
+            ThinkContext.Build(Garrisoned(wView), warlord, wMem, now: 1000));
+        Assert.NotNull(d);
+        var declare = Assert.IsType<DeclareWarIntent>(Assert.Single(d!.Intents));
+        Assert.Equal(1, declare.TargetId);
+    }
+
+    [Fact]
+    public void Warlord_DoesNotStarveItsOwnColony()
+    {
+        // The Sparta pin re-run for the most aggressive temperament: the
+        // Warlord's floor (24) is reachable inside the window and its
+        // 120% bars make war CHEAP to enter — the famine gates (Eat
+        // above everything martial; the runway/famine checks in WarRung)
+        // must still hold the colony's curve. 60 days, both factions
+        // driven, same asserts as the baseline Rival pin.
+        var (sim, projector, _) = MakeMatch(aiPlayers: 1);
+        var cfg = new AiConfig();
+        var drivers = new[]
+        {
+            new AiPlayerDriver(0, cfg),
+            new AiPlayerDriver(1, cfg, BrainKind.Rival, RivalPersonality.Warlord),
+        };
+        RunMatch(sim, projector, drivers, until: 60 * Time.Day, step: cfg.ThinkPeriodTicks);
+
+        var castle = CastleOf(sim, 1);
+        var pop = sim.World.Players[1].PopulationCount;
+        var trace = drivers[1].Trace;
+        _output.WriteLine($"day 60: pop={pop}, food={castle.Holdings[Resource.Food]}, " +
+            $"declarations={sim.ResolvedLog.OfType<IntentEvent>().Count(ie => ie.Intent is DeclareWarIntent)}");
+        Assert.True(castle.FoodDebt == 0 && castle.FamineStartTick is null,
+            $"the Warlord colony hit famine (debt={castle.FoodDebt}, pop={pop}) — " +
+            $"trace tail:\n{trace.Dump()}");
+        Assert.True(pop >= 14, $"the Warlord colony shrank to {pop} — trace tail:\n{trace.Dump()}");
+        Assert.DoesNotContain(sim.ResolvedLog.OfType<Sim.Core.Food.StarvationDeathEvent>(),
+            e => e.HomeAt == castle.At && e.Outcome is null);
+    }
+
     // ---- Phase 2: enemy intel + the threat extension ------------------------
     // These tests craft ViewDtos directly — the brain's whole world IS the
     // DTO, so a hand-built view is a complete, legal test fixture.

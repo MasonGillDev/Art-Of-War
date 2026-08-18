@@ -342,12 +342,13 @@ static class ScoutingDemo
     }
 }
 
-// M18 â€” standing-order automation demo. A supply line keeps the castle
-// stocked from a pre-buffered lumber camp while a route unit laps a two-stop
-// circuit â€” the AutomationDriver (the same brain GameHost runs) evaluating
-// fog-filtered conditions and submitting ordinary intents. Ends with the
-// milestone's headline check: driverless replay of the intent log lands on
-// the identical hash.
+// Automation-substrate demo. A Maintain supply line keeps the castle stocked
+// from a pre-buffered lumber camp while a Routine circuit laps two stops -
+// the SubstrateDriver (the same brain GameHost runs) evaluating fog-filtered
+// predicates and submitting ordinary intents. Ends with the substrate's
+// headline check: a driverless replay of the intent log lands on the
+// identical hash, which is what makes the driver a trusted advisor rather
+// than a second source of truth.
 static class AutomationDemo
 {
     public static void Run()
@@ -369,52 +370,75 @@ static class AutomationDemo
         }
 
         var sim = Build();
-        Console.WriteLine("--- Automation Demo (M18) ---");
+        Console.WriteLine("--- Automation Demo (substrate) ---");
         Console.WriteLine("Supply line: hauler 1 keeps the castle at >= 40 wood from the camp's stock.");
-        Console.WriteLine("Route: scout 2 laps (12,8) <-> (6,8) forever.");
+        Console.WriteLine("Circuit:     scout 2 laps (12,8) -> (6,8) forever.");
         Console.WriteLine();
 
-        // Supply line: while castle wood < 40, haul camp -> castle.
-        sim.SubmitIntent(0, new Sim.Core.Automation.SetStandingOrderIntent(
-            Sim.Core.Automation.OrderKind.SupplyLine, Sim.Core.Automation.LoopMode.Loop,
-            claimedUnits: new[] { 1 },
-            steps: new List<Sim.Core.Automation.OrderStep>
-            {
-                new()
-                {
-                    Conditions = new List<Sim.Core.Automation.ConditionSpec>
-                        { Sim.Core.Automation.ConditionSpec.StoreBelow(new TileCoord(5, 5), Resource.Wood, 40) },
-                    Action = Sim.Core.Automation.ActionSpec.HaulTrip(1, new TileCoord(10, 5), new TileCoord(5, 5), Resource.Wood),
-                },
-            }));
-        // Route: two stops, no wait conditions â€” a patrol-ish lap.
-        sim.SubmitIntent(0, new Sim.Core.Automation.SetStandingOrderIntent(
-            Sim.Core.Automation.OrderKind.Route, Sim.Core.Automation.LoopMode.Loop,
-            claimedUnits: new[] { 2 },
-            steps: new List<Sim.Core.Automation.OrderStep>
-            {
-                new() { Action = Sim.Core.Automation.ActionSpec.MoveTo(2, new TileCoord(12, 8)) },
-                new() { Action = Sim.Core.Automation.ActionSpec.MoveTo(2, new TileCoord(6, 8)) },
-            }));
+        // A MAINTAIN thermostat: while the castle reads below 40 wood, send
+        // the named hauler on a camp -> castle trip. The trigger carries the
+        // threshold; Target is the same number for the reader's benefit.
+        var supply = new Sim.Core.Automation.Order
+        {
+            SubjectKind = Sim.Core.Automation.SubjectKind.Structure,
+            SubjectTile = new TileCoord(5, 5),
+            Program = Sim.Core.Automation.ProgramKind.Maintain,
+            Recipe = Sim.Core.Automation.RecipeKind.Haul,
+            Resource = Resource.Wood,
+            SourceTile = new TileCoord(10, 5),
+            Target = 40,
+            CrewMode = Sim.Core.Automation.CrewMode.Named,
+            Trigger = Sim.Core.Automation.Trigger.When(
+                Sim.Core.Automation.Predicate.StockBelow(new TileCoord(5, 5), Resource.Wood, 40)),
+        };
+        supply.NamedCrew.Add(1);
+        sim.SubmitIntent(0, new Sim.Core.Automation.SetOrderIntent(supply) { PlayerId = 0 });
 
-        var driver = new Sim.Server.Automation.AutomationDriver(
-            new Sim.Server.Automation.AutomationConfig { ThinkPeriodTicks = 30, MaxStepRetries = 4 });
+        // A ROUTINE circuit: two stops, no load/unload, no departure gate -
+        // a patrol lap. Routines are Named-crew only (the route IS the
+        // crew's identity), and carry the one durable cursor in the whole
+        // substrate: "which stop is this body walking to" is not a fact the
+        // map can answer when a tile appears twice in the circuit.
+        var patrol = new Sim.Core.Automation.Order
+        {
+            SubjectKind = Sim.Core.Automation.SubjectKind.Structure,
+            SubjectTile = new TileCoord(5, 5),
+            Program = Sim.Core.Automation.ProgramKind.Routine,
+            CrewMode = Sim.Core.Automation.CrewMode.Named,
+            Steps =
+            {
+                new Sim.Core.Automation.RoutineStep { Tile = new TileCoord(12, 8) },
+                new Sim.Core.Automation.RoutineStep { Tile = new TileCoord(6, 8) },
+            },
+        };
+        patrol.NamedCrew.Add(2);
+        sim.SubmitIntent(0, new Sim.Core.Automation.SetOrderIntent(patrol) { PlayerId = 0 });
+
+        var journal = new Sim.Server.Automation.OrderJournal();
+        var driver = new Sim.Server.Automation.SubstrateDriver(
+            new Sim.Server.Automation.AutomationConfig { ThinkPeriodTicks = 30 }, journal);
 
         var castleLive = (Castle)sim.World.Structures[new TileCoord(5, 5)];
         long reportEvery = 5_000;
         long nextReport = reportEvery;
+        // RUN then THINK - the same order GameHost uses. Thinking first
+        // front-loads the driver's intents ahead of the same-tick scheduled
+        // events, which hands them different Seq numbers than a chronological
+        // replay assigns, and the headline check below fails.
         for (long t = 0; t <= 40_000; t += 30)
         {
             sim.Run(until: t);
             driver.Think(sim, t);
             if (t >= nextReport)
             {
-                var o1 = sim.World.StandingOrders[1];
                 var camp2 = (Extractor)sim.World.Structures[new TileCoord(10, 5)];
+                var supplyLive = sim.World.Orders[1];
+                var last = journal.Last(supplyLive.OrderId);
                 Console.WriteLine(
                     $"t {t,6}: castle wood={castleLive.AmountOf(Resource.Wood),3}  camp buffer={camp2.Buffer,3}  " +
-                    $"supply[{(o1.Enabled ? "on " : "off")} step {o1.CurrentStep} retries {o1.StepRetryCount}]  " +
-                    $"scout 2 at {sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
+                    $"supply[{(supplyLive.Enabled ? "on " : "off")} {last?.Outcome.ToString() ?? "-"}]  " +
+                    $"scout 2 at {sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y} " +
+                    $"(stop {sim.World.Orders[2].CurrentStep})");
                 nextReport += reportEvery;
             }
         }
@@ -423,14 +447,28 @@ static class AutomationDemo
         Console.WriteLine();
         Console.WriteLine($"Final castle wood:   {castleLive.AmountOf(Resource.Wood)} (target 40)");
         Console.WriteLine($"Intents in log:      {sim.IntentLog.Count} " +
-            $"(cursor moves: {sim.IntentLog.Count(e => e.Intent is Sim.Core.Automation.AdvanceOrderCursorIntent)})");
+            $"(status moves: {sim.IntentLog.Count(e => e.Intent is Sim.Core.Automation.OrderStatusIntent)})");
 
-        // The headline, live: replay the log into a fresh world, NO driver.
+        // THE HEADLINE, live: replay the log into a fresh world with NO
+        // driver and land on the identical hash. Two rules this loop must
+        // respect, both learned the hard way:
+        //   1. Replay the RESOLVED log, including REJECTED intents - a
+        //      rejection still consumes a Seq number, and Seq is hashed.
+        //   2. Group by tick and order by Seq, so same-tick intents replay
+        //      in the sequence the live run gave them.
+        // Round-tripping each intent through IntentJson also proves the
+        // durable registry can carry every substrate intent the driver emits.
         var replay = Build();
-        foreach (var (at, intent) in sim.IntentLog)
+        foreach (var batch in sim.ResolvedLog.OfType<Sim.Core.Intents.IntentEvent>()
+                     .OrderBy(e => e.Seq).GroupBy(e => e.At))
         {
-            replay.Run(until: at);
-            replay.SubmitIntent(at, intent);
+            replay.Run(until: batch.Key);
+            foreach (var ev in batch)
+            {
+                var (typeName, payload) = Sim.Persistence.IntentJson.Serialize(ev.Intent);
+                replay.SubmitIntent(batch.Key,
+                    Sim.Persistence.IntentJson.Deserialize(typeName, payload));
+            }
         }
         replay.Run(until: sim.Now);
 

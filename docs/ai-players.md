@@ -373,3 +373,88 @@ validation (the real proof of the plan), the flood turns the belt
 watered and retires the rung, and the gates hold without need or stone.
 Boats remain untaught — no cargo-over-water mechanics exist for the AI
 to leverage; seamanship waits for a sim-level payoff.
+
+## Update 2026-07-13 — the Salvage rung (battlefield & ruin looting)
+
+Both brains gained a `SalvageRung` between Grow and Fortify (same slot in
+both ladders — the Sparta discipline holds; loot is free income, but
+mouths still come first and a pile can walk off with the next bandit
+while quarried stone can't). The dead drop their cargo and equipment as a
+ground pile under a grave marker (`GraveTracker`); the rung sends idle
+civilians to bring it home to the castle — the only store the economy
+actually spends from (a forward stockpile by the battlefield was
+considered and deferred: it would park the loot un-spendably and cost 20
+wood to do it).
+
+What made it work:
+
+- **Graves reach the brains through the projector** — `ViewProjector`
+  gained a `GraveSource` (GameHost wires its tracker in), because
+  `AiPlayerDriver` projects its own view: attaching graves only in the
+  HTTP path would have left every brain blind to battlefields. One
+  channel for humans and brains — the fairness contract's shape.
+- **Piles on the wire name the loot** — `LoadCargoIntent` demands a
+  resource, and a grave's contents depend on what the victim carried (no
+  catalog rule names them, so RaidRung's extractor-kind trick doesn't
+  transfer). `ViewDto.Piles` now carries ground-pile contents for tiles
+  in CURRENT sight — the M23 cache stance verbatim ("a visible
+  container's contents are public, because looting requires naming a
+  resource") — and the crew member names the richest row while standing
+  on the grave, where its own sight guarantees the row is visible.
+- **The view IS the dry-target list** — the host retires a grave the
+  moment its pile empties, so a grave someone else looted simply
+  vanishes from the view and the crew retargets. RaidRung's whole
+  dry-strike apparatus (counters, per-war strike lists) is deleted, not
+  ported.
+- **Crew discipline** — cross-think designation (`SalvageCrew`, ledger
+  #6) bounded by `SalvageCrewSize` (ledger #9), additionally capped at
+  one hand per known grave; recruits under the StaffExtractor
+  exclusions (never Builders, Haulers, or the garrison); graves only
+  inside `SalvageLeashTiles` of the castle (matches the pursuit leash:
+  the ground the colony fights over is the ground it loots) and outside
+  every live sighting's danger radius — nobody loots mid-battle.
+
+Pinned by `SalvageTests`: piles are visible-tiles-only and pure-read,
+graves ride the projector (and stay fogged for bystanders), the loot
+loop stages (crew → march → load-richest → haul → unload → release), the
+leash/threat/kill-switch gates, the conscription exclusions, and a
+6-game-day lab where a colony with no mine ends with the dead man's ore
+in its castle and the grave retired.
+
+## Update 2026-07-13 (later) — the Scavenge rung (stripping dead kingdoms)
+
+Both brains gained a `ScavengeRung` (Rival: directly below Conquer — the
+campaign owns the surplus while the war is live, ledger #5, and the same
+soldiers strip the ruins the moment the target falls; Homesteader: below
+Muster, inert in every peaceful lab since the party is surplus-ABOVE-the-
+peacetime-quota and a homesteader rarely has any). It rides the three new
+core rules (docs/sieges-and-conquest.md 2026-07-13): defeated factions
+are hostile-to-all, razing spills the vault, extinction is defeat.
+
+The expedition: a bounded party (`ScavengePartySize`, ledger #9) of
+surplus soldiers marches to the fallen kingdom's known structures
+(`KnownEnemyStructures` of DEFEATED owners, inside `ScavengeRangeTiles`;
+walls/gates excluded — they'd reject the move; FortSiege grinds any wall
+the party stands beside for free), HOLDS on the tile while the M24
+auto-siege razes it (presence is the siege — no orders emitted), then
+loads the spill that lands underfoot and hauls it home. Once nothing is
+left to raze, spare Haulers (above `HaulerFloor`) join the freight loop —
+a soldier lugs 5, a hauler 25, and a castle vault is hundreds.
+`Mem.ScavengePiles` is the freight map (piles ride the wire only in
+current sight); entries clear when re-observed empty. Doctrine gates:
+near-home piles (inside the salvage leash) belong to SalvageRung's
+civilians, and piles inside `PursuitLeashTiles` of a known LIVING foe's
+castle are never recorded — skimming a live rival's battlefields is how
+wars start.
+
+Supporting changes: the Homesteader now runs `EnemyIntel.Perceive` (the
+Rival's perception hook — pure view-reads into droppable memory; no
+pre-existing Homesteader rung consumed it, so no curve moves), and
+`AiPlayerDriver` latches OFF once its faction's own Defeated flag shows
+on the wire (a defeated brain is pure reject-spam).
+
+Pinned by `ScavengeTests`: the two core rules, the expedition stages
+(muster → march → hold-while-razing → load-richest → haul → release),
+the budget/living-kingdom/wall/kill-switch gates, and a lab where the
+M25 conquest scenario runs PAST the victory and the fallen castle's
+stone/ore tracers end up in the victor's vault.

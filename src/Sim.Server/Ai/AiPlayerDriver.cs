@@ -15,6 +15,7 @@ public sealed class AiPlayerDriver
 {
     public int PlayerId { get; }
     public BrainKind Kind { get; }
+    public RivalPersonality? Personality { get; }
     public DecisionTrace Trace { get; }
 
     private readonly AiConfig _cfg;
@@ -25,26 +26,41 @@ public sealed class AiPlayerDriver
     // M25 — the host picks the brain per faction (--rivals K → the highest
     // K AI faction ids run the Rival ladder). Kind is pinned here so tests
     // and the trace can tell WHO a faction is without probing behavior.
-    public AiPlayerDriver(int playerId, AiConfig cfg, BrainKind kind = BrainKind.Homesteader)
+    // A Rival may also carry a PERSONALITY: the DRIVER applies it to the
+    // config, so the label and the knobs it names can never disagree
+    // (Homesteaders ignore it — the spread is a war temperament).
+    public AiPlayerDriver(int playerId, AiConfig cfg, BrainKind kind = BrainKind.Homesteader,
+        RivalPersonality? personality = null)
     {
         PlayerId = playerId;
         Kind = kind;
-        _cfg = cfg;
+        Personality = kind == BrainKind.Rival ? personality : null;
+        _cfg = Personality is { } p ? RivalPersonalities.Apply(cfg, p) : cfg;
         _brain = kind == BrainKind.Rival
-            ? new RivalBrain(cfg)
-            : new HomesteaderBrain(cfg);
-        Trace = new DecisionTrace(cfg.TraceCapacity);
+            ? new RivalBrain(_cfg)
+            : new HomesteaderBrain(_cfg);
+        Trace = new DecisionTrace(_cfg.TraceCapacity);
     }
+
+    private bool _defeated;
 
     public void Think(Simulation sim, ViewProjector projector, long now)
     {
-        if (!_cfg.Enabled) return;
+        if (!_cfg.Enabled || _defeated) return;
         if (_lastThink != long.MinValue && now - _lastThink < _cfg.ThinkPeriodTicks) return;
         _lastThink = now;
 
         // The brain's whole world: the same fog-filtered view a human
         // client renders for this player id.
         var view = projector.Project(sim, now, PlayerId, reveal: false);
+        // A defeated faction is out of the game: every intent it submits
+        // rejects at the gate, so thinking is pure reject-spam. Latch off
+        // permanently (there is no un-defeat).
+        if (view.Factions.FirstOrDefault(f => f.Id == PlayerId)?.Defeated == true)
+        {
+            _defeated = true;
+            return;
+        }
         var decision = _brain.Think(view, now, _mem);
 
         foreach (var intent in decision.Intents)

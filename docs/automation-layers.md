@@ -198,6 +198,27 @@ Still open from Future expansion: in-place order editing (today: Clear +
 re-create), per-order progress/last-rejection enrichment in `ViewDto`,
 unlock gating, military atoms, pooled haulers.
 
+## Update 2026-08-06 — order model superseded; trust boundary retained
+
+Automation was elevated from a feature to the core game
+(`docs/automation-as-core-game.md`), and the order VOCABULARY this doc
+sketched (SupplyLine / Route / StandingProduction as step-compiled
+templates over named units) could not express what that game needs:
+filtered subjects (units unnamed at authoring time), pull-based
+maintenance thermostats, in-flight-aware conditions, and per-order
+self-healing crews. `docs/automation-substrate.md` replaces the order
+model — one universal Order record, a first-class Claims Ledger with
+claim-on-commit, WHERE-clause selectors in canonical order, and recipes
+as data rows. The M18 model's code is slated for deletion at the
+substrate's Phase D cutover.
+
+Everything in this doc's "Why evaluation lives in the server" section —
+the trust boundary, fog-fairness, intents-out, durable cursors, the
+replay headline test, canonical arbitration — is retained unchanged by
+the successor. The "unlock gating" future-expansion item also moved: it
+now lives in the vision doc's progression design ("Earning the tools"),
+triggered by performed verbs rather than by unlock structures.
+
 ## References
 
 - `docs/architecture.md` §2.4 (re-arm), §3.3 (resolution-time validation)

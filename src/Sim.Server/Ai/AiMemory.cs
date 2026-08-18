@@ -104,4 +104,19 @@ public sealed class AiMemory
     public HashSet<int> RaidParty { get; } = new();
     public HashSet<(int X, int Y)> DryRaidTargets { get; } = new();
     public Dictionary<(int X, int Y), int> RaidDryThinks { get; } = new();
+    // Scavenge expedition (ScavengeRung): the party claimed for the
+    // dead-kingdom sweep (designation discipline, ledger #6) and the
+    // spill piles it has SEEN and not yet drained — piles ride the wire
+    // only in current sight, so the freight loop needs its own map of
+    // where the loot lies. Entries clear when the tile is re-observed
+    // empty. Droppable: a restart re-learns the field by walking it.
+    public HashSet<int> ScavengeParty { get; } = new();
+    public HashSet<(int X, int Y)> ScavengePiles { get; } = new();
+    // Battlefield salvage crew (SalvageRung): civilians claimed for the
+    // loot walk, wired into ThinkContext's designation set (ledger #6) so
+    // staffing/parent/scout selectors skip them mid-haul. Droppable: a
+    // restart re-crews from whoever is idle, and carried loot still walks
+    // home through the same cargo-first branch. No dry-target memory —
+    // the host retires a looted grave from the view itself.
+    public HashSet<int> SalvageCrew { get; } = new();
 }

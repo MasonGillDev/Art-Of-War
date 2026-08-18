@@ -1070,3 +1070,34 @@ mid-sail voyage from the boat's existing move anchors with zero new code.
 Pinned by `BoatFreightTests` (twin-run, snapshot-mid-sail recovery,
 quay-holdings round-trip). Foot-hauler behavior is byte-identical — the
 `AtStop`/`MoveTarget` helpers return `tile` unchanged for `Traversal.Foot`.
+
+### Battlefield-salvage addendum (2026-07-13) — piles on the wire + the salvage rung
+
+Zero new sim mutation points. `ViewProjector.FillPiles` is a PURE READ of
+`world.GroundResources` (visible tiles only, deterministic (Y, X) order,
+rows by resource id — the inner map is a SortedDictionary), pinned by the
+100×-projection hash check in `SalvageTests`. The projector's new
+`GraveSource` hook relocates the grave attachment from `BuildViewJson`
+into `Project` so AI brains see the same markers; `GraveTracker.Project`
+mutates only host-tier per-player seen sets (presentation state — never
+sim state, never hashed), and every caller holds the host lock exactly as
+before. `SalvageRung` emits ordinary durable intents (`MoveIntent`,
+`LoadCargoIntent`, `UnloadCargoIntent`) planned from the view — the same
+replay story as every other rung.
+
+### Dead-kingdoms addendum (2026-07-13) — spill on raze, hostile-to-all, extinction
+
+Three new mutation points, all inside the existing event pipeline (no new
+events, no snapshot format change): (1) `SiegeDamage.RazeStructure`
+merges the razed structure's holdings/buffer/delivered into
+`world.GroundResources` — already-snapshotted state, written from
+`CombatRoundEvent.Apply` exactly like the structure swap beside it;
+(2) `PlayerDefeatedEvent.Apply` writes Enemy relationship rows for the
+fallen faction against every other registered id (deterministic id
+order) and clears pending-war anchors — stale `WarBecomesEffectiveEvent`s
+fence on their stored seq as before; (3) `CombatRules.OnUnitDeath`
+schedules a `PlayerDefeatedEvent` at `sim.Now` when the owner's
+`PopulationCount` hits zero — same-tick, never crosses a snapshot, and
+idempotency-fenced against the castle-razing path. All three are
+functions of world state already in the replay stream; `ScavengeTests`
+pins the rules and the 921-test suite (884 + 37 persistence) is green.

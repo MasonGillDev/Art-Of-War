@@ -59,12 +59,18 @@ public static class IntentJson
         // bandit spawns/despawns from the log.
         [typeof(Sim.Core.Bandits.SpawnBanditPartyIntent)]   = "SpawnBanditPartyIntent",
         [typeof(Sim.Core.Bandits.DespawnBanditPartyIntent)] = "DespawnBanditPartyIntent",
-        // M18 — standing-order automation. AdvanceOrderCursorIntent is
-        // server-internal (wire-rejected, driver-submitted) but durable:
-        // replay reproduces cursor state without the driver.
-        [typeof(Sim.Core.Automation.SetStandingOrderIntent)]     = "SetStandingOrderIntent",
-        [typeof(Sim.Core.Automation.ClearStandingOrderIntent)]   = "ClearStandingOrderIntent",
-        [typeof(Sim.Core.Automation.AdvanceOrderCursorIntent)]   = "AdvanceOrderCursorIntent",
+        // Automation substrate — the claims ledger. Server-internal like the
+        // cursor above (wire-rejected, driver-submitted) but DURABLE: a pull
+        // that was in flight at snapshot time must stay committed across
+        // recovery, and driverless replay must reproduce the ledger exactly.
+        [typeof(Sim.Core.Automation.ClaimUnitIntent)]             = "ClaimUnitIntent",
+        // Automation substrate Layer 1 — the universal order record.
+        // Set/Clear are ordinary player intents (all three authoring
+        // surfaces compile to Set); OrderStatusIntent is server-internal
+        // like the claim/cursor intents but equally durable.
+        [typeof(Sim.Core.Automation.SetOrderIntent)]              = "SetOrderIntent",
+        [typeof(Sim.Core.Automation.ClearOrderIntent)]            = "ClearOrderIntent",
+        [typeof(Sim.Core.Automation.OrderStatusIntent)]           = "OrderStatusIntent",
         // M20 — scouting dispatch.
         [typeof(Sim.Core.Scouting.DispatchScoutIntent)]          = "DispatchScoutIntent",
         // M21 — canal digging (whole-path terrain-mutation build).
@@ -75,6 +81,10 @@ public static class IntentJson
         [typeof(Sim.Core.Fortifications.PlaceWallIntent)]        = "PlaceWallIntent",
         // M26 — reclaim razed ground (rubble → clearing job → empty tile).
         [typeof(Sim.Core.Sieges.ClearRubbleIntent)]              = "ClearRubbleIntent",
+        // M29 — chase a hostile down. Player-facing (the manual "run them
+        // down") AND the verb the patrol driver submits; durable either way,
+        // since the whole chase unfolds from this one row on replay.
+        [typeof(Sim.Core.Combat.EngageUnitIntent)]               = "EngageUnitIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -114,14 +124,16 @@ public static class IntentJson
             "EquipUnitIntent"              => JsonSerializer.Deserialize<EquipUnitIntent>(payload, Options),
             "SpawnBanditPartyIntent"       => JsonSerializer.Deserialize<Sim.Core.Bandits.SpawnBanditPartyIntent>(payload, Options),
             "DespawnBanditPartyIntent"     => JsonSerializer.Deserialize<Sim.Core.Bandits.DespawnBanditPartyIntent>(payload, Options),
-            "SetStandingOrderIntent"       => JsonSerializer.Deserialize<Sim.Core.Automation.SetStandingOrderIntent>(payload, Options),
-            "ClearStandingOrderIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.ClearStandingOrderIntent>(payload, Options),
-            "AdvanceOrderCursorIntent"     => JsonSerializer.Deserialize<Sim.Core.Automation.AdvanceOrderCursorIntent>(payload, Options),
+            "ClaimUnitIntent"              => JsonSerializer.Deserialize<Sim.Core.Automation.ClaimUnitIntent>(payload, Options),
+            "SetOrderIntent"               => JsonSerializer.Deserialize<Sim.Core.Automation.SetOrderIntent>(payload, Options),
+            "ClearOrderIntent"             => JsonSerializer.Deserialize<Sim.Core.Automation.ClearOrderIntent>(payload, Options),
+            "OrderStatusIntent"            => JsonSerializer.Deserialize<Sim.Core.Automation.OrderStatusIntent>(payload, Options),
             "DispatchScoutIntent"          => JsonSerializer.Deserialize<Sim.Core.Scouting.DispatchScoutIntent>(payload, Options),
             "PlaceCanalIntent"             => JsonSerializer.Deserialize<Sim.Core.Canals.PlaceCanalIntent>(payload, Options),
             "LootCacheIntent"              => JsonSerializer.Deserialize<Sim.Core.Caches.LootCacheIntent>(payload, Options),
             "PlaceWallIntent"              => JsonSerializer.Deserialize<Sim.Core.Fortifications.PlaceWallIntent>(payload, Options),
             "ClearRubbleIntent"            => JsonSerializer.Deserialize<Sim.Core.Sieges.ClearRubbleIntent>(payload, Options),
+            "EngageUnitIntent"             => JsonSerializer.Deserialize<Sim.Core.Combat.EngageUnitIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

@@ -68,6 +68,12 @@ public sealed class ThinkContext
         // gate.
         foreach (var id in mem.CampaignSoldiers) d._designated.Add(id);
         foreach (var id in mem.RaidParty) d._designated.Add(id);
+        // Salvage crew (SalvageRung): same ownership rule — a civilian
+        // mid-loot-walk is not free labor.
+        foreach (var id in mem.SalvageCrew) d._designated.Add(id);
+        // Scavenge expedition (ScavengeRung): ditto for the dead-kingdom
+        // sweep — Muster's demob must not disband a party mid-march.
+        foreach (var id in mem.ScavengeParty) d._designated.Add(id);
         foreach (var t in view.Visible)
         {
             d._biome[(t.X, t.Y)] = t.Biome;
@@ -274,6 +280,13 @@ public sealed class ThinkContext
 
     public static int AmountOf(ResAmtDto[] holdings, Resource r) =>
         holdings.FirstOrDefault(h => h.Resource == (int)r)?.Amount ?? 0;
+
+    // The visible ground pile on (x, y), if any. Piles ride the wire only
+    // for tiles in CURRENT sight (the M23 cache stance), so a unit
+    // standing on a grave always sees what it's standing on — that's the
+    // moment SalvageRung names the resource to load.
+    public PileDto? PileAt(int x, int y) =>
+        View.Piles.FirstOrDefault(p => p.X == x && p.Y == y);
 
     public static TileCoord TileOf(StructDto s) => new(s.X, s.Y);
 

@@ -235,6 +235,34 @@ public sealed record AiConfig
     // their fields look.
     public int AssumedGarrisonPower { get; init; } = 12;
 
+    // SCAVENGING DEAD KINGDOMS (ScavengeRung, 2026-07-13) — a DEFEATED
+    // faction is hostile-to-all (PlayerDefeatedEvent marks the rows), so
+    // its ruins are anyone's: a bounded expedition (ledger #9) of SURPLUS
+    // soldiers (above the peacetime quota — the garrison never leaves)
+    // marches to known structures of the fallen, razes them by presence
+    // (the M24 auto-siege), and hauls the spilled vaults home. Once
+    // nothing is left to raze, spare Haulers (above HaulerFloor) join the
+    // freight loop — a soldier lugs 5, a hauler 25, and a castle vault is
+    // hundreds. 0 disables the rung entirely.
+    public int ScavengePartySize { get; init; } = 4;
+    // Expedition reach, Chebyshev from the castle. Wider than every other
+    // leash — the prize is a kingdom's whole treasury — but still bounded:
+    // a dead empire across the map belongs to whoever lives next to it.
+    public int ScavengeRangeTiles { get; init; } = 80;
+
+    // BATTLEFIELD SALVAGE (SalvageRung, 2026-07-13) — the dead drop their
+    // cargo and equipment as a ground pile under a grave marker; an idle
+    // civilian crew walks out, loads the pile, and hauls it home to the
+    // castle. Crew size is the job's budget (ledger #9 — a bounded detail,
+    // not a procession), additionally capped at one hand per known grave.
+    // 0 disables the rung entirely.
+    public int SalvageCrewSize { get; init; } = 2;
+    // Only graves within this Chebyshev reach of the castle are worth a
+    // civilian's walk. Matches PursuitLeashTiles by design: the ground the
+    // colony is willing to fight over is the ground it's willing to loot —
+    // anything farther is someone else's battlefield.
+    public int SalvageLeashTiles { get; init; } = 24;
+
     // M26 — FORTIFY (walls & gates, docs/walls-and-gates.md). The colony
     // rings its castle once it's a town with stone to spare. The radius
     // is Chebyshev — a square ring around the keep; 0 disables the rung.

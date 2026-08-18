@@ -35,7 +35,19 @@ public sealed class UnassignWorkersIntent : Intent
         foreach (var id in WorkerIds)
         {
             if (!extractor.Workers.Contains(id)) continue;
-            if (!world.Units.TryGetValue(id, out var unit)) continue;
+            // PURGE A GHOST. An id on the roster whose unit no longer exists is
+            // a corpse holding a work slot: it counts against WorkerCap (so the
+            // building can never be re-staffed) and against the WorkersBelow
+            // predicate (so a Staff order believes it is fully manned). Death
+            // now retires its own job — see WorkAssignment.Release — but this
+            // stays as the REPAIR path, both for worlds saved before that fix
+            // and for any future route that forgets to release.
+            if (!world.Units.TryGetValue(id, out var unit))
+            {
+                extractor.Workers.Remove(id);
+                removed++;
+                continue;
+            }
             if (unit.Activity != Activity.Working || unit.Assignment != StructureTile) continue;
             if (!unit.TrySetActivity(Activity.Idle)) continue;
             extractor.Workers.Remove(id);

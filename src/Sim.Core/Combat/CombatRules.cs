@@ -179,6 +179,17 @@ public static class CombatRules
                 world.Groups.Remove(gid);
         }
 
+        // 2b. RETIRE THE JOB. A worker who dies on shift must come off the
+        //     building's roster, or the corpse holds its work slot forever:
+        //     Workers.Count is checked against WorkerCap at assign time and
+        //     read by the WorkersBelow predicate, so a ghost both blocks
+        //     manual re-staffing AND convinces a Staff order the building is
+        //     fully manned. (Found in play: a farmer starved on shift, the
+        //     farm kept listing them, population dropped, and the farm could
+        //     never be worked again.) The move path always did this; the
+        //     death path never did.
+        Sim.Core.Logistics.WorkAssignment.Release(sim, unit);
+
         // 3. Clear in-flight obligations explicitly. Pending events
         //    (MoveArrival / HaulPickup / HaulDeposit) already fence via
         //    world.Units.TryGetValue when the unit is removed below;
@@ -189,6 +200,7 @@ public static class CombatRules
         unit.NextArrivalTick = null;
         unit.NextArrivalSeq = null;
         unit.HaulPlan = null;
+        unit.Pursuit = null;   // M29 — a corpse chases nobody
         unit.GroupId = null;
 
         // 4. Remove from world.
@@ -198,5 +210,27 @@ public static class CombatRules
         //    a breeding parent, this stops the breeding and frees the
         //    survivor. Combat code never names Breeding directly.
         Sim.Core.Population.Population.OnUnitRemoved(sim, unit);
+
+        // 6. Extinction check (2026-07-13): a faction whose last soul just
+        //    died is OUT — the same consequence as a razed castle
+        //    (PlayerDefeatedEvent: intents reject, hostile-to-all, the
+        //    game-over accounting), because a kingdom with no people can
+        //    never act, recover, or surrender. Every removal path funnels
+        //    through this pipeline, so one hook covers combat, starvation
+        //    and age alike; the event idempotency-fences, so a death
+        //    racing the castle's own razing is safe. Sentinel owners
+        //    (bandits/caches) never count. The event's tile is the
+        //    kingdom's seat if it still stands, else where the last
+        //    subject fell.
+        if (unit.OwnerId >= 0
+            && world.Players.TryGetValue(unit.OwnerId, out var bereft)
+            && !bereft.Defeated && bereft.PopulationCount <= 0)
+        {
+            var seat = world.Structures.Values.OfType<Castle>()
+                .Where(c => c.OwnerId == unit.OwnerId)
+                .OrderBy(c => c.At.Y).ThenBy(c => c.At.X)
+                .FirstOrDefault()?.At ?? tile;
+            sim.Schedule(sim.Now, new Sim.Core.Sieges.PlayerDefeatedEvent(unit.OwnerId, seat));
+        }
     }
 }

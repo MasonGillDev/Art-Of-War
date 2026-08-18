@@ -19,6 +19,25 @@ public sealed class ViewProjector
     private readonly int[,] _elevation;
     private readonly int _waterLevel;
 
+    // Grave markers ride every projected view when a tracker is attached
+    // (GameHost wires its GraveTracker here at construction). This is what
+    // puts graves in front of the AI BRAINS: AiPlayerDriver projects its
+    // own view, so attaching graves only in GameHost's HTTP path would
+    // leave the brains blind to battlefields (the SalvageRung's whole
+    // input). Null (standalone projector, most tests) = no graves. NOTE:
+    // GraveTracker.Project advances the per-player seen gate, so every
+    // caller must hold the host lock — which they do: AI thinks and
+    // BuildViewJson both run under GameHost._gate.
+    public GraveTracker? GraveSource { get; set; }
+
+    // The automation driver's journal, attached by GameHost the same way as
+    // GraveSource above. Presentation-only and never hashed — a server that
+    // leaves this null projects a world byte-identical to one that doesn't;
+    // the client just loses the resting-vs-starving distinction on its
+    // order dashboard. Null in tests and in the AI brains' own projector
+    // (brains read the world, not their own paperwork).
+    public Automation.OrderJournal? OrderSource { get; set; }
+
     public ViewProjector(WorldBuild build)
     {
         _map = build.Map;
@@ -42,14 +61,184 @@ public sealed class ViewProjector
         return new ElevationDto { Width = w, Height = h, WaterLevel = _waterLevel, Elevation = flat };
     }
 
+    // ── v2 wire (Wire/WireV2.cs) ──────────────────────────────────────────────
+    // GET /v2/world — the static genesis payload, fetched ONCE per session. Same
+    // immutable, lock-free read as BuildElevationDto: terrain and the genesis biome
+    // grid are generation-time facts. Everything a tick can change lives on the view.
+    public WorldDto BuildWorldDto()
+    {
+        var w = _map.Width;
+        var h = _map.Height;
+        var elev = new int[w * h];
+        var biome = new int[w * h];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var i = y * w + x;
+                elev[i] = _elevation[x, y];
+                biome[i] = (int)_map.Grid[x, y];
+            }
+        return new WorldDto
+        {
+            Width = w,
+            Height = h,
+            WaterLevel = _waterLevel,
+            MapSeed = _map.Seed,
+            TicksPerDay = Sim.Core.Time.Day,
+            Elevation = elev,
+            Biome = biome,
+        };
+    }
+
+    // GET /v2/view/{playerId} — the per-tick payload. Same sim reads as Project(),
+    // but the tile arrays (96% of a v1 view, and almost entirely constant) become an
+    // RLE'd fog-state grid plus the handful of tiles whose BELIEVED biome has drifted
+    // from genesis. Must be called under the host lock, exactly like Project: it reads
+    // live world state and advances GraveSource's seen gate.
+    public ViewV2Dto ProjectV2(Simulation sim, long now, int playerId, bool reveal)
+    {
+        var world = sim.World;
+        var cfg = world.BiomeDegradationConfig;
+        var w = _map.Width;
+        var h = _map.Height;
+        var view = View.BuildPlayerView(world, playerId, now);
+
+        // Fog RLE and biome drift in ONE row-major sweep, so both come from a single
+        // definition of "what this player believes about this tile".
+        var runState = new List<int>();
+        var runLen = new List<int>();
+        var overrides = new List<BiomeOverrideDto>();
+        var cur = -1;
+        var run = 0;
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var tile = new TileCoord(x, y);
+                int state, believed;
+                if (reveal || view.Visible.Contains(tile))
+                {
+                    state = FogState.Live;
+                    believed = (int)BiomeDegradation.BiomeAt(world, tile, now, cfg);
+                }
+                else if (view.RememberedTerrain.TryGetValue(tile, out var remembered))
+                {
+                    state = FogState.Remembered;
+                    believed = (int)remembered;   // what the player LAST SAW, not what is true
+                }
+                else
+                {
+                    state = FogState.Unknown;
+                    believed = -1;                // unknown tiles carry no biome at all
+                }
+
+                if (believed >= 0 && believed != (int)_map.Grid[x, y])
+                    overrides.Add(new BiomeOverrideDto { X = x, Y = y, Biome = believed });
+
+                if (state == cur) run++;
+                else
+                {
+                    if (run > 0) { runState.Add(cur); runLen.Add(run); }
+                    cur = state;
+                    run = 1;
+                }
+            }
+        if (run > 0) { runState.Add(cur); runLen.Add(run); }
+
+        // Roads are terrain memory (design 8.6): they persist through re-fog, so any
+        // EXPLORED road tile ships with its live decayed condition. Iterating the sparse
+        // Roads dict keeps this bounded by road count, not map size.
+        var roads = new List<RoadDto>();
+        foreach (var tile in world.Roads.Keys)
+        {
+            if (!reveal && !view.Explored.Contains(tile)) continue;
+            var cond = Road.ConditionAt(world, tile, now);
+            if (cond > 0) roads.Add(new RoadDto { X = tile.X, Y = tile.Y, Condition = cond });
+        }
+
+        var dto = new ViewV2Dto
+        {
+            PlayerId = playerId,
+            Width = w,
+            Height = h,
+            WaterLevel = _waterLevel,
+            Tick = now,
+            FogRunState = runState.ToArray(),
+            FogRunLength = runLen.ToArray(),
+            BiomeOverrides = overrides.ToArray(),
+            // Fog-limited by Sim.Core even under reveal (OngoingCombats is scoped to the
+            // viewer's Visible set). Acceptable: reveal is a dev switch, not a play mode.
+            Combats = view.OngoingCombats
+                .Select(c => new CombatDto
+                {
+                    X = c.Tile.X, Y = c.Tile.Y,
+                    RoundNumber = c.RoundNumber, NextRoundTick = c.NextRoundTick,
+                })
+                .ToArray(),
+            Units = reveal
+                ? world.Units.Values.Select(u => ToUnitDto(u, playerId, world, now)).ToArray()
+                : view.VisibleUnits.Select(u => ToUnitDto(u, playerId, world, now)).ToArray(),
+            Structures = reveal
+                ? world.Structures.Values.Select(s => ToStructDto(s, playerId, world, now)).ToArray()
+                : view.VisibleStructures.Select(s => ToStructDto(s, playerId, world, now)).ToArray(),
+            Roads = roads.ToArray(),
+        };
+
+        // Everything below reuses the v1 fill helpers verbatim — they take a ViewDto and
+        // a ViewV2Dto is one. That reuse is the whole reason ViewDto is no longer sealed.
+        FillFood(dto, sim, now, playerId);
+        FillDiplomacy(dto, world, playerId);
+        FillOrders(dto, world, playerId, OrderSource);
+        FillPiles(dto, world, reveal);
+        if (GraveSource is not null)
+        {
+            // GraveTracker.Project reads only X/Y off this array (its visibility gate).
+            var visTiles = view.Visible.Select(t => new TileDto { X = t.X, Y = t.Y }).ToArray();
+            dto.Graves = GraveSource.Project(playerId, reveal, visTiles);
+        }
+        return dto;
+    }
+
     public ViewDto Project(Simulation sim, long now, int playerId, bool reveal)
     {
         var dto = reveal ? ProjectRevealed(sim.World, now, playerId) : ProjectFogged(sim.World, now, playerId);
         dto.Tick = now;   // world age in ticks (= game-minutes); the client's clock reads from this
         FillFood(dto, sim, now, playerId);
         FillDiplomacy(dto, sim.World, playerId);
-        FillOrders(dto, sim.World, playerId);
+        FillOrders(dto, sim.World, playerId, OrderSource);
+        FillPiles(dto, sim.World, reveal);
+        if (GraveSource is not null)
+            dto.Graves = GraveSource.Project(playerId, reveal, dto.Visible);
         return dto;
+    }
+
+    // Ground piles for tiles in CURRENT sight (the M23 cache stance: a
+    // visible container's contents are public, because looting requires
+    // naming a resource to LoadCargoIntent — and the AI brains read the
+    // same rows). Pure read of world.GroundResources; no remembered
+    // reveal — a pile can be looted at any time, so only live sight may
+    // vouch for its contents. Deterministic order: piles (Y, X), rows by
+    // resource id (GroundResources' inner map is sorted).
+    private static void FillPiles(ViewDto dto, GameWorld world, bool reveal)
+    {
+        if (world.GroundResources.Count == 0) return;
+        HashSet<long>? vis = null;
+        if (!reveal)
+        {
+            vis = new HashSet<long>();
+            foreach (var t in dto.Visible) vis.Add(((long)t.X << 32) ^ (uint)t.Y);
+        }
+        List<PileDto>? piles = null;
+        foreach (var (tile, pile) in world.GroundResources
+                     .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X))
+        {
+            if (vis is not null && !vis.Contains(((long)tile.X << 32) ^ (uint)tile.Y)) continue;
+            var holdings = pile.Where(kv => kv.Value > 0)
+                .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+                .ToArray();
+            if (holdings.Length == 0) continue;
+            (piles ??= new List<PileDto>()).Add(new PileDto { X = tile.X, Y = tile.Y, Holdings = holdings });
+        }
+        if (piles is not null) dto.Piles = piles.ToArray();
     }
 
     // M25 — diplomatic state onto the wire. Mirrors View.BuildPlayerView's
@@ -100,51 +289,84 @@ public sealed class ViewProjector
         dto.IncomingProposals = proposals.ToArray();
     }
 
-    // M18 — the viewer's OWN standing orders, definition + live cursor.
+    // The viewer's OWN automation orders, definition + live status.
     // Owner-only by construction (we filter on OwnerId); reveal mode does
     // not change this — automation plans are private strategy, not terrain.
-    private static void FillOrders(ViewDto dto, GameWorld world, int playerId)
+    private static void FillOrders(ViewDto dto, GameWorld world, int playerId,
+        Automation.OrderJournal? journal)
     {
-        if (world.StandingOrders.Count == 0) return;
+        if (world.Orders.Count == 0) return;
         var orders = new List<OrderDto>();
-        foreach (var (id, o) in world.StandingOrders) // ascending id
+        foreach (var (id, o) in world.Orders) // ascending id — canonical
         {
             if (o.OwnerId != playerId) continue;
+            var last = journal?.Last(id);
             orders.Add(new OrderDto
             {
                 Id = id,
-                Kind = (int)o.Kind,
-                Loop = (int)o.Loop,
-                Enabled = o.Enabled,
-                CurrentStep = o.CurrentStep,
-                Dispatched = o.ActionDispatched,
-                RetryCount = o.StepRetryCount,
-                StepEnteredTick = o.StepEnteredTick,
-                ClaimedUnits = o.ClaimedUnits.ToArray(),
-                Steps = o.Steps.Select(step => new OrderStepDto
+                Priority = o.Priority,
+                Program = (int)o.Program,
+                Recipe = (int)o.Recipe,
+                SubjectKind = (int)o.SubjectKind,
+                SubjectX = o.SubjectTile.X,
+                SubjectY = o.SubjectTile.Y,
+                SubjectRole = (int)o.SubjectRole,
+                SubjectGroupId = o.SubjectGroupId,
+                Target = o.Target,
+                SourceX = o.SourceTile.X,
+                SourceY = o.SourceTile.Y,
+                Resource = (int)o.Resource,
+                CrewMode = (int)o.CrewMode,
+                NamedCrew = o.NamedCrew.ToArray(),
+                // Live: who this order is actually holding right now.
+                HeldUnits = Sim.Core.Automation.ClaimLedger.UnitsOf(world, id).ToArray(),
+                Selector = new SelectorDto
                 {
-                    Conditions = step.Conditions.Select(c => new ConditionDto
-                    {
-                        Kind = (int)c.Kind,
-                        UnitId = c.SubjectUnitId,
-                        X = c.SubjectTile.X,
-                        Y = c.SubjectTile.Y,
-                        Resource = (int)c.Resource,
-                        Threshold = c.Threshold,
-                    }).ToArray(),
-                    ActionKind = (int)step.Action.Kind,
-                    ActionUnit = step.Action.UnitId,
-                    TargetX = step.Action.TargetTile.X,
-                    TargetY = step.Action.TargetTile.Y,
-                    SecondX = step.Action.SecondTile.X,
-                    SecondY = step.Action.SecondTile.Y,
-                    Resource = (int)step.Action.Resource,
-                    Role = (int)step.Action.Role,
+                    Role = (int)o.Selector.Role,
+                    AnyRole = o.Selector.AnyRole,
+                    MinAgeYears = o.Selector.MinAgeYears,
+                    MaxAgeYears = o.Selector.MaxAgeYears,
+                    RequireDormant = o.Selector.RequireDormant,
+                    AnchorX = o.Selector.Anchor.X,
+                    AnchorY = o.Selector.Anchor.Y,
+                    Radius = o.Selector.Radius,
+                },
+                Trigger = o.Trigger.Any.Select(c => new TriggerClauseDto
+                {
+                    All = c.All.Select(ToDto).ToArray(),
                 }).ToArray(),
+                Steps = o.Steps.Select(s => new RoutineStepDto
+                {
+                    X = s.Tile.X,
+                    Y = s.Tile.Y,
+                    Action = (int)s.Action,
+                    Resource = (int)s.Resource,
+                    DepartWhen = s.DepartWhen.Select(ToDto).ToArray(),
+                }).ToArray(),
+                EngageRadius = o.EngageRadius,
+                LeashRadius = o.LeashRadius,
+                Enabled = o.Enabled,
+                RetryCount = o.RetryCount,
+                LastFiredTick = o.LastFiredTick,
+                CurrentStep = o.CurrentStep,
+                LastOutcome = last is null ? 0 : (int)last.Value.Outcome,
+                LastOutcomeTick = last?.Tick ?? 0,
+                LastDetail = last?.Detail ?? "",
             });
         }
         if (orders.Count > 0) dto.Orders = orders.ToArray();
     }
+
+    private static PredicateDto ToDto(Sim.Core.Automation.Predicate p) => new()
+    {
+        Kind = (int)p.Kind,
+        X = p.Tile.X,
+        Y = p.Tile.Y,
+        Resource = (int)p.Resource,
+        Role = (int)p.Role,
+        Threshold = p.Threshold,
+        CountInFlight = p.CountInFlight,
+    };
 
     // M13 food consumption — project the viewing player's population, live castle food
     // (pure-read CurrentLevel), per-period drain, runway-to-dry, and famine/starvation
@@ -272,6 +494,7 @@ public sealed class ViewProjector
         {
             Id = u.Id, X = u.Position.X, Y = u.Position.Y, Role = (int)u.Role, OwnerId = u.OwnerId,
             Age = Sim.Core.Population.Population.AgeYears(u, now, world.PopulationConfig),
+            Health = mine ? u.Health : -1,
             Activity = mine ? (int)u.Activity : -1,
             PassengerCap = mine ? u.PassengerCap : 0,
             Passengers = mine ? u.Passengers.Count : 0,
@@ -323,6 +546,7 @@ public sealed class ViewProjector
         {
             Id = uv.Id, X = uv.Position.X, Y = uv.Position.Y, Role = (int)uv.Role, OwnerId = uv.OwnerId,
             Age = uv.AgeYears,
+            Health = uv.OwnerId == viewerPlayerId ? uv.Health : -1,
             Activity = activity,
             PassengerCap = cap,
             Passengers = pax,
@@ -440,6 +664,23 @@ public sealed class ViewProjector
                 dto.LocalFood = FoodConsumption.CurrentLevel(h, world, now);
                 dto.Residents = h.ResidentCount;
                 dto.LocalFamine = h.FamineStartTick.HasValue;
+                break;
+
+            // The castle is a FOOD HOME too, and needs the same treatment a house
+            // already gets. Holdings[Food] at a food home is NOT a second view of
+            // the larder — it is a lazily-caught-up internal that is simply STALE
+            // between rate-changing events, and it can sit at its genesis value
+            // for a long time while residents eat (a castle still reading 200
+            // when the realm had 88). Never show it as food; LocalFood is the
+            // only honest number, and it is the one automation now triggers on.
+            // Must come before StorageStructure: a Castle IS one.
+            case Castle castle:
+                dto.Capacity = castle.Capacity;
+                dto.Holdings = castle.Holdings.Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value }).ToArray();
+                dto.LocalFood = FoodConsumption.CurrentLevel(castle, world, now);
+                dto.LocalFamine = castle.FamineStartTick.HasValue;
+                // Residents is left 0: the castle feeds everyone without a house,
+                // and the realm panel's Population already carries that count.
                 break;
 
             case StorageStructure ss:

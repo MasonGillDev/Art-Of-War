@@ -20,7 +20,7 @@ public sealed class GameHost : IDisposable
     private readonly double _ticksPerSecond;
     private readonly Bandits.BanditDriver? _bandits;
     private readonly List<Ai.AiPlayerDriver> _ais = new();
-    private readonly Automation.AutomationDriver? _automation;
+    private readonly Automation.SubstrateDriver? _automation;
 
     // M25 — observability seam: which faction runs which brain (read-only;
     // the assignment test and smoke tooling read Kind/PlayerId off each
@@ -38,6 +38,11 @@ public sealed class GameHost : IDisposable
     private int _resolvedCursor;      // how far into sim.ResolvedLog we've harvested
     private long _nextNoticeId = 1;
     private readonly Dictionary<int, List<NoticeDto>> _notices = new();
+
+    // Grave markers on witnessed death-loot tiles — the full lifecycle
+    // (unit-map diff, cause exclusion, loot-linked retirement, per-player
+    // seen gate) lives in GraveTracker; the host just drives it under _gate.
+    private readonly GraveTracker _graveTracker = new();
 
     // M20 — scout reports. When a mission returns, claims are compiled under
     // the lock (a fast pure read) and a raw report is deposited immediately;
@@ -80,15 +85,24 @@ public sealed class GameHost : IDisposable
                 .ToList();
             var rivals = Math.Clamp(aiConfig.RivalCount, 0, aiIds.Count);
             for (var i = 0; i < aiIds.Count; i++)
-                _ais.Add(new Ai.AiPlayerDriver(aiIds[i], aiConfig,
-                    i >= aiIds.Count - rivals ? Ai.BrainKind.Rival : Ai.BrainKind.Homesteader));
+            {
+                // Rank among the rivals (0-based, ascending id) — the
+                // personality table cycles on it, so rival #0 is always the
+                // baseline Conqueror and a `--rivals 1` game changes no
+                // tuned curve.
+                var rank = i - (aiIds.Count - rivals);
+                _ais.Add(rank >= 0
+                    ? new Ai.AiPlayerDriver(aiIds[i], aiConfig, Ai.BrainKind.Rival,
+                        Ai.RivalPersonalities.ForRivalRank(rank))
+                    : new Ai.AiPlayerDriver(aiIds[i], aiConfig));
+            }
         }
         // M18 — player standing orders. Always constructed (null config →
         // defaults): a world with no orders makes Think a cheap no-op, and
         // orders can arrive at any time over the wire.
         var autoCfg = automationConfig ?? new Automation.AutomationConfig();
         if (autoCfg.Enabled)
-            _automation = new Automation.AutomationDriver(autoCfg);
+            _automation = new Automation.SubstrateDriver(autoCfg);
         // M20 — narrate returned scouts via Claude when a key is configured
         // (ANTHROPIC_API_KEY or the gitignored anthropic-key.txt); otherwise
         // reports ship as the raw claims sheet. Either way they reach the wire.
@@ -96,6 +110,16 @@ public sealed class GameHost : IDisposable
         if (narrationOpts.Enabled)
             _narration = new Scouting.ScoutReportNarrationService(
                 new Scouting.ClaudeReportNarrator(narrationOpts));
+        // Baseline for the grave harvest's unit-map diff: the genesis roster.
+        _graveTracker.SnapshotUnits(_sim.World);
+        // Graves ride the PROJECTOR (not just the HTTP path) so the AI
+        // brains see the same markers a human client renders — battlefield
+        // salvage needs them, and the fairness contract wants one channel.
+        _projector.GraveSource = _graveTracker;
+        // Same trick for automation status: the driver's journal is what
+        // lets a client's order dashboard say "waiting for a free hand"
+        // instead of guessing from an empty crew list. Presentation-only.
+        _projector.OrderSource = _automation?.Journal;
     }
 
     public void Start()
@@ -131,6 +155,10 @@ public sealed class GameHost : IDisposable
                 // M18 — player standing orders: same contract as the NPC
                 // brains (pure reads + ordinary intents, under the lock).
                 _automation?.Think(_sim, _virtualTick);
+                // Graves BEFORE rejections: the tracker reads the same
+                // resolved-log window that HarvestRejections consumes (it
+                // advances _resolvedCursor; the tracker's scan must not).
+                _graveTracker.Harvest(_sim, _resolvedCursor);
                 HarvestRejections();
                 HarvestScoutReturns();
             }
@@ -158,12 +186,18 @@ public sealed class GameHost : IDisposable
                 || intent is Sim.Core.Bandits.SpawnBanditPartyIntent
                 || intent is Sim.Core.Bandits.DespawnBanditPartyIntent)
                 return Ack(false, "bandit-faction intents are server-internal");
-            // M18 — cursor moves are the AutomationDriver's voice, not the
-            // client's: a wire client could otherwise skip its own order's
-            // steps (or, with a spoofed PlayerId, wedge another player's
-            // order). Set/Clear remain ordinary player intents.
-            if (intent is Sim.Core.Automation.AdvanceOrderCursorIntent)
-                return Ack(false, "order-cursor intents are server-internal");
+            // Order STATUS moves are the driver's voice, not the client's: a
+            // wire client could otherwise advance its own circuit past a stop
+            // (or, with a spoofed PlayerId, disable another player's order).
+            // Set/Clear remain ordinary player intents.
+            if (intent is Sim.Core.Automation.OrderStatusIntent)
+                return Ack(false, "order-status intents are server-internal");
+            // Automation substrate — claims are the driver's bookkeeping, not
+            // the client's: a wire client could otherwise pin another order's
+            // crew (claim-squatting) or free its own units from the ledger to
+            // dodge arbitration. docs/automation-substrate.md, Layer 0.
+            if (intent is Sim.Core.Automation.ClaimUnitIntent)
+                return Ack(false, "claim intents are server-internal");
             lock (_gate)
             {
                 var at = Math.Max(_sim.Now, _virtualTick);
@@ -184,6 +218,8 @@ public sealed class GameHost : IDisposable
             dto = _projector.Project(_sim, _sim.Now, playerId, reveal);
             if (_notices.TryGetValue(playerId, out var list)) dto.Notices = list.ToArray();
             if (_scoutReports.TryGetValue(playerId, out var reps)) dto.ScoutReports = reps.ToArray();
+            // Graves are attached inside Project (the projector's
+            // GraveSource) — one channel for humans and brains alike.
         }
         return JsonSerializer.Serialize(dto, ServerJson.Options);
     }
@@ -193,6 +229,28 @@ public sealed class GameHost : IDisposable
     // BuildViewJson this reads nothing live and takes no _gate lock.
     public string BuildElevationJson() =>
         JsonSerializer.Serialize(_projector.BuildElevationDto(), ServerJson.Options);
+
+    // ── v2 wire ───────────────────────────────────────────────────────────────
+    // GET /v2/world: the static genesis payload (terrain + genesis biome grid).
+    // Immutable generation-time data, so like BuildElevationJson it reads nothing
+    // live and takes no _gate lock.
+    public string BuildWorldJson() =>
+        JsonSerializer.Serialize(_projector.BuildWorldDto(), ServerJson.Options);
+
+    // GET /v2/view/{playerId}: the slim per-tick view. Identical lock discipline and
+    // notice/report attachment to BuildViewJson — only the tile encoding differs.
+    public string BuildViewV2Json(int playerId, bool reveal)
+    {
+        ViewV2Dto dto;
+        lock (_gate)
+        {
+            dto = _projector.ProjectV2(_sim, _sim.Now, playerId, reveal);
+            if (_notices.TryGetValue(playerId, out var list)) dto.Notices = list.ToArray();
+            if (_scoutReports.TryGetValue(playerId, out var reps)) dto.ScoutReports = reps.ToArray();
+        }
+        return JsonSerializer.Serialize(dto, ServerJson.Options);
+    }
+
 
     // Scan newly-resolved events for rejected PLAYER intents and record a per-player
     // notice. Only IntentEvents carry a PlayerId; consequence-event rejections (e.g. a
@@ -234,16 +292,17 @@ public sealed class GameHost : IDisposable
                     $"effective in {delay / Sim.Core.Time.Day} game-day(s).");
                 continue;
             }
-            // M18 — an APPLIED auto-disable is news the player must see:
-            // their standing order stopped (retry budget exhausted). The
-            // failing action's rejections were already noticed above this
-            // in the log; this line says "and the engine gave up."
+            // An APPLIED auto-disable is news the player must see: one of
+            // their automations stopped. This is now RARE by design — a
+            // labour shortage no longer disables anything, so reaching here
+            // means the order genuinely cannot recover (a named crew that
+            // died). See SubstrateDriver, "contention is not breakage".
             if (!ie.Outcome.IsRejected
-                && ie.Intent is Sim.Core.Automation.AdvanceOrderCursorIntent
-                    { Op: Sim.Core.Automation.CursorOp.Disable } disable)
+                && ie.Intent is Sim.Core.Automation.OrderStatusIntent
+                    { Op: Sim.Core.Automation.OrderStatusOp.Disable } disable)
             {
                 AddNotice(disable.PlayerId, ie.At,
-                    $"standing order {disable.OrderId} auto-disabled after repeated failures");
+                    $"automation order {disable.OrderId} stopped — its crew can no longer do the job");
                 continue;
             }
             if (!ie.Outcome.IsRejected) continue;

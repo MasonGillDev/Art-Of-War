@@ -50,8 +50,16 @@ public sealed class RivalBrain : IBrain
             // soldier into the campaign; the party reserves first.
             new RaidRung(),
             new ConquerRung(),
+            // Scavenge BELOW Conquer: while a war is live the campaign
+            // owns the surplus (ledger #5 — it reserves first); the
+            // moment the target falls, the same soldiers strip its ruins.
+            new ScavengeRung(),
             new ProbeRung(),
             new GrowRung(),
+            // Battlefield salvage — same slot as the Homesteader's ladder
+            // (below Grow, above Fortify): a Rival's home fields see MORE
+            // corpses, not fewer, and the war economy runs on them.
+            new SalvageRung(),
             // M26 — same slot as the Homesteader's ladder (below Grow,
             // above Scout), so the peacetime curves stay identical (the
             // Sparta pin) — even conquerors wall their own keep.

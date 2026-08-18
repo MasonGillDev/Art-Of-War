@@ -222,6 +222,52 @@ dominates how war feels — the victim gets 30 days of visible warning.
 All M25 tests compute from the world's actual config, so either value
 works mechanically; the knob should be settled during the Phase 5 lab.
 
+**Resolved 2026-07-06** (with the mobilization-interlock fix): the user
+picked **2 game-days** — long enough to muster inside the window, short
+enough that a declaration is a threat, not a diary entry. The default
+now lives in `DiplomacyConfig()` with the rationale in its comment.
+
+## Update 2026-07-13 — the personality spread
+
+Every Rival fought with the same thresholds, so a 4-rival field behaved
+like one mind with four castles: identical declare timing, identical
+caution — learn one and you've learned them all. `--rivals K` now deals
+each rival a **personality**: a named bundle of war-policy knobs
+(`src/Sim.Server/Ai/RivalPersonality.cs`), cycled deterministically by
+rival rank (position among the rivals in ascending faction-id order):
+
+| Rank % 3 | Personality | Floor | Declare | GO gate | Retreat | Raid party |
+|---|---|---|---|---|---|---|
+| 0 | **Conqueror** | 30 | 150% | 150% | 100% | 3 |
+| 1 | **Warlord** | 24 | 120% | 120% | 80% | 0 (siege-rush) |
+| 2 | **Raider** | 30 | 180% | 180% | 120% | 5 (raids carry the war) |
+
+The Conqueror IS the shipping baseline — rank 0, so a `--rivals 1` game
+changes no tuned curve. The Warlord declares young and cheap and sends
+every sword to the siege (the doctrine A/B's siege-rush arm, promoted
+from experiment to temperament). The Raider only picks sure wars, almost
+never launches the campaign, and fights by attrition — then sues for
+peace while still ahead.
+
+Two hard rules, both pinned by tests:
+
+- **War knobs only** — a personality may touch nothing outside the M25
+  war-policy block; "a peacetime Rival's curve is EXACTLY a
+  Homesteader's" survives by construction
+  (`RivalPersonalities_OnlyTouchWarPolicyKnobs` sweeps `AiConfig` by
+  reflection and names any trespassing knob).
+- **No RNG** — the spread is a pure function of the faction ids present
+  + `RivalCount` (`RivalPersonality_Assignment_CyclesDeterministically`);
+  same seed + same args = the same temperaments making the same calls.
+  This is the answer to "is there any RNG in how the AIs respond?" —
+  variety without touching the determinism contract.
+
+The **driver** applies the profile to its own config
+(`AiPlayerDriver.Personality`), so the label and the knobs it names can
+never disagree; the server banner prints the who's-who at startup
+(`rival: faction 7 (Warlord)`). The Warlord — lowest floor, cheapest
+wars — gets its own Sparta pin (`Warlord_DoesNotStarveItsOwnColony`).
+
 ## References
 
 - docs/ai-players.md — the arbitration ledger (12 lessons every new

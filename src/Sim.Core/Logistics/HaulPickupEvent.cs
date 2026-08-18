@@ -60,6 +60,9 @@ public sealed class HaulPickupEvent : ScheduledEvent
         // M28 — a boat's stop is the source dock's SLIP, not the dock tile.
         if (!HaulStops.AtStop(world, hauler, SourceTile))
         {
+            // FAIL CLEAN (see the dest-leg paths at the bottom of this file):
+            // clearing the anchor is what makes the hauler usable again.
+            hauler.HaulPlan = null;
             hauler.TrySetActivity(Activity.Idle);
             Outcome = IntentOutcome.Reject($"hauler not at source {SourceTile.X},{SourceTile.Y}");
             return;
@@ -102,6 +105,21 @@ public sealed class HaulPickupEvent : ScheduledEvent
         var pickup = Math.Min(hauler.CargoCapacity, available);
         if (pickup == 0)
         {
+            // FAIL CLEAN — the same discipline the dest-leg paths below already
+            // apply, back-applied to the first leg where it was missed.
+            //
+            // Arriving at a source that has run dry is ORDINARY: a farm whose
+            // buffer emptied while the hauler walked over is a normal race, not
+            // a corrupt world. Leaving HaulPlan set turned that into a
+            // permanent brick — the hauler sits Idle forever holding a dead
+            // anchor, and every consumer that asks "is this unit free?" (the
+            // automation driver's IsFreeForWork, the selectors) reads it as
+            // busy for the rest of the game. One empty pickup silently retired
+            // the unit AND wedged the order that named it.
+            //
+            // There is no cargo to strand here (pickup == 0), so dropping the
+            // anchor is unambiguous: the trip simply did not happen.
+            hauler.HaulPlan = null;
             hauler.TrySetActivity(Activity.Idle);
             Outcome = IntentOutcome.Reject($"nothing to pick up (no {Resource} available)");
             return;

@@ -96,7 +96,32 @@ public static class Snapshot
     //       warehouse) — its payload gains the standard storage block,
     //       written between the slip and the production anchors. No new
     //       anchors; boat hauls ride the existing HaulPlan machinery.
-    public const int FormatVersion = 21;
+    // v22 — automation substrate Phase A (docs/automation-substrate.md):
+    //       GameWorld.Claims (the claims ledger) + Unit.Protected. Pure
+    //       durable data — claims are mutated only by ClaimUnitIntent and
+    //       carry no scheduled events, so RegenerateQueue is untouched
+    //       (the same "zero new anchors" property M18's orders had).
+    //       Claims MUST round-trip: a pull that was in flight when the
+    //       process died has to stay committed across restore, or the
+    //       driver would re-issue it against a unit already walking.
+    // v23 — automation substrate Phase B: GameWorld.Orders (the universal
+    //       order record — subject, DNF trigger, program/recipe, crew,
+    //       selector, durable status). Written between the outgoing M18
+    //       StandingOrders block and the claims ledger; the two models
+    //       coexist until the Phase D cutover deletes the former. Still no
+    //       new anchors — Maintain is level-triggered off driver thinks,
+    //       not scheduled events, so RegenerateQueue stays untouched.
+    // v24 — automation substrate Phase C: Selector.MaxAgeYears (the age
+    //       filter becomes a WINDOW, which fertility requires). One int in
+    //       the order block; the Breed recipe and the population predicates
+    //       that ship alongside it are append-only enum values needing no
+    //       format change.
+    // v25 — automation substrate Phase D: the Routine program (Order.Steps,
+    //       the circuit, + Order.CurrentStep, its durable cursor). The
+    //       cursor MUST persist: a caravan mid-circuit has to resume where
+    //       it was rather than restart at the first stop, and "which stop"
+    //       is not derivable from the world.
+    public const int FormatVersion = 26;
 
     public static string Hash(Simulation sim)
     {
@@ -125,7 +150,8 @@ public static class Snapshot
             WritePopulation(bw, sim.World);
             WriteBiomeDegradation(bw, sim.World);
             WriteRememberedBiome(bw, sim.World);
-            WriteStandingOrders(bw, sim.World);
+            WriteOrders(bw, sim.World);
+            WriteClaims(bw, sim.World);
             WriteScoutMissions(bw, sim.World);
         }
         return ms.ToArray();
@@ -162,7 +188,8 @@ public static class Snapshot
         ReadPopulation(br, world);
         ReadBiomeDegradation(br, world);
         ReadRememberedBiome(br, world);
-        ReadStandingOrders(br, world);
+        ReadOrders(br, world);
+        ReadClaims(br, world);
         ReadScoutMissions(br, world);
 
         var sim = new Simulation(world, seed);
@@ -276,6 +303,10 @@ public static class Snapshot
             WriteNullableLong(bw, u.NextArrivalSeq);
             // M4: in-flight haul anchor.
             WriteHaulPlan(bw, u.HaulPlan);
+            // M29 (v26): in-flight pursuit anchor. A chase running at
+            // snapshot time must survive the restart, or the unit wakes up
+            // holding a target it will never step toward again.
+            WritePursuit(bw, u.Pursuit);
             // M5: group membership tag.
             WriteNullableInt(bw, u.GroupId);
             // M7: combat state.
@@ -294,6 +325,8 @@ public static class Snapshot
             WriteNullableInt(bw, u.EmbarkedOn);
             // M19 (v13): home — the unit's food demand point.
             WriteNullableTileCoord(bw, u.Home);
+            // v22: automation substrate — sacred-from-conscription flag.
+            bw.Write(u.Protected);
         }
     }
 
@@ -373,6 +406,24 @@ public static class Snapshot
         bw.Write((byte)plan.Phase);
     }
 
+    private static void WritePursuit(BinaryWriter bw, Pursuit? chase)
+    {
+        if (chase is null) { bw.Write((byte)0); return; }
+        bw.Write((byte)1);
+        bw.Write(chase.TargetUnitId);
+        bw.Write(chase.LeashTile.X); bw.Write(chase.LeashTile.Y);
+        bw.Write(chase.LeashRadius);
+    }
+
+    private static Pursuit? ReadPursuit(BinaryReader br)
+    {
+        if (br.ReadByte() == 0) return null;
+        var target = br.ReadInt32();
+        var leash = new TileCoord(br.ReadInt32(), br.ReadInt32());
+        var radius = br.ReadInt32();
+        return new Pursuit(target, leash, radius);
+    }
+
     private static HaulPlan? ReadHaulPlan(BinaryReader br)
     {
         if (br.ReadByte() == 0) return null;
@@ -404,6 +455,7 @@ public static class Snapshot
             var nextArrAt = ReadNullableLong(br);
             var nextArrSeq = ReadNullableLong(br);
             var haulPlan = ReadHaulPlan(br);
+            var pursuit = ReadPursuit(br);          // M29 (v26)
             var groupId = ReadNullableInt(br);
             var health = br.ReadInt32();
             var buffs = ReadBuffs(br);
@@ -417,9 +469,11 @@ public static class Snapshot
             for (var p = 0; p < passengerCount; p++) passengers.Add(br.ReadInt32());
             var embarkedOn = ReadNullableInt(br);
             var home = ReadNullableTileCoord(br);   // M19 (v13)
+            var isProtected = br.ReadBoolean();     // v22 automation substrate
 
             var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
             u.Home = home;   // ResidentCount restores from the House payload; no recompute
+            u.Protected = isProtected;
             foreach (var pid in passengers) u.Passengers.Add(pid);
             u.EmbarkedOn = embarkedOn;
             u.CargoResource = cargoR;
@@ -430,6 +484,7 @@ public static class Snapshot
             u.NextArrivalTick = nextArrAt;
             u.NextArrivalSeq  = nextArrSeq;
             u.HaulPlan = haulPlan;
+            u.Pursuit  = pursuit;
             u.GroupId  = groupId;
             u.Health   = health;
             foreach (var b in buffs) u.Buffs.Add(b);
@@ -1167,53 +1222,92 @@ public static class Snapshot
         }
     }
 
-    // ----- standing orders (M18, id-sorted) ------------------------------
+    // ----- substrate orders (v23, id-sorted) -----------------------------
 
-    private static void WriteStandingOrders(BinaryWriter bw, GameWorld world)
+    private static void WriteOrders(BinaryWriter bw, GameWorld world)
     {
+        // NextOrderId lives here now � it moved out of the deleted M18
+        // standing-order block, which used to own the counter.
         bw.Write(world.NextOrderId);
-        bw.Write(world.StandingOrders.Count);
-        foreach (var (id, o) in world.StandingOrders) // SortedDictionary → id order
+        bw.Write(world.Orders.Count);
+        foreach (var (id, o) in world.Orders) // SortedDictionary → id order
         {
             bw.Write(id);
             bw.Write(o.OwnerId);
-            bw.Write((byte)o.Kind);
-            bw.Write((byte)o.Loop);
-            bw.Write(o.ClaimedUnits.Count);
-            foreach (var u in o.ClaimedUnits) bw.Write(u); // maintained ascending
-            bw.Write(o.Steps.Count);
-            foreach (var step in o.Steps)
+            bw.Write(o.Priority);
+            // Subject.
+            bw.Write((byte)o.SubjectKind);
+            bw.Write(o.SubjectTile.X);
+            bw.Write(o.SubjectTile.Y);
+            bw.Write((byte)o.SubjectRole);
+            bw.Write(o.SubjectGroupId);
+            // Trigger (DNF: clauses of predicates).
+            bw.Write(o.Trigger.Any.Count);
+            foreach (var clause in o.Trigger.Any)
             {
-                bw.Write(step.Conditions.Count);
-                foreach (var c in step.Conditions)
+                bw.Write(clause.All.Count);
+                foreach (var p in clause.All)
                 {
-                    bw.Write((byte)c.Kind);
-                    bw.Write(c.SubjectUnitId);
-                    bw.Write(c.SubjectTile.X);
-                    bw.Write(c.SubjectTile.Y);
-                    bw.Write((byte)c.Resource);
-                    bw.Write(c.Threshold);
+                    bw.Write((byte)p.Kind);
+                    bw.Write(p.Tile.X);
+                    bw.Write(p.Tile.Y);
+                    bw.Write((byte)p.Resource);
+                    bw.Write((byte)p.Role);
+                    bw.Write(p.Threshold);
+                    bw.Write(p.CountInFlight);
                 }
-                var a = step.Action;
-                bw.Write((byte)a.Kind);
-                bw.Write(a.UnitId);
-                bw.Write(a.TargetTile.X);
-                bw.Write(a.TargetTile.Y);
-                bw.Write(a.SecondTile.X);
-                bw.Write(a.SecondTile.Y);
-                bw.Write((byte)a.Resource);
-                bw.Write((byte)a.Role);
             }
-            // Cursor block.
+            // Program + recipe.
+            bw.Write((byte)o.Program);
+            bw.Write((byte)o.Recipe);
+            bw.Write(o.Target);
+            bw.Write(o.SourceTile.X);
+            bw.Write(o.SourceTile.Y);
+            bw.Write((byte)o.Resource);
+            // Crew.
+            bw.Write((byte)o.CrewMode);
+            bw.Write(o.NamedCrew.Count);
+            foreach (var u in o.NamedCrew) bw.Write(u); // maintained ascending
+            bw.Write((byte)o.Selector.Role);
+            bw.Write(o.Selector.AnyRole);
+            bw.Write(o.Selector.MinAgeYears);
+            bw.Write(o.Selector.MaxAgeYears);   // v24
+            bw.Write(o.Selector.RequireDormant);
+            bw.Write(o.Selector.Anchor.X);
+            bw.Write(o.Selector.Anchor.Y);
+            bw.Write(o.Selector.Radius);
+            // Flags + status.
+            // Routine circuit (v25).
+            bw.Write(o.Steps.Count);
+            foreach (var st in o.Steps)
+            {
+                bw.Write(st.Tile.X);
+                bw.Write(st.Tile.Y);
+                bw.Write((byte)st.Action);
+                bw.Write((byte)st.Resource);
+                bw.Write(st.DepartWhen.Count);
+                foreach (var p in st.DepartWhen)
+                {
+                    bw.Write((byte)p.Kind);
+                    bw.Write(p.Tile.X);
+                    bw.Write(p.Tile.Y);
+                    bw.Write((byte)p.Resource);
+                    bw.Write((byte)p.Role);
+                    bw.Write(p.Threshold);
+                    bw.Write(p.CountInFlight);
+                }
+            }
+            bw.Write(o.ConscriptOptIn);
+            bw.Write(o.EngageRadius);   // v26 — patrol posture
+            bw.Write(o.LeashRadius);    // v26
             bw.Write(o.Enabled);
-            bw.Write(o.CurrentStep);
-            bw.Write(o.StepEnteredTick);
-            bw.Write(o.StepRetryCount);
-            bw.Write(o.ActionDispatched);
+            bw.Write(o.RetryCount);
+            bw.Write(o.LastFiredTick);
+            bw.Write(o.CurrentStep);   // v25
         }
     }
 
-    private static void ReadStandingOrders(BinaryReader br, GameWorld world)
+    private static void ReadOrders(BinaryReader br, GameWorld world)
     {
         world.NextOrderId = br.ReadInt32();
         var count = br.ReadInt32();
@@ -1221,50 +1315,138 @@ public static class Snapshot
         {
             var id = br.ReadInt32();
             var ownerId = br.ReadInt32();
-            var kind = (Sim.Core.Automation.OrderKind)br.ReadByte();
-            var loop = (Sim.Core.Automation.LoopMode)br.ReadByte();
-            var order = new Sim.Core.Automation.StandingOrder
+            var priority = br.ReadInt32();
+            var subjectKind = (Sim.Core.Automation.SubjectKind)br.ReadByte();
+            var subjectTile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var subjectRole = (UnitRole)br.ReadByte();
+            var subjectGroupId = br.ReadInt32();
+
+            var trigger = new Sim.Core.Automation.Trigger();
+            var clauseCount = br.ReadInt32();
+            for (var c = 0; c < clauseCount; c++)
+            {
+                var clause = new Sim.Core.Automation.TriggerClause();
+                var predCount = br.ReadInt32();
+                for (var p = 0; p < predCount; p++)
+                {
+                    var kind = (Sim.Core.Automation.PredicateKind)br.ReadByte();
+                    var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                    var res = (Resource)br.ReadByte();
+                    var role = (UnitRole)br.ReadByte();
+                    var threshold = br.ReadInt64();
+                    var countInFlight = br.ReadBoolean();
+                    clause.All.Add(new Sim.Core.Automation.Predicate(
+                        kind, tile, res, role, threshold, countInFlight));
+                }
+                trigger.Any.Add(clause);
+            }
+
+            var program = (Sim.Core.Automation.ProgramKind)br.ReadByte();
+            var recipe = (Sim.Core.Automation.RecipeKind)br.ReadByte();
+            var target = br.ReadInt64();
+            var sourceTile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var resource = (Resource)br.ReadByte();
+
+            var crewMode = (Sim.Core.Automation.CrewMode)br.ReadByte();
+            var crewCount = br.ReadInt32();
+            var crew = new List<int>(crewCount);
+            for (var u = 0; u < crewCount; u++) crew.Add(br.ReadInt32());
+            var selRole = (UnitRole)br.ReadByte();
+            var selAnyRole = br.ReadBoolean();
+            var selMinAge = br.ReadInt32();
+            var selMaxAge = br.ReadInt32();      // v24
+            var selDormant = br.ReadBoolean();
+            var selAnchor = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var selRadius = br.ReadInt32();
+
+            // Routine circuit (v25).
+            var stepCount = br.ReadInt32();
+            var steps = new List<Sim.Core.Automation.RoutineStep>(stepCount);
+            for (var s = 0; s < stepCount; s++)
+            {
+                var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                var action = (Sim.Core.Automation.RoutineAction)br.ReadByte();
+                var stepRes = (Resource)br.ReadByte();
+                var depCount = br.ReadInt32();
+                var depart = new List<Sim.Core.Automation.Predicate>(depCount);
+                for (var dp = 0; dp < depCount; dp++)
+                {
+                    var kind = (Sim.Core.Automation.PredicateKind)br.ReadByte();
+                    var pt = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                    var pres = (Resource)br.ReadByte();
+                    var prole = (UnitRole)br.ReadByte();
+                    var pthr = br.ReadInt64();
+                    var pcif = br.ReadBoolean();
+                    depart.Add(new Sim.Core.Automation.Predicate(kind, pt, pres, prole, pthr, pcif));
+                }
+                steps.Add(new Sim.Core.Automation.RoutineStep
+                {
+                    Tile = tile, Action = action, Resource = stepRes, DepartWhen = depart,
+                });
+            }
+
+            var conscript = br.ReadBoolean();
+            var engageRadius = br.ReadInt32();   // v26
+            var leashRadius = br.ReadInt32();    // v26
+            var enabled = br.ReadBoolean();
+            var retryCount = br.ReadInt32();
+            var lastFired = br.ReadInt64();
+            var currentStep = br.ReadInt32();   // v25
+
+            var order = new Sim.Core.Automation.Order
             {
                 OrderId = id,
                 OwnerId = ownerId,
-                Kind = kind,
-                Loop = loop,
+                Priority = priority,
+                SubjectKind = subjectKind,
+                SubjectTile = subjectTile,
+                SubjectRole = subjectRole,
+                SubjectGroupId = subjectGroupId,
+                Trigger = trigger,
+                Program = program,
+                Recipe = recipe,
+                Target = target,
+                SourceTile = sourceTile,
+                Resource = resource,
+                CrewMode = crewMode,
+                Selector = new Sim.Core.Automation.Selector(
+                    selRole, selAnyRole, selMinAge, selMaxAge, selDormant, selAnchor, selRadius),
+                ConscriptOptIn = conscript,
+                EngageRadius = engageRadius,
+                LeashRadius = leashRadius,
+                Steps = steps,
+                Enabled = enabled,
+                RetryCount = retryCount,
+                LastFiredTick = lastFired,
+                CurrentStep = currentStep,
             };
-            var claimCount = br.ReadInt32();
-            for (var c = 0; c < claimCount; c++) order.ClaimedUnits.Add(br.ReadInt32());
-            var stepCount = br.ReadInt32();
-            for (var s = 0; s < stepCount; s++)
-            {
-                var condCount = br.ReadInt32();
-                var conditions = new List<Sim.Core.Automation.ConditionSpec>(capacity: condCount);
-                for (var j = 0; j < condCount; j++)
-                {
-                    var ck = (Sim.Core.Automation.ConditionKind)br.ReadByte();
-                    var subjectUnit = br.ReadInt32();
-                    var subjectTile = new TileCoord(br.ReadInt32(), br.ReadInt32());
-                    var res = (Resource)br.ReadByte();
-                    var threshold = br.ReadInt64();
-                    conditions.Add(new Sim.Core.Automation.ConditionSpec(ck, subjectUnit, subjectTile, res, threshold));
-                }
-                var ak = (Sim.Core.Automation.ActionKind)br.ReadByte();
-                var unitId = br.ReadInt32();
-                var target = new TileCoord(br.ReadInt32(), br.ReadInt32());
-                var second = new TileCoord(br.ReadInt32(), br.ReadInt32());
-                var actionRes = (Resource)br.ReadByte();
-                var role = (UnitRole)br.ReadByte();
-                var step = new Sim.Core.Automation.OrderStep
-                {
-                    Action = new Sim.Core.Automation.ActionSpec(ak, unitId, target, second, actionRes, role),
-                };
-                step.Conditions.AddRange(conditions);
-                order.Steps.Add(step);
-            }
-            order.Enabled = br.ReadBoolean();
-            order.CurrentStep = br.ReadInt32();
-            order.StepEnteredTick = br.ReadInt64();
-            order.StepRetryCount = br.ReadInt32();
-            order.ActionDispatched = br.ReadBoolean();
-            world.StandingOrders.Add(id, order);
+            order.NamedCrew.AddRange(crew);
+            world.Orders.Add(id, order);
+        }
+    }
+
+    // ----- claims ledger (v22, unit-id-sorted) ---------------------------
+
+    private static void WriteClaims(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.Claims.Count);
+        foreach (var (unitId, c) in world.Claims) // SortedDictionary → unit-id order
+        {
+            bw.Write(unitId);
+            bw.Write(c.OrderId);
+            bw.Write((byte)c.Purpose);
+        }
+    }
+
+    private static void ReadClaims(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var unitId = br.ReadInt32();
+            var orderId = br.ReadInt32();
+            var purpose = (Sim.Core.Automation.ClaimPurpose)br.ReadByte();
+            world.Claims.Add(unitId, new Sim.Core.Automation.Claim(unitId, orderId, purpose));
         }
     }
 

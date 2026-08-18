@@ -110,6 +110,14 @@ public sealed class Unit
     // cleared on completion. See HaulPlan.cs.
     public HaulPlan? HaulPlan { get; set; }
 
+    // ---- M29 in-flight pursuit anchor ----
+    // Set by EngageUnitIntent, re-pathed one hop at a time by
+    // MoveArrivalEvent, cleared by PursuitRules on every exit path (caught,
+    // target gone, leash broken, lost from sight). Mutually exclusive with
+    // HaulPlan in practice: a chasing unit is not Idle, so HaulIntent
+    // rejects it. See Pursuit.cs and docs/patrols.md.
+    public Pursuit? Pursuit { get; set; }
+
     // ---- M5 group membership ----
     // Set when this unit joins a Group via FormGroupIntent; cleared on
     // DisbandGroupIntent (or future Split/Merge). When non-null, solo
@@ -161,6 +169,19 @@ public sealed class Unit
     // Population.SetHome (which keeps House.ResidentCount in step —
     // the PopulationCount single-mutation discipline, applied here).
     public TileCoord? Home { get; internal set; }
+
+    // ---- automation substrate (docs/automation-substrate.md) ----
+    // SACRED: never selected by a CONSCRIPTING pull. Opt-in conscription
+    // (an order allowed to pull units that are already working, when no
+    // dormant unit fits) would otherwise happily cannibalize the very
+    // crews that keep the kingdom alive — the food line's haulers, the
+    // castle garrison. Marking them Protected is how the player says
+    // "grow the town, but not out of THESE people."
+    //
+    // Only conscription honours it: an ordinary dormant-unit pull is free
+    // to take a Protected unit that is genuinely idle. The flag guards
+    // against being TAKEN FROM WORK, not against being useful.
+    public bool Protected { get; set; }
 
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 

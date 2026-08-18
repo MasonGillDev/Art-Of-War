@@ -5,7 +5,11 @@ namespace Sim.Server;
 public sealed record ServerOptions
 {
     public int Port { get; init; } = 8080;
-    public double TicksPerSecond { get; init; } = 20.0;  // wall-clock seconds -> sim ticks
+    // Wall-clock seconds -> sim ticks. 4 is the INTENDED pace (user, 2026-08-04):
+    // 1 game-day = 6 real minutes; a night's sleep = ~80 game-days. The game is
+    // async at this pace by design — docs/automation-progression.md. Labs and
+    // attended debugging can crank it via --tps; balance never reads this value.
+    public double TicksPerSecond { get; init; } = 4.0;
     public int MapSeed { get; init; } = 1151;
     public int MapWidth { get; init; } = 128;
     public int MapHeight { get; init; } = 128;
@@ -19,8 +23,8 @@ public sealed record ServerOptions
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 230031, mapWidth = 126, mapHeight = 126;
-        var tps = 20.0;
+        int port = 8080, mapSeed = 2413831, mapWidth = 252, mapHeight = 252;
+        var tps = 4.0;
         var bandits = 1;
         int ai = 8, rivals = 0, aiTrace = 0, caches = 30, banditGrace = 7;
         for (var i = 0; i + 1 < args.Length; i++)
@@ -45,6 +49,7 @@ public sealed record ServerOptions
             Port = port,
             TicksPerSecond = tps,
             MapSeed = mapSeed,
+            
             MapWidth = mapWidth,
             MapHeight = mapHeight,
             Bandits = bandits != 0,

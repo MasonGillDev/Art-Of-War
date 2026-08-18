@@ -50,6 +50,25 @@ public sealed class PlayerDefeatedEvent : ScheduledEvent
 
         player.Defeated = true;
 
+        // The dead are fair game (2026-07-13): a defeated kingdom's
+        // remains — structures, remnant units — lose diplomatic
+        // protection for good. Mark the fallen faction Enemy with every
+        // other registered faction (the bandit rule, arrived at by
+        // history instead of birth): combat's AreHostile needs no new
+        // special case, the wire's relationship rows tell every client
+        // and every brain the same thing, and no peace can undo it — a
+        // defeated player's intents reject at the gate, so the row is
+        // permanent. Pending wars involving the dead collapse into the
+        // immediate hostility (their effective events fence stale).
+        // Deterministic id order for row creation.
+        foreach (var otherId in world.Players.Keys
+                     .Where(id => id >= 0 && id != OwnerId).OrderBy(id => id))
+        {
+            var pair = Sim.Core.Diplomacy.FactionPair.Of(OwnerId, otherId);
+            world.Diplomacy.ClearPending(pair);
+            world.Diplomacy.SetState(pair, Sim.Core.Diplomacy.RelationshipState.Enemy);
+        }
+
         // Game-over check. The "living players" set is the snapshot of
         // every NON-negative owner id (bandits -1 / caches -2 / rubble -3
         // never count) whose Defeated flag is false. <= 1 → fire

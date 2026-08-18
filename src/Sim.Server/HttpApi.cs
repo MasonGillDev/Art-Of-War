@@ -6,9 +6,14 @@ namespace Sim.Server;
 
 // HTTP transport: an HttpListener loop that routes the endpoints to the GameHost.
 // Knows nothing about the sim beyond the host's methods.
-//   GET  /view/{playerId}[?reveal=1]
-//   GET  /map/elevation   — full per-tile elevation grid (client-side terrain erosion)
-//   POST /intent
+//   v1 (debug client — FROZEN, do not change shape):
+//     GET  /view/{playerId}[?reveal=1]
+//     GET  /map/elevation   — full per-tile elevation grid (client-side terrain erosion)
+//   v2 (production client — Wire/WireV2.cs):
+//     GET  /v2/world              — static genesis payload, fetched ONCE per session
+//     GET  /v2/view/{playerId}[?reveal=1]  — slim per-tick view (fog runs, no tile arrays)
+//   both:
+//     POST /intent
 public sealed class HttpApi : IDisposable
 {
     private readonly GameHost _host;
@@ -43,6 +48,23 @@ public sealed class HttpApi : IDisposable
         {
             var req = ctx.Request;
             var path = req.Url!.AbsolutePath;
+
+            if (req.HttpMethod == "GET" && path == "/v2/world")
+            {
+                WriteJson(ctx, 200, _host.BuildWorldJson());
+                return;
+            }
+
+            if (req.HttpMethod == "GET" && path.StartsWith("/v2/view/"))
+            {
+                if (!int.TryParse(path["/v2/view/".Length..], out var v2pid))
+                {
+                    WriteJson(ctx, 400, "{\"error\":\"bad playerId\"}");
+                    return;
+                }
+                WriteJson(ctx, 200, _host.BuildViewV2Json(v2pid, req.QueryString["reveal"] == "1"));
+                return;
+            }
 
             if (req.HttpMethod == "GET" && path.StartsWith("/view/"))
             {

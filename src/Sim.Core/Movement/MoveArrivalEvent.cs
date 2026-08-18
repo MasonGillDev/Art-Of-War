@@ -141,6 +141,24 @@ public sealed class MoveArrivalEvent : ScheduledEvent
     // be in a group). Group-rendezvous second.
     private static void DispatchOnFinalArrival(Simulation sim, Unit unit)
     {
+        // M29 — PURSUIT FIRST. A chase commits one hop at a time, so every
+        // pursuit arrival lands here; PursuitRules either takes the next step
+        // toward where the target is NOW or ends the chase and frees the body.
+        //
+        // Ahead of the scout/haul branches deliberately: EngageUnitIntent
+        // clears HaulPlan when it commits, so a unit holding both anchors is
+        // already impossible, and ordering pursuit first means a hostile
+        // encounter always wins over an errand rather than racing it.
+        //
+        // Note the combat trigger for this tile has ALREADY run in Apply, so
+        // if this arrival was the catch, PursuitRules sees co-location and
+        // releases — the fight is scheduled and the pin has landed.
+        if (unit.Pursuit is not null)
+        {
+            Sim.Core.Combat.PursuitRules.Step(sim, unit);
+            return;
+        }
+
         // M20 — a scout on an active/returning mission advances to its next
         // waypoint (or home) here, the same way a HaulPlan continues below.
         // A Returned (or absent) mission falls through to ordinary handling so

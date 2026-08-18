@@ -308,3 +308,48 @@ Two razing rules sharpened alongside:
   re-interpreted the whole producing window under the post-raze rate —
   the degradation evaporated retroactively (latent since M24; razing
   extractors only became common with M25 wars).
+
+## Update 2026-07-13 — the dead are fair game (spilled vaults, hostile-to-all, extinction)
+
+Three rules landed together to make conquest FINISH — before them, a
+victorious army walked home and the fallen kingdom's farms, barracks and
+full castle vault sat inert and untouchable forever (attacking them
+required a war, and you cannot declare war on the defeated).
+
+1. **Razing spills the vault.** `SiegeDamage.RazeStructure` drops the
+   structure's contents — a storage's holdings (the castle treasury), an
+   extractor's buffer, a construction site's delivered materials — onto
+   the tile as a ground pile before the Rubble swap: the same loot
+   economy as a dying unit's cargo drop. Razing destroys the container,
+   not the goods; the victor hauls the vault home, bandits steal from
+   ruins, nothing simply vanishes. (Food homes spill holdings as-read;
+   the lazy consumption clock is not caught up for a structure about to
+   stop existing — its pending food events already fence on the lookup.)
+
+2. **A defeated faction is hostile to everyone.** `PlayerDefeatedEvent`
+   now marks the fallen faction Enemy with every other registered
+   faction (pending wars involving the dead collapse; their effective
+   events fence stale). It's the bandit rule arrived at by history:
+   combat's `AreHostile` needs no new special case, every client and
+   every brain reads the same relationship rows off the wire, and no
+   peace can undo it — the defeated player's intents reject at the gate.
+   The dead kingdom's remains — structures AND remnant units — are fair
+   game for all.
+
+3. **Extinction is defeat.** `CombatRules.OnUnitDeath` (the single
+   removal pipeline: combat, starvation, age) schedules the same
+   `PlayerDefeatedEvent` when a faction's population hits zero — a
+   kingdom with no people can never act, recover, or surrender, so it is
+   OUT: intents reject, hostile-to-all, and the game-over accounting
+   (last one standing wins) fires exactly as if its castle had fallen.
+   The event idempotency-fences, so extinction racing a castle raze is
+   safe; the castle of an extinct kingdom stands as lootable ruins until
+   someone razes it.
+
+The AI side (`ScavengeRung`, both brains — see docs/ai-players.md) turns
+the rules into behavior: surplus soldiers strip the ruins and haul the
+spilled treasuries home, with spare Haulers joining the freight loop once
+nothing is left to raze. Deferred: AI-driven `ClearRubbleIntent`
+reclamation of the razed tiles themselves (the fallen kingdom's WORKED
+LAND is claimable immediately — only the rubble tiles wait), and probing
+dead kingdoms for structures never seen.

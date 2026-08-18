@@ -15,6 +15,8 @@ shape the codebase, that future contributors would otherwise have to
 reverse-engineer, or that closes off alternatives — record it as a markdown
 file in `docs/`.
 
+Always recommend code refactoring if you come across sloppy inconsistant code convensions in the code base. These could be simple changes or large ones that touch multiple files!
+
 **One file per decision.** Filename is a short kebab-case slug describing the
 subject (e.g. `persistence-model.md`, `hex-vs-square-grid.md`,
 `combat-variance.md`).

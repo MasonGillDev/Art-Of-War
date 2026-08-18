@@ -39,6 +39,30 @@ public static class SiegeDamage
             Sim.Core.Biomes.BiomeDegradation.OnProductionTransition(
                 world, razedExtractor, sim.Now, world.BiomeDegradationConfig);
 
+        // The vault spills before the walls come down (2026-07-13):
+        // whatever the structure held — a storage's holdings (a castle's
+        // whole treasury), an extractor's buffer, a construction site's
+        // delivered materials — lands on the tile as a ground pile, the
+        // same loot economy as a dying unit's cargo drop. Razing destroys
+        // the CONTAINER, not the goods: the victor can haul the vault
+        // home (what makes dead kingdoms worth scavenging), bandits can
+        // steal from the ruins, and nothing simply vanishes. Food homes
+        // spill Holdings as-read — the lazy consumption clock is NOT
+        // caught up first (the structure is about to stop existing; its
+        // pending food events already fence on the structure lookup).
+        switch (structure)
+        {
+            case StorageStructure ss:
+                foreach (var (r, amt) in ss.Holdings) Spill(world, at, r, amt);
+                break;
+            case Extractor ex:
+                Spill(world, at, ex.Spec.OutputResource, ex.Buffer);
+                break;
+            case ConstructionSite cs:
+                foreach (var (r, amt) in cs.Delivered) Spill(world, at, r, amt);
+                break;
+        }
+
         // Direct dictionary mutation: we are REPLACING the entry, not
         // adding a fresh one. The structure being razed is already keyed
         // here; Remove + AddStructure would also work, but the explicit
@@ -54,5 +78,19 @@ public static class SiegeDamage
         // tick" edge — are safe.
         if (razedKind == StructureKind.Castle && formerOwner >= 0)
             sim.Schedule(sim.Now, new PlayerDefeatedEvent(formerOwner, at));
+    }
+
+    // Merge into the tile's ground pile (CombatRules.OnUnitDeath's
+    // cargo-drop shape, shared by every loot source).
+    private static void Spill(GameWorld world, TileCoord at, Resource r, int amount)
+    {
+        if (amount <= 0 || r == Resource.None) return;
+        if (!world.GroundResources.TryGetValue(at, out var pile))
+        {
+            pile = new SortedDictionary<Resource, int>();
+            world.GroundResources[at] = pile;
+        }
+        pile.TryGetValue(r, out var existing);
+        pile[r] = existing + amount;
     }
 }

@@ -87,56 +87,127 @@ public class IntentJsonTests
     }
 
     [Fact]
-    public void StandingOrderIntents_RoundTrip()
+    public void EngageUnitIntent_RoundTrips()
     {
-        // M18 — the order definition (steps with condition/action atoms)
-        // must survive the durable JSON round-trip exactly: a replayed
-        // SetStandingOrderIntent rebuilds the identical order.
-        var set = new Sim.Core.Automation.SetStandingOrderIntent(
-            Sim.Core.Automation.OrderKind.SupplyLine,
-            Sim.Core.Automation.LoopMode.Loop,
-            claimedUnits: new[] { 3, 5 },
-            steps: new List<Sim.Core.Automation.OrderStep>
+        // M29 — the whole chase unfolds from this one row on replay, so every
+        // field has to survive: a lost leash would turn a bounded patrol
+        // response into an unbounded one on recovery.
+        var intent = new Sim.Core.Combat.EngageUnitIntent(
+            unitId: 7, targetUnitId: 12, new TileCoord(20, 5), leashRadius: 9) { PlayerId = 3 };
+
+        var (typeName, payload) = IntentJson.Serialize(intent);
+        Assert.Equal("EngageUnitIntent", typeName);
+
+        var replay = Assert.IsType<Sim.Core.Combat.EngageUnitIntent>(
+            IntentJson.Deserialize(typeName, payload));
+        Assert.Equal(7, replay.UnitId);
+        Assert.Equal(12, replay.TargetUnitId);
+        Assert.Equal(new TileCoord(20, 5), replay.LeashTile);
+        Assert.Equal(9, replay.LeashRadius);
+        Assert.Equal(3, replay.PlayerId);
+    }
+
+    [Fact]
+    public void OrderIntents_RoundTrip()
+    {
+        // The whole order definition — trigger clauses, selector, crew,
+        // routine circuit — must survive the durable JSON round-trip
+        // exactly, or a replayed SetOrderIntent rebuilds a DIFFERENT
+        // automation than the one the player installed. (The get-only
+        // collection trap lives here: System.Text.Json cannot populate a
+        // get-only list, so an order's crew and trigger would silently come
+        // back EMPTY — a supply line that replays as a no-op.)
+        var definition = new Sim.Core.Automation.Order
+        {
+            Priority = 3,
+            SubjectKind = Sim.Core.Automation.SubjectKind.Structure,
+            SubjectTile = new TileCoord(4, 4),
+            Program = Sim.Core.Automation.ProgramKind.Maintain,
+            Recipe = Sim.Core.Automation.RecipeKind.Haul,
+            Target = 300,
+            SourceTile = new TileCoord(7, 1),
+            Resource = Resource.Wood,
+            CrewMode = Sim.Core.Automation.CrewMode.Named,
+            Selector = Sim.Core.Automation.Selector.InAgeWindow(
+                new TileCoord(4, 4), radius: 9, minAgeYears: 18, maxAgeYears: 45),
+            Trigger = Sim.Core.Automation.Trigger.When(
+                Sim.Core.Automation.Predicate.StockBelow(new TileCoord(4, 4), Resource.Wood, 20),
+                Sim.Core.Automation.Predicate.RoleCountBelow(UnitRole.Hauler, 6)),
+            Steps =
             {
-                new()
+                new Sim.Core.Automation.RoutineStep
                 {
-                    Conditions = new List<Sim.Core.Automation.ConditionSpec>
+                    Tile = new TileCoord(7, 1),
+                    Action = Sim.Core.Automation.RoutineAction.Load,
+                    Resource = Resource.Wood,
+                    DepartWhen =
                     {
-                        Sim.Core.Automation.ConditionSpec.StoreBelow(new TileCoord(4, 4), Resource.Wood, 20),
-                        Sim.Core.Automation.ConditionSpec.CargoEmpty(3),
-                        Sim.Core.Automation.ConditionSpec.ElapsedTicks(250),
+                        Sim.Core.Automation.Predicate.StockAtLeast(new TileCoord(7, 1), Resource.Wood, 25),
                     },
-                    Action = Sim.Core.Automation.ActionSpec.HaulTrip(
-                        3, new TileCoord(7, 1), new TileCoord(4, 4), Resource.Wood),
                 },
-                new()
-                {
-                    Action = Sim.Core.Automation.ActionSpec.Train(5, UnitRole.Archer),
-                },
-            })
-        { PlayerId = 2 };
+            },
+        };
+        definition.NamedCrew.Add(3);
+        definition.NamedCrew.Add(5);
+        var set = new Sim.Core.Automation.SetOrderIntent(definition) { PlayerId = 2 };
 
         var (tn, payload) = IntentJson.Serialize(set);
-        Assert.Equal("SetStandingOrderIntent", tn);
-        var replay = Assert.IsType<Sim.Core.Automation.SetStandingOrderIntent>(
+        Assert.Equal("SetOrderIntent", tn);
+        var replay = Assert.IsType<Sim.Core.Automation.SetOrderIntent>(
             IntentJson.Deserialize(tn, payload));
-        Assert.Equal(set.Kind, replay.Kind);
-        Assert.Equal(set.Loop, replay.Loop);
-        Assert.Equal(set.ClaimedUnits, replay.ClaimedUnits);
-        Assert.Equal(set.PlayerId, replay.PlayerId);
-        Assert.Equal(set.Steps.Count, replay.Steps.Count);
-        for (var i = 0; i < set.Steps.Count; i++)
-        {
-            Assert.Equal(set.Steps[i].Conditions, replay.Steps[i].Conditions);
-            Assert.Equal(set.Steps[i].Action, replay.Steps[i].Action);
-        }
+        var d = replay.Definition;
 
-        var clear = new Sim.Core.Automation.ClearStandingOrderIntent(orderId: 7) { PlayerId = 2 };
+        Assert.Equal(2, replay.PlayerId);
+        Assert.Equal(3, d.Priority);
+        Assert.Equal(Sim.Core.Automation.RecipeKind.Haul, d.Recipe);
+        Assert.Equal(new TileCoord(7, 1), d.SourceTile);
+        Assert.Equal(Resource.Wood, d.Resource);
+        Assert.Equal(300, d.Target);
+        Assert.Equal(new List<int> { 3, 5 }, d.NamedCrew);
+        Assert.Equal(45, d.Selector.MaxAgeYears);
+        var clause = Assert.Single(d.Trigger.Any);
+        Assert.Equal(2, clause.All.Count);
+        Assert.Equal(Sim.Core.Automation.PredicateKind.StockBelow, clause.All[0].Kind);
+        var step = Assert.Single(d.Steps);
+        Assert.Equal(Sim.Core.Automation.RoutineAction.Load, step.Action);
+        Assert.Single(step.DepartWhen);
+
+        var clear = new Sim.Core.Automation.ClearOrderIntent(orderId: 7) { PlayerId = 2 };
         var (tn2, p2) = IntentJson.Serialize(clear);
-        Assert.Equal("ClearStandingOrderIntent", tn2);
-        var replayClear = Assert.IsType<Sim.Core.Automation.ClearStandingOrderIntent>(
+        Assert.Equal("ClearOrderIntent", tn2);
+        var replayClear = Assert.IsType<Sim.Core.Automation.ClearOrderIntent>(
             IntentJson.Deserialize(tn2, p2));
         Assert.Equal(7, replayClear.OrderId);
         Assert.Equal(2, replayClear.PlayerId);
+
+        // M29 — patrol posture. A radius lost in the round-trip would replay
+        // as a PACIFIST circuit: the patrol still walks, still looks right on
+        // the dashboard, and simply never defends anything.
+        var patrol = new Sim.Core.Automation.Order
+        {
+            SubjectKind = Sim.Core.Automation.SubjectKind.Structure,
+            SubjectTile = new TileCoord(4, 4),
+            Program = Sim.Core.Automation.ProgramKind.Routine,
+            CrewMode = Sim.Core.Automation.CrewMode.Named,
+            EngageRadius = 6,
+            LeashRadius = 11,
+            Steps = { new Sim.Core.Automation.RoutineStep { Tile = new TileCoord(9, 9) } },
+        };
+        patrol.NamedCrew.Add(4);
+        var (tnP, pP) = IntentJson.Serialize(
+            new Sim.Core.Automation.SetOrderIntent(patrol) { PlayerId = 1 });
+        var replayPatrol = Assert.IsType<Sim.Core.Automation.SetOrderIntent>(
+            IntentJson.Deserialize(tnP, pP));
+        Assert.Equal(6, replayPatrol.Definition.EngageRadius);
+        Assert.Equal(11, replayPatrol.Definition.LeashRadius);
+
+        // Server-internal but durable: status + claim moves replay too.
+        var status = new Sim.Core.Automation.OrderStatusIntent(
+            7, Sim.Core.Automation.OrderStatusOp.AdvanceStep, expectedStep: 1) { PlayerId = 2 };
+        var (tn3, p3) = IntentJson.Serialize(status);
+        var replayStatus = Assert.IsType<Sim.Core.Automation.OrderStatusIntent>(
+            IntentJson.Deserialize(tn3, p3));
+        Assert.Equal(Sim.Core.Automation.OrderStatusOp.AdvanceStep, replayStatus.Op);
+        Assert.Equal(1, replayStatus.ExpectedStep);
     }
 }

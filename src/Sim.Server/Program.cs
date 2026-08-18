@@ -25,6 +25,11 @@ host.Start();
 using var api = new HttpApi(host, options.Port);
 
 Console.WriteLine($"Sim.Server listening on http://localhost:{options.Port}/  (tps={options.TicksPerSecond}, seed=0x{options.Seed:X}, bandits={(options.Bandits ? "on" : "off")}, ai={options.AiPlayers}, rivals={options.Rivals})");
+// M25 personalities — the who's-who, so a playtest can tell WHICH rival
+// is stalking it (Homesteaders are all identical; only rivals are named).
+foreach (var d in host.AiDrivers)
+    if (d.Kind == Sim.Server.Ai.BrainKind.Rival)
+        Console.WriteLine($"  rival: faction {d.PlayerId} ({d.Personality})");
 Console.WriteLine("  GET  /view/{playerId}");
 Console.WriteLine("  POST /intent");
 Console.WriteLine("Ctrl+C to stop.");

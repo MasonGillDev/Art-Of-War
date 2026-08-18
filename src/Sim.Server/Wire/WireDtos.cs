@@ -37,7 +37,9 @@ public sealed class ElevationDto
 }
 
 // GET /view/{playerId} response: the fog-filtered slice of the world.
-public sealed class ViewDto
+// NOT sealed: ViewV2Dto (WireV2.cs) extends it so the v2 projection reuses every
+// dynamic field and every Fill* helper instead of forking a parallel projector.
+public class ViewDto
 {
     public int PlayerId { get; set; }
     public int Width { get; set; }
@@ -92,6 +94,43 @@ public sealed class ViewDto
     public RelationshipDto[] Relationships { get; set; } = [];
     public PendingWarDto[] PendingWars { get; set; } = [];
     public ProposalDto[] IncomingProposals { get; set; } = [];
+
+    // Grave markers — combat/starvation deaths the viewer has WITNESSED (a
+    // grave enters the view the first poll its tile is visible and stays while
+    // the grave lives). Host-level presentation state, same tier as Notices —
+    // see GameHost.HarvestDeaths.
+    public GraveDto[] Graves { get; set; } = [];
+
+    // Ground piles — loose resources on tiles in CURRENT sight (a death's
+    // drop under a grave marker, a spilled haul). Contents are public while
+    // visible — the M23 cache stance: naming a resource to LoadCargoIntent
+    // requires seeing what's there, and the AI brains read the same rows
+    // (that's how battlefield salvage knows what to pick up). No remembered
+    // reveal: look away and the pile leaves the view — it may be looted at
+    // any time, so a stale amount would be a lie.
+    public PileDto[] Piles { get; set; } = [];
+}
+
+// One grave: where a unit fell to combat or starvation (never age or a bandit
+// despawn) AND left loot — the marker exists exactly as long as its tile's
+// ground pile does (empty-handed victims mint none; looting the pile retires
+// it). Id is monotonic; the client reconciles by Id rather than appending.
+public sealed class GraveDto
+{
+    public long Id { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public long Tick { get; set; }
+}
+
+// One visible ground pile (world.GroundResources projected for tiles in
+// current sight). Piles ordered (Y, X); Holdings ordered by resource id;
+// zero rows are dropped — an empty pile never reaches the wire.
+public sealed class PileDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public ResAmtDto[] Holdings { get; set; } = [];
 }
 
 // M25 — one known faction. Negative sentinel owners (bandits -1, caches -2,
@@ -166,43 +205,88 @@ public sealed class ScoutClaimDto
     public bool Novel { get; set; }
 }
 
-// M18 — one standing order, definition + cursor. Flat per the file rule.
+// One automation order (docs/automation-substrate.md), definition + live
+// status. Flat per the file rule; enums cross as ints.
 public sealed class OrderDto
 {
     public int Id { get; set; }
-    public int Kind { get; set; }            // Sim.Core OrderKind byte
-    public int Loop { get; set; }            // Sim.Core LoopMode byte
-    public bool Enabled { get; set; }
-    public int CurrentStep { get; set; }
-    public bool Dispatched { get; set; }     // current step's action submitted
-    public int RetryCount { get; set; }
-    public long StepEnteredTick { get; set; }
-    public int[] ClaimedUnits { get; set; } = [];
-    public OrderStepDto[] Steps { get; set; } = [];
-}
-
-public sealed class OrderStepDto
-{
-    public ConditionDto[] Conditions { get; set; } = [];
-    // The action atom, flattened (mirrors Sim.Core ActionSpec).
-    public int ActionKind { get; set; }
-    public int ActionUnit { get; set; }
-    public int TargetX { get; set; }
-    public int TargetY { get; set; }
-    public int SecondX { get; set; }
-    public int SecondY { get; set; }
+    public int Priority { get; set; }
+    public int Program { get; set; }         // ProgramKind byte
+    public int Recipe { get; set; }          // RecipeKind byte
+    public int SubjectKind { get; set; }
+    public int SubjectX { get; set; }
+    public int SubjectY { get; set; }
+    public int SubjectRole { get; set; }
+    public int SubjectGroupId { get; set; }
+    public long Target { get; set; }
+    public int SourceX { get; set; }
+    public int SourceY { get; set; }
     public int Resource { get; set; }
-    public int Role { get; set; }
+    public int CrewMode { get; set; }
+    public int[] NamedCrew { get; set; } = [];
+    // Units the order currently holds from the labour pool — what the UI
+    // needs to draw "who is working on this right now".
+    public int[] HeldUnits { get; set; } = [];
+    public SelectorDto Selector { get; set; } = new();
+    public TriggerClauseDto[] Trigger { get; set; } = [];
+    public RoutineStepDto[] Steps { get; set; } = [];
+    // M29 patrol posture (Routine only). 0/0 = a pacifist circuit.
+    public int EngageRadius { get; set; }
+    public int LeashRadius { get; set; }
+    // ---- live status ----
+    public bool Enabled { get; set; }
+    public int RetryCount { get; set; }
+    public long LastFiredTick { get; set; }
+    public int CurrentStep { get; set; }     // Routine cursor
+    // What the driver did with this order on its last think — the ONLY way
+    // the client can tell a happily-resting order (trigger not met) from one
+    // starving for hands (trigger met, pool dry). Both look identical from
+    // HeldUnits + LastFiredTick alone, and starving is the state that needs
+    // a player decision. Sourced from the server-side OrderJournal, which is
+    // presentation-only and never hashed: dropping it changes no world byte.
+    // 0 = never thought about yet (installed this tick, or driver disabled).
+    public int LastOutcome { get; set; }     // JournalOutcome byte
+    public long LastOutcomeTick { get; set; }
+    public string LastDetail { get; set; } = "";
 }
 
-public sealed class ConditionDto
+public sealed class SelectorDto
 {
-    public int Kind { get; set; }            // Sim.Core ConditionKind byte
-    public int UnitId { get; set; }
+    public int Role { get; set; }
+    public bool AnyRole { get; set; }
+    public int MinAgeYears { get; set; }
+    public int MaxAgeYears { get; set; }
+    public bool RequireDormant { get; set; }
+    public int AnchorX { get; set; }
+    public int AnchorY { get; set; }
+    public int Radius { get; set; }
+}
+
+// The trigger is disjunctive normal form: ANY clause whose predicates ALL
+// hold fires the order. An empty Trigger array means always.
+public sealed class TriggerClauseDto
+{
+    public PredicateDto[] All { get; set; } = [];
+}
+
+public sealed class PredicateDto
+{
+    public int Kind { get; set; }            // PredicateKind byte
     public int X { get; set; }
     public int Y { get; set; }
     public int Resource { get; set; }
+    public int Role { get; set; }
     public long Threshold { get; set; }
+    public bool CountInFlight { get; set; }
+}
+
+public sealed class RoutineStepDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Action { get; set; }          // RoutineAction byte
+    public int Resource { get; set; }
+    public PredicateDto[] DepartWhen { get; set; } = [];
 }
 
 public sealed class NoticeDto
@@ -228,6 +312,10 @@ public sealed class UnitDto
     public int Role { get; set; }
     public int OwnerId { get; set; }
     public int Age { get; set; }        // derived age in years
+    // Sim.Core has projected UnitView.Health since M7; v1 never carried it. Additive
+    // (v1 readers ignore the extra field), and the v2 client needs it for wounded-unit
+    // presentation. Own units only — enemy health is private, same rule as Power.
+    public int Health { get; set; } = -1;
     public int Activity { get; set; }   // Sim.Core Activity enum; -1 = hidden (not the viewer's unit)
     public int PassengerCap { get; set; } // boats: max passengers (0 for non-boats / not own)
     public int Passengers { get; set; }   // boats: current embarked passenger count

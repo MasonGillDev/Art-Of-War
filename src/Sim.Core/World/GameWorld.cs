@@ -88,17 +88,36 @@ public sealed class GameWorld
     public Sim.Core.Biomes.BiomeDegradationConfig BiomeDegradationConfig { get; private set; }
     public Dictionary<TileCoord, Sim.Core.Biomes.Fertility> Fertility { get; } = new();
 
-    // M18 — standing orders (player automation programs). Sparse by order
-    // id; sorted so snapshot iteration is canonical. Mutated ONLY by
-    // SetStandingOrderIntent / ClearStandingOrderIntent (definition) and
-    // AdvanceOrderCursorIntent (cursor block) — see Automation/StandingOrder.cs
-    // and docs/automation-layers.md. Sim.Core never evaluates these; the
-    // server-side AutomationDriver does.
-    public SortedDictionary<int, Sim.Core.Automation.StandingOrder> StandingOrders { get; } = new();
-
     // Monotonic order-id counter, same shape as NextUnitId. Ids start at 1
     // so 0 means "no order".
     public int NextOrderId { get; internal set; } = 1;
+
+    // THE ORDER TABLE (docs/automation-substrate.md, Layer 1) — player
+    // automation on the substrate model. Sparse by order id; sorted so both
+    // snapshot iteration AND driver evaluation are canonical (evaluation
+    // order is arbitration: whoever evaluates first claims the scarce unit).
+    // Mutated ONLY by SetOrderIntent / ClearOrderIntent (definition) and
+    // OrderStatusIntent (the status block).
+    //
+    // Shares NextOrderId with the outgoing M18 StandingOrders so ids never
+    // collide while both models coexist (substrate Phase D deletes the old).
+    public SortedDictionary<int, Sim.Core.Automation.Order> Orders { get; } = new();
+
+    // THE CLAIMS LEDGER (docs/automation-substrate.md) — which order is
+    // responsible for which unit. Keyed BY UNIT so "at most one claim per
+    // unit" is structural (a dictionary can't hold two values for a key)
+    // rather than an invariant someone has to enforce; sorted so snapshot
+    // iteration is canonical.
+    //
+    // Mutated ONLY by ClaimUnitIntent (server-internal, durable) — see
+    // Automation/Claim.cs. Sim.Core never decides who to claim; the
+    // server-side driver does, and the ledger just records the commitment
+    // so every later evaluation in the pass sees a smaller pool.
+    //
+    // PURE-READ WALL: Claims.IsDormant / IsClaimed / HeldBy read this and
+    // never write. A selector or view writing here would corrupt
+    // snapshotted state — same contract as Explored / Fertility above.
+    public SortedDictionary<int, Sim.Core.Automation.Claim> Claims { get; } = new();
 
     // M20 — scouting missions, keyed by the scout's own unit id (one slot
     // per scout). Sorted so snapshot iteration is canonical. The observation

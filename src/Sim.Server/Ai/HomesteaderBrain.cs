@@ -61,7 +61,18 @@ public sealed class HomesteaderBrain : IBrain
             new BuildRung(),
             new TrainRung(),
             new MusterRung(),
+            // Scavenging dead kingdoms (2026-07-13): a fallen neighbor's
+            // ruins are anyone's — even a homesteader hauls a dead
+            // castle's vault home. Party = surplus ABOVE the peacetime
+            // quota, so in every peaceful lab this rung is inert and the
+            // golden curves hold; it wakes only when a war footing left
+            // extra soldiers standing as some kingdom fell.
+            new ScavengeRung(),
             new GrowRung(),
+            // Battlefield salvage: free income lying on the ground — below
+            // Grow (mouths before loot runs) and above Fortify (a pile can
+            // walk off with the next bandit; quarried stone can't).
+            new SalvageRung(),
             // M26 — fortification is what quiet thinks buy: below Grow
             // (mouths before masonry) and above Scout (whose budget
             // already bounds it from starving).
@@ -74,6 +85,9 @@ public sealed class HomesteaderBrain : IBrain
         };
     }
 
+    // Enemy-intel perception rides the same hook as the Rival's (it only
+    // READS the view into droppable memory — no rung consumed it before
+    // ScavengeRung, which needs to know where the fallen built).
     public Decision Think(ViewDto view, long now, AiMemory mem) =>
-        BrainCore.Think(_ladder, _cfg, view, now, mem);
+        BrainCore.Think(_ladder, _cfg, view, now, mem, EnemyIntel.Perceive);
 }
