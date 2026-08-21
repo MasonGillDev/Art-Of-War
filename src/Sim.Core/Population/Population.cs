@@ -146,6 +146,25 @@ public static class Population
         if (home is not null)
             Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(home, sim);
 
+        // M30 — goal stop-on-removal, the One Stop Rule applied to goals
+        // (docs/goal-shaped-intents.md). Two halves:
+        //   * the dead unit's own goal is cancelled and announced;
+        //   * any goal that NAMED the dead unit as its partner dissolves too.
+        // The second half is what "no silent substitution" means in code: the
+        // sim does not find a replacement bride, it tells the player the match
+        // is off. Auto-replacement is the automation tier's feature.
+        Sim.Core.Intents.GoalRules.Dissolve(sim, unit, "participant died");
+        List<int>? orphaned = null;
+        foreach (var u in world.Units.Values)
+            if (u.Goal is { } g && g.PartnerUnitId == unit.Id)
+                (orphaned ??= new List<int>()).Add(u.Id);
+        if (orphaned is not null)
+        {
+            orphaned.Sort();   // canonical order — twin runs must match
+            foreach (var id in orphaned)
+                Sim.Core.Intents.GoalRules.Dissolve(sim, world.Units[id], "partner died");
+        }
+
         // M8 — breeding stop-on-removal.
         // Sparse iteration over Houses; houses are few.
         foreach (var s in world.Structures.Values)

@@ -1,3 +1,4 @@
+using Sim.Core;
 using Sim.Core.Engine;
 using Sim.Core.Persistence;
 using Sim.Core.Population;
@@ -89,23 +90,57 @@ public class HouseBreedingTests
     }
 
     [Fact]
-    public void BeginBreeding_RejectsNotAtHouseTile()
+    public void BeginBreeding_ParentOffTheTile_IsAcceptedAndDispatched()
     {
+        // M30 — was BeginBreeding_RejectsNotAtHouseTile. Standing on the house
+        // tile is not a decision the player should have to stage-manage; it is
+        // travel, and travel is the sim's job (docs/goal-shaped-intents.md).
+        //
+        // This fixture runs a CARICATURE clock (TicksPerYear: 10, so a whole
+        // fertility window is ~160 ticks against a 1,440-tick day) — the pair
+        // would age out mid-walk, which is the expiry rule working, not a bug.
+        // The walk-to-conception end-to-end lives in GoalShapedIntentsTests,
+        // on a real calendar; what belongs here is that the intent is ACCEPTED
+        // and dispatched rather than rejected.
         var sim = MakeReadyToBreed();
-        // Move unit 1 off the house tile.
+        var tile = new TileCoord(5, 5);
         sim.World.Units[1].Position = new TileCoord(0, 0);
-        sim.SubmitIntent(0, new BeginBreedingIntent(new TileCoord(5, 5), 1, 2));
+
+        sim.SubmitIntent(0, new BeginBreedingIntent(tile, 1, 2));
         sim.Run(until: 0);
-        Assert.Null(((House)sim.World.Structures[new TileCoord(5, 5)]).Occupation);
+
+        var house = (House)sim.World.Structures[tile];
+        Assert.False(sim.ResolvedLog[^1].Outcome.IsRejected);
+        Assert.NotNull(house.PendingBreed);                  // house reserved
+        Assert.NotNull(sim.World.Units[1].Goal);             // walker under way
+        Assert.Equal(Activity.Waiting, sim.World.Units[2].Activity);  // partner parked
     }
 
     [Fact]
-    public void BeginBreeding_RejectsInsufficientFood()
+    public void BeginBreeding_ShortOfFood_WaitsAndConceivesWhenItArrives()
     {
+        // M30 — was BeginBreeding_RejectsInsufficientFood. Failing here would
+        // hand the player a new appointment: predict the larder. The pair
+        // waits instead, and the delivery itself fires conception.
         var sim = MakeReadyToBreed(foodInHouse: Food - 1);
-        sim.SubmitIntent(0, new BeginBreedingIntent(new TileCoord(5, 5), 1, 2));
+        var tile = new TileCoord(5, 5);
+
+        sim.SubmitIntent(0, new BeginBreedingIntent(tile, 1, 2));
         sim.Run(until: 0);
-        Assert.Null(((House)sim.World.Structures[new TileCoord(5, 5)]).Occupation);
+
+        var house = (House)sim.World.Structures[tile];
+        Assert.Null(house.Occupation);
+        Assert.NotNull(house.PendingBreed);
+        Assert.Equal(Activity.Waiting, sim.World.Units[1].Activity);
+        Assert.Equal(Activity.Waiting, sim.World.Units[2].Activity);
+
+        // One unit of food — the exact moment the precondition clears.
+        Sim.Core.Logistics.CargoTransfer.DepositInto(sim, house, Resource.Food, 1);
+
+        Assert.NotNull(house.Occupation);
+        Assert.Null(house.PendingBreed);
+        Assert.Equal(Activity.Working, sim.World.Units[1].Activity);
+        Assert.Equal(Activity.Working, sim.World.Units[2].Activity);
     }
 
     [Fact]

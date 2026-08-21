@@ -19,6 +19,7 @@ public class IntentStoreTests
     {
         yield return new object[] { new MoveIntent(unitId: 7, new TileCoord(3, 4)) { PlayerId = 0 } };
         yield return new object[] { new PlaceSiteIntent(new TileCoord(1, 1), StructureKind.LumberCamp) { PlayerId = 0 } };
+        yield return new object[] { new BuildIntent(new TileCoord(1, 2), StructureKind.Farm, builderId: 4, workerToManId: 5) { PlayerId = 0 } };
         yield return new object[] { new AssignBuildersIntent(new TileCoord(2, 2), new[] { 1, 2, 3 }) { PlayerId = 0 } };
         yield return new object[] { new AssignWorkersIntent(new TileCoord(3, 3), new[] { 10, 11 }) { PlayerId = 0 } };
         yield return new object[] { new UnassignWorkersIntent(new TileCoord(3, 3), new[] { 11 }) { PlayerId = 0 } };
@@ -55,6 +56,11 @@ public class IntentStoreTests
     {
         switch (a)
         {
+            case BuildIntent ba when b is BuildIntent bb:
+                Assert.Equal(ba.Tile, bb.Tile);
+                Assert.Equal(ba.Kind, bb.Kind);
+                Assert.Equal(ba.BuilderId, bb.BuilderId);
+                Assert.Equal(ba.WorkerToManId, bb.WorkerToManId); break;
             case MoveIntent ma when b is MoveIntent mb:
                 Assert.Equal(ma.UnitId, mb.UnitId);
                 Assert.Equal(ma.Destination, mb.Destination); break;

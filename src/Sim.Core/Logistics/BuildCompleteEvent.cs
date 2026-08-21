@@ -56,6 +56,11 @@ public sealed class BuildCompleteEvent : ScheduledEvent
 
         world.Structures.Remove(SiteTile);
 
+        // M30 — the site is gone; any builder still walking toward it has
+        // nothing to build. Dissolve now rather than letting them arrive at a
+        // finished structure and puzzle it out there.
+        Sim.Core.Intents.GoalRules.OnStructureRemoved(sim, SiteTile, "build already finished");
+
         // M21 — a Canal build produces NO structure: it floods its path of
         // tiles into Water and irrigates the surrounding land. Handle it
         // before the structure-producing path and return.
@@ -82,6 +87,30 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         if (built is Extractor builtExtractor && site.ClaimTiles.Count > 0)
             builtExtractor.ClaimTiles.AddRange(site.ClaimTiles);
         world.AddStructure(built);
+        // M30 — THE MANNING SUB-GOAL. The player bound this worker when they
+        // placed the site; completion is the moment that decision executes.
+        // They are released from whatever they were doing (the player already
+        // chose this post over that one) and walk over. Nobody is substituted
+        // if they are gone — the structure simply stands unmanned and says so.
+        // docs/goal-shaped-intents.md.
+        if (site.WorkerToManId is { } manId && built is Extractor)
+        {
+            if (world.Units.TryGetValue(manId, out var manner)
+                && manner.OwnerId == built.OwnerId
+                && manner.GroupId is null
+                && !manner.IsEmbarked)
+            {
+                if (manner.Activity != Activity.Idle) WorkAssignment.Release(sim, manner);
+                Sim.Core.Intents.GoalRules.Begin(sim, manner,
+                    new GoalPlan(GoalKind.AssignWorker, SiteTile));
+            }
+            else
+            {
+                sim.Schedule(sim.Now, new Sim.Core.Intents.GoalDissolvedEvent(
+                    manId, GoalKind.AssignWorker, SiteTile, "bound worker is gone"));
+            }
+        }
+
         // M3 Phase B: if the new structure is a vision source (Castle /
         // Tower), reveal its area for the owner.
         var visionRadius = Sight.RadiusFor(built.Kind);

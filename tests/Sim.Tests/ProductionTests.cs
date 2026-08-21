@@ -1,3 +1,4 @@
+using Sim.Core;
 using Sim.Core.Engine;
 using Sim.Core.Logistics;
 using Sim.Core.Persistence;
@@ -86,17 +87,27 @@ public class ProductionTests
     }
 
     [Fact]
-    public void AssignWorkers_NotOnTile_Skipped()
+    public void AssignWorkers_NotOnTile_WalksThereAndTakesThePost()
     {
+        // M30 — this test used to assert the opposite (skipped + rejected).
+        // Requiring the worker to be standing on the tile is exactly the
+        // step-shaped defect goal-shaped intents removed: the player's one
+        // decision ("he works there") became a move, a wait, and a second
+        // intent. docs/goal-shaped-intents.md.
         var (sim, ex, tile) = MakeStaffableExtractor();
         AddIdleUnit(sim, 1, new TileCoord(0, 0), UnitRole.Lumberjack);
 
         sim.SubmitIntent(0, new AssignWorkersIntent(tile, new[] { 1 }));
-        sim.Run();
+        sim.Run(0);
 
-        Assert.Empty(ex.Workers);
-        Assert.Equal(Activity.Idle, sim.World.Units[1].Activity);
-        Assert.True(sim.ResolvedLog[^1].Outcome.IsRejected);
+        Assert.Empty(ex.Workers);                          // not there yet
+        Assert.NotNull(sim.World.Units[1].Goal);           // but it is not forgotten
+        Assert.False(sim.ResolvedLog[^1].Outcome.IsRejected);
+
+        sim.Run(10 * Time.Day);
+
+        Assert.Contains(1, ex.Workers);
+        Assert.Equal(Activity.Working, sim.World.Units[1].Activity);
     }
 
     [Fact]

@@ -70,6 +70,12 @@ public static class SiegeDamage
         world.Structures.Remove(at);
         world.AddStructure(new Rubble(at) { OwnerId = SiegeConstants.RubbleOwnerId });
 
+        // M30 — anyone walking toward this tile to work, build or breed there
+        // is now walking toward rubble. A traveller would find out on arrival,
+        // but a unit already WAITING here has nothing left to wake it, so the
+        // release happens at the razing. docs/goal-shaped-intents.md.
+        Sim.Core.Intents.GoalRules.OnStructureRemoved(sim, at, "razed");
+
         // M24 — castle destruction defeats the owner. Schedule (rather
         // than mutate inline) so the transition lands in ResolvedLog and
         // a defeated player's intents reject cleanly via the IntentEvent

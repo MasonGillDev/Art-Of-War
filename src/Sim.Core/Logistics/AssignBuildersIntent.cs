@@ -1,12 +1,17 @@
 namespace Sim.Core.Logistics;
 
-// Assigns one or more units to build at a ConstructionSite, then — if the
-// site's conditions are now fully met (materials + builder count) — triggers
-// StartOrResume on the site (which schedules the BuildCompleteEvent).
+// GOAL-SHAPED (M30): a named builder already standing on the site starts
+// building now; one standing anywhere else WALKS THERE AND STARTS ON ARRIVAL
+// (docs/goal-shaped-intents.md). Then — if the site's conditions are fully met
+// (materials + builder count) — triggers StartOrResume on the site (which
+// schedules the BuildCompleteEvent).
+//
+// The other half of that conjunction was already sim-driven: a materials
+// delivery arriving last starts the build by itself (CargoTransfer). M30 makes
+// the builder-arriving-last case symmetrical, so the two orders converge.
 //
 // Per-id validation (per docs/intent-validation.md):
-//   * Unit exists.
-//   * Unit is on SiteTile.
+//   * Unit exists, owned, not grouped, not embarked, of training age.
 //   * Unit.Role == UnitRole.Builder.
 //   * Unit.Activity == Idle.
 // Failing ids are skipped; valid ones still assign ("partial success" — the
@@ -36,28 +41,24 @@ public sealed class AssignBuildersIntent : Intent
                 $"construction site at {SiteTile.X},{SiteTile.Y} not owned by player {PlayerId}");
 
         var assigned = 0;
+        var dispatched = 0;
         foreach (var id in BuilderIds)
         {
             if (!world.Units.TryGetValue(id, out var unit)) continue;
             if (unit.OwnerId != PlayerId) continue;  // skip non-owned silently per per-id pattern
             if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
             if (unit.IsEmbarked) continue;            // embarked units are off-tile
-            if (unit.Position != SiteTile) continue;
             if (unit.Role != UnitRole.Builder) continue;
             if (unit.Activity != Activity.Idle) continue;
-            // M8: training-age gate — children (< MinTrainAge) can't be
-            // assigned a role-required task. They can still move + haul.
-            if (!Sim.Core.Population.Population.CanTrain(unit, sim.Now, world.PopulationConfig)) continue;
-            if (!unit.TrySetActivity(Activity.Building, SiteTile)) continue;
-            assigned++;
-            // M19 — auto-assignment trigger 2 (home follows work): the
-            // builder re-homes to the nearest house with a free bed near
-            // the site; none in radius → home stays. Their CURRENT home
-            // qualifies even when full (they hold one of its beds).
-            if (Sim.Core.Population.Population.NearestHouseWithBed(world, PlayerId, SiteTile,
-                    Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
-                is { } bed)
-                Sim.Core.Population.Population.SetHome(sim, unit, bed.At);
+
+            if (unit.Position == SiteTile)
+            {
+                if (WorkAssignment.TryAssignBuilder(sim, site, unit)) assigned++;
+            }
+            else if (GoalRules.Begin(sim, unit, new GoalPlan(GoalKind.AssignBuilder, SiteTile)))
+            {
+                dispatched++;
+            }
         }
 
         var triggered = false;
@@ -67,7 +68,7 @@ public sealed class AssignBuildersIntent : Intent
             triggered = true;
         }
 
-        if (assigned == 0 && !triggered)
+        if (assigned == 0 && dispatched == 0 && !triggered)
             return IntentOutcome.Reject("no eligible builders and no build start triggered");
 
         return IntentOutcome.Applied;

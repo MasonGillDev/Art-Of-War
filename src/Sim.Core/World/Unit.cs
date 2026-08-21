@@ -110,6 +110,15 @@ public sealed class Unit
     // cleared on completion. See HaulPlan.cs.
     public HaulPlan? HaulPlan { get; set; }
 
+    // ---- M30 in-flight goal anchor ----
+    // Set by GoalRules.Begin (from AssignWorkers/AssignBuilders/BeginBreeding
+    // when the unit isn't standing where the work is), dispatched by
+    // MoveArrivalEvent on final arrival, cleared by GoalRules on every exit
+    // path (completed, dissolved, countermanded by MoveIntent). While a goal
+    // is waiting on a precondition the unit sits in Activity.Waiting at the
+    // target tile. See GoalPlan.cs and docs/goal-shaped-intents.md.
+    public GoalPlan? Goal { get; set; }
+
     // ---- M29 in-flight pursuit anchor ----
     // Set by EngageUnitIntent, re-pathed one hop at a time by
     // MoveArrivalEvent, cleared by PursuitRules on every exit path (caught,

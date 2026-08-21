@@ -121,7 +121,7 @@ public static class Snapshot
     //       cursor MUST persist: a caravan mid-circuit has to resume where
     //       it was rather than restart at the first stop, and "which stop"
     //       is not derivable from the world.
-    public const int FormatVersion = 26;
+    public const int FormatVersion = 27;
 
     public static string Hash(Simulation sim)
     {
@@ -327,6 +327,11 @@ public static class Snapshot
             WriteNullableTileCoord(bw, u.Home);
             // v22: automation substrate — sacred-from-conscription flag.
             bw.Write(u.Protected);
+            // M30 (v27): in-flight GOAL anchor. A unit walking to a job -- or
+            // standing in a house waiting for food -- must wake from a restart
+            // still doing it, or the player's one decision quietly evaporates
+            // across the restart. docs/goal-shaped-intents.md.
+            WriteGoal(bw, u.Goal);
         }
     }
 
@@ -415,6 +420,24 @@ public static class Snapshot
         bw.Write(chase.LeashRadius);
     }
 
+    private static void WriteGoal(BinaryWriter bw, GoalPlan? goal)
+    {
+        if (goal is null) { bw.Write((byte)0); return; }
+        bw.Write((byte)1);
+        bw.Write((byte)goal.Kind);
+        bw.Write(goal.TargetTile.X); bw.Write(goal.TargetTile.Y);
+        bw.Write(goal.PartnerUnitId);
+    }
+
+    private static GoalPlan? ReadGoal(BinaryReader br)
+    {
+        if (br.ReadByte() == 0) return null;
+        var kind = (GoalKind)br.ReadByte();
+        var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+        var partner = br.ReadInt32();
+        return new GoalPlan(kind, tile, partner);
+    }
+
     private static Pursuit? ReadPursuit(BinaryReader br)
     {
         if (br.ReadByte() == 0) return null;
@@ -470,6 +493,7 @@ public static class Snapshot
             var embarkedOn = ReadNullableInt(br);
             var home = ReadNullableTileCoord(br);   // M19 (v13)
             var isProtected = br.ReadBoolean();     // v22 automation substrate
+            var goal = ReadGoal(br);                // M30 (v27)
 
             var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
             u.Home = home;   // ResidentCount restores from the House payload; no recompute
@@ -485,6 +509,7 @@ public static class Snapshot
             u.NextArrivalSeq  = nextArrSeq;
             u.HaulPlan = haulPlan;
             u.Pursuit  = pursuit;
+            u.Goal     = goal;
             u.GroupId  = groupId;
             u.Health   = health;
             foreach (var b in buffs) u.Buffs.Add(b);
@@ -695,6 +720,8 @@ public static class Snapshot
         // M15: pending claim reserved at placement (empty for
         // non-claiming targets).
         WriteClaimTiles(bw, c.ClaimTiles);
+        // M30 (v27): the manning sub-goal bound at placement.
+        WriteNullableInt(bw, c.WorkerToManId);
     }
 
     private static ConstructionSite ReadConstruction(BinaryReader br, TileCoord at, int ownerId)
@@ -741,6 +768,7 @@ public static class Snapshot
         c.BuildCompleteSeq = ReadNullableLong(br);
         c.DockSlip = ReadNullableTileCoord(br);
         ReadClaimTiles(br, c.ClaimTiles);
+        c.WorkerToManId = ReadNullableInt(br);   // M30 (v27)
         return c;
     }
 
@@ -795,6 +823,18 @@ public static class Snapshot
     private static void WriteHouseOccupation(BinaryWriter bw, House h)
     {
         bw.Write(h.ResidentCount);   // M19 (v13) — before the occupation flag
+        // M30 (v27) -- the PRE-conception reservation, written before the
+        // occupation so the two halves of a breeding cycle read in the order
+        // they occur. Both are never non-null at once.
+        if (h.PendingBreed is null) bw.Write((byte)0);
+        else
+        {
+            bw.Write((byte)1);
+            bw.Write(h.PendingBreed.ParentAId);
+            bw.Write(h.PendingBreed.ParentBId);
+            bw.Write(h.PendingBreed.ExpiryTick);
+            bw.Write(h.PendingBreed.ExpirySeq);
+        }
         if (h.Occupation is null) { bw.Write((byte)0); return; }
         bw.Write((byte)1);
         bw.Write(h.Occupation.ParentAId);
@@ -808,6 +848,16 @@ public static class Snapshot
         var h = new House(at) { OwnerId = ownerId };
         ReadStorage(br, h);
         h.ResidentCount = br.ReadInt32();   // M19 (v13)
+        if (br.ReadByte() == 1)              // M30 (v27) -- pending pair
+        {
+            h.PendingBreed = new PendingBreed
+            {
+                ParentAId = br.ReadInt32(),
+                ParentBId = br.ReadInt32(),
+                ExpiryTick = br.ReadInt64(),
+                ExpirySeq = br.ReadInt64(),
+            };
+        }
         if (br.ReadByte() == 1)
         {
             h.Occupation = new BreedingOccupation

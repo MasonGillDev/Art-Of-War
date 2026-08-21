@@ -38,6 +38,16 @@ public sealed class MoveIntent : Intent
         if (!sim.World.Grid.InBounds(Destination))
             return IntentOutcome.Reject($"destination {Destination.X},{Destination.Y} out of bounds");
 
+        // M30 — a march countermands a goal. The player has restated where
+        // this body should be, which overrides where the sim was taking it;
+        // dissolving here (rather than letting the anchor ride) is what keeps
+        // a countermanded goal from firing on arrival at the NEW destination.
+        // The one goal that outranks a move is a breeding cycle already
+        // conceived — rejected above, before this line.
+        // docs/goal-shaped-intents.md.
+        if (unit.Goal is not null)
+            Sim.Core.Intents.GoalRules.Dissolve(sim, unit, "countermanded by a new order");
+
         // Move-on-busy: a MoveIntent is authoritative — the player has retasked
         // this unit, and any structure depending on them gets cleaned up.
         // Cargo on a Hauling unit stays with them (they walk holding it; the

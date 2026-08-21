@@ -23,6 +23,78 @@ namespace Sim.Core.Logistics;
 // two can never drift apart again.
 public static class WorkAssignment
 {
+    // ---- M30: the two per-unit ASSIGN implementations ----
+    //
+    // These live here, beside Release, for the same reason Release exists: the
+    // roster is load-bearing, and there is now more than one road to a job.
+    // The intent applies them to a unit already standing on the tile; the goal
+    // engine applies them to a unit that has just walked there
+    // (docs/goal-shaped-intents.md). One implementation, so the immediate path
+    // and the walked path can never mean different things.
+    //
+    // Each returns false rather than throwing: callers treat a false exactly
+    // like the per-id skip they already had. Position IS checked here — both
+    // roads end with the body on the tile, and a caller that forgot would
+    // otherwise teleport a job.
+
+    public static bool TryAssignWorker(Simulation sim, Extractor extractor, Unit unit)
+    {
+        if (unit.Position != extractor.At) return false;
+        if (unit.OwnerId != extractor.OwnerId) return false;
+        if (unit.GroupId is not null) return false;
+        if (unit.IsEmbarked) return false;
+        if (unit.Activity != Activity.Idle) return false;
+        if (extractor.Workers.Count >= extractor.Spec.WorkerCap) return false;
+        // M8: training-age gate — extractor workers are role-tied assignments
+        // (the role bonus affects rate). Children can't be worker-assigned;
+        // they can still haul to the camp.
+        if (!Sim.Core.Population.Population.CanTrain(unit, sim.Now, sim.World.PopulationConfig))
+            return false;
+        if (!unit.TrySetActivity(Activity.Working, extractor.At)) return false;
+
+        extractor.Workers.Add(unit.Id);
+        ReHomeNearWork(sim, unit, extractor.At);
+        return true;
+    }
+
+    public static bool TryAssignBuilder(Simulation sim, ConstructionSite site, Unit unit)
+    {
+        if (unit.Position != site.At) return false;
+        if (unit.OwnerId != site.OwnerId) return false;
+        if (unit.GroupId is not null) return false;
+        if (unit.IsEmbarked) return false;
+        if (unit.Role != UnitRole.Builder) return false;
+        if (unit.Activity != Activity.Idle) return false;
+        if (!Sim.Core.Population.Population.CanTrain(unit, sim.Now, sim.World.PopulationConfig))
+            return false;
+        if (!unit.TrySetActivity(Activity.Building, site.At)) return false;
+
+        ReHomeNearWork(sim, unit, site.At);
+        return true;
+    }
+
+    // M19 — auto-assignment trigger 2 (home follows work): the worker re-homes
+    // to the nearest house with a free bed near the workplace; none in radius
+    // → home stays. Their CURRENT home qualifies even when full (they already
+    // hold one of its beds).
+    private static void ReHomeNearWork(Simulation sim, Unit unit, TileCoord workplace)
+    {
+        if (Sim.Core.Population.Population.NearestHouseWithBed(sim.World, unit.OwnerId, workplace,
+                Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
+            is { } bed)
+            Sim.Core.Population.Population.SetHome(sim, unit, bed.At);
+    }
+
+    // Arm an extractor that has become runnable (worked, buffer not full, not
+    // already armed). Idempotent; safe to call after every assignment.
+    public static void ArmIfNewlyRunnable(Simulation sim, Extractor extractor)
+    {
+        if (extractor.TickArmed) return;
+        if (extractor.Workers.Count == 0) return;
+        if (extractor.BufferFull()) return;
+        extractor.ArmIfDormant(sim);
+    }
+
     // Take `unit` off its current job and update the structure's roster.
     // Safe on an unassigned unit (no-op) and on a unit about to be removed
     // from the world — the death path calls it just before removal.

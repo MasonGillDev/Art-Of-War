@@ -87,9 +87,23 @@ public static class RegenerateQueue
             .ToList();
         foreach (var h in houses)
         {
-            if (h.Occupation is not { } occ) continue;
-            sim.ScheduleWithSeq(occ.BirthTick, occ.BirthSeq,
-                new Sim.Core.Population.BirthEvent(h.At));
+            if (h.Occupation is { } occ)
+            {
+                sim.ScheduleWithSeq(occ.BirthTick, occ.BirthSeq,
+                    new Sim.Core.Population.BirthEvent(h.At));
+                continue;
+            }
+
+            // M30 (v27): a house RESERVED by a pair that hasn't conceived yet
+            // owes one GoalExpiryEvent -- the deadline that stops a pair
+            // waiting on food that never comes from waiting forever. Rebuilt
+            // at its original Seq, same discipline as the birth above; without
+            // it the restored pair would stall for life, which is precisely
+            // the failure the event exists to prevent.
+            if (h.PendingBreed is { } pending && pending.ExpirySeq != 0)
+                sim.ScheduleWithSeq(pending.ExpiryTick, pending.ExpirySeq,
+                    new Sim.Core.Population.GoalExpiryEvent(
+                        h.At, pending.ParentAId, pending.ParentBId));
         }
 
         // M12: Dock boat-production anchors.

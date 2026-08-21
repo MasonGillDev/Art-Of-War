@@ -60,6 +60,13 @@ public static class CargoTransfer
         if (dest is ConstructionSite site && !site.IsActive && site.ConditionsMet(sim.World))
             site.StartOrResume(sim);
 
+        // M30 — the same shape one row down: a delivery that clears a
+        // precondition completes the goal that was waiting on it. A pair
+        // standing in a house for want of BirthFoodCost conceives the instant
+        // the food lands, with no poll anywhere (docs/goal-shaped-intents.md).
+        if (dest is House house && house.PendingBreed is not null && resource == Resource.Food)
+            Sim.Core.Population.BreedGoal.OnHouseSupplied(sim, house);
+
         return deposited;
     }
 

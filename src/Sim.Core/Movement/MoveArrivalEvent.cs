@@ -193,6 +193,19 @@ public sealed class MoveArrivalEvent : ScheduledEvent
             return;
         }
 
+        // M30 — a goal-shaped intent finishing its travel leg. LAST among the
+        // errands on purpose: pursuit and scouting outrank an assignment, and
+        // a unit carrying a Goal never carries HaulPlan or Pursuit anyway
+        // (goal intents bind Idle units; the intents that create those anchors
+        // reject non-Idle ones). GoalRules either completes the goal here or
+        // parks the body in Activity.Waiting until its precondition clears.
+        // docs/goal-shaped-intents.md.
+        if (unit.Goal is not null)
+        {
+            Sim.Core.Intents.GoalRules.OnArrival(sim, unit);
+            return;
+        }
+
         // M5 Phase B: a member of a Forming group reaching the rendezvous
         // tile decrements the pending count. When zero, the group transitions
         // to Idle. The walk to rendezvous is just MoveArrivalEvents on the

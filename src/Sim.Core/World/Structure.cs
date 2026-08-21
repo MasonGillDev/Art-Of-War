@@ -281,6 +281,14 @@ public sealed class ConstructionSite : Structure
     public long? LastActiveAtTick { get; set; }
     public long? ScheduledCompletion { get; set; }
 
+    // M30 — the MANNING sub-goal, bound when the site was placed
+    // (BuildIntent) and fired by BuildCompleteEvent: the unit the player named
+    // to work the finished structure. They are not touched until completion —
+    // a worker idling beside a half-built farm for a day is exactly the wasted
+    // body goal-shaping exists to prevent. Null = nobody bound.
+    // docs/goal-shaped-intents.md.
+    public int? WorkerToManId { get; set; }
+
     // M4 Phase A — Seq of the currently-scheduled BuildCompleteEvent. Same
     // recovery contract as Extractor.NextProductionTickSeq: lets
     // RegenerateQueue rebuild the queued completion with its original Seq.

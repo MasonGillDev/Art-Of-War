@@ -8,6 +8,12 @@ public enum Activity : byte
     Working = 2,
     Building = 3,
     Hauling = 4,
+    // M30 — the body is committed to a goal whose precondition hasn't been
+    // met yet: standing at the target, not working, not haulable. A
+    // NON-IDLE state on purpose — every solo intent gates on Idle, so a
+    // waiting unit is protected from silent retasking by every existing
+    // intent without touching any of them. docs/goal-shaped-intents.md.
+    Waiting = 5,
 }
 
 // The activity state machine for units.

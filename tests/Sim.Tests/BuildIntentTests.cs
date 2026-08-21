@@ -1,3 +1,4 @@
+using Sim.Core;
 using Sim.Core.Engine;
 using Sim.Core.Logistics;
 using Sim.Core.Persistence;
@@ -147,8 +148,11 @@ public class BuildIntentTests
     }
 
     [Fact]
-    public void AssignBuilders_NotOnSiteTile_Skipped()
+    public void AssignBuilders_NotOnSiteTile_WalksThereAndBuilds()
     {
+        // M30 — inverted from "skipped + rejected". Travel to the site is a
+        // mechanical step, and mechanical steps are the sim's job
+        // (docs/goal-shaped-intents.md).
         var sim = MakeSim();
         var siteTile = new TileCoord(2, 2);
         sim.World.Grid.SetBiome(siteTile, Biome.Forest);
@@ -156,10 +160,15 @@ public class BuildIntentTests
         AddBuilder(sim, 1, new TileCoord(0, 0));
 
         sim.SubmitIntent(0, new AssignBuildersIntent(siteTile, new[] { 1 }));
-        sim.Run();
+        sim.Run(0);
 
-        Assert.Equal(Activity.Idle, sim.World.Units[1].Activity);
-        Assert.True(sim.ResolvedLog[^1].Outcome.IsRejected);
+        Assert.NotNull(sim.World.Units[1].Goal);
+        Assert.False(sim.ResolvedLog[^1].Outcome.IsRejected);
+
+        sim.Run(10 * Time.Day);
+
+        Assert.Equal(siteTile, sim.World.Units[1].Position);
+        Assert.Equal(Activity.Building, sim.World.Units[1].Activity);
     }
 
     [Fact]

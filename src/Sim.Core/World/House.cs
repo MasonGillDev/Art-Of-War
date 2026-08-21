@@ -25,6 +25,14 @@ public sealed class House : StorageStructure, Sim.Core.Food.IFoodHome
     // Null = vacant; non-null = breeding in progress.
     public BreedingOccupation? Occupation { get; internal set; }
 
+    // M30 — the house is RESERVED: a named pair is on its way here (or already
+    // standing here waiting for food), but nothing has been conceived yet.
+    // Without this the reservation would be invisible and two BeginBreeding
+    // intents could send four parents to one house, three of whom would find
+    // out on arrival. Cleared on conception (Occupation takes over) or on any
+    // dissolution. docs/goal-shaped-intents.md.
+    public PendingBreed? PendingBreed { get; internal set; }
+
     // M19 — how many units call this house HOME (their food demand
     // point; see Unit.Home). Capped by StructureSpec.ResidentCap.
     // Mutated ONLY via Population.SetHome (plus the death path in
@@ -44,6 +52,29 @@ public sealed class House : StorageStructure, Sim.Core.Food.IFoodHome
     public long? NextStarvationDeathSeq { get; set; }
 
     public House(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.House).StorageCapacity) { }
+}
+
+// M30 — the pre-conception half of a breeding cycle: who is expected, and
+// nothing more. The parents carry the matching GoalPlan; this is the
+// structure-side registration that makes the reservation legible to other
+// intents (and to the player, through the wire).
+public sealed class PendingBreed
+{
+    public int ParentAId { get; init; }
+    public int ParentBId { get; init; }
+
+    // The M4 anchor pair, exactly as BreedingOccupation carries (BirthTick,
+    // BirthSeq): the tick and Seq of this reservation's GoalExpiryEvent, so
+    // RegenerateQueue can rebuild it after a restore at its ORIGINAL Seq and
+    // the event can fence itself against a stale firing.
+    public long ExpiryTick { get; set; }
+    public long ExpirySeq { get; set; }
+
+    public bool ContainsParent(int unitId) =>
+        unitId == ParentAId || unitId == ParentBId;
+
+    public int OtherParent(int unitId) =>
+        unitId == ParentAId ? ParentBId : ParentAId;
 }
 
 // Per-house breeding anchor. Class (not struct) so the null-vacant

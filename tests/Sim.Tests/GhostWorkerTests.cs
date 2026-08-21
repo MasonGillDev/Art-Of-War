@@ -54,7 +54,19 @@ public class GhostWorkerTests
             BornTick = -25 * cfg.TicksPerYear,
             DeathTick = 70L * cfg.TicksPerYear, DeathSeq = 1,
         });
-        world.NextUnitId = 2;
+        // A second citizen, safe at the castle. Not decoration: without them
+        // the starving farmer is the realm's LAST unit, so their death is
+        // extinction, extinction is defeat (docs/sieges-and-conquest.md), and
+        // a defeated player's intents are all rejected at the wrapper — which
+        // silently turned "the slot is reusable" into "the player no longer
+        // exists". The fixture predates extinction-implies-defeat.
+        world.AddUnit(new Unit(9, Keep)
+        {
+            Role = UnitRole.None, OwnerId = 0,
+            BornTick = -25 * cfg.TicksPerYear,
+            DeathTick = 70L * cfg.TicksPerYear, DeathSeq = 2,
+        });
+        world.NextUnitId = 10;
 
         var explored = new HashSet<TileCoord>();
         for (var y = 0; y < 24; y++)

@@ -36,6 +36,7 @@ public static class IntentJson
     {
         [typeof(MoveIntent)]              = "MoveIntent",
         [typeof(PlaceSiteIntent)]         = "PlaceSiteIntent",
+        [typeof(BuildIntent)]             = "BuildIntent",
         [typeof(AssignBuildersIntent)]    = "AssignBuildersIntent",
         [typeof(AssignWorkersIntent)]     = "AssignWorkersIntent",
         [typeof(UnassignWorkersIntent)]   = "UnassignWorkersIntent",
@@ -104,6 +105,7 @@ public static class IntentJson
         {
             "MoveIntent"             => JsonSerializer.Deserialize<MoveIntent>(payload, Options),
             "PlaceSiteIntent"        => JsonSerializer.Deserialize<PlaceSiteIntent>(payload, Options),
+            "BuildIntent"            => JsonSerializer.Deserialize<BuildIntent>(payload, Options),
             "AssignBuildersIntent"   => JsonSerializer.Deserialize<AssignBuildersIntent>(payload, Options),
             "AssignWorkersIntent"    => JsonSerializer.Deserialize<AssignWorkersIntent>(payload, Options),
             "UnassignWorkersIntent"  => JsonSerializer.Deserialize<UnassignWorkersIntent>(payload, Options),
