@@ -14,6 +14,8 @@ namespace Sim.Server;
 //     GET  /v2/view/{playerId}[?reveal=1]  — slim per-tick view (fog runs, no tile arrays)
 //   both:
 //     POST /intent
+//     GET/POST /v2/pace           — host pause + speed. NOT an intent: pacing is a
+//                                   property of the host clock, never of the sim.
 public sealed class HttpApi : IDisposable
 {
     private readonly GameHost _host;
@@ -84,6 +86,36 @@ public sealed class HttpApi : IDisposable
                 return;
             }
 
+            // C2 — host pacing. Pause and speed are a property of the HOST, not the
+            // simulation: they change how fast wall-clock time is fed to the tick
+            // loop and nothing else. Deliberately NOT an intent, because an intent
+            // is a durable world event and this is not one — it never enters the
+            // replay log, and a replay of this game runs at whatever pace the
+            // replayer chooses.
+            if (path == "/v2/pace")
+            {
+                if (req.HttpMethod == "GET")
+                {
+                    WriteJson(ctx, 200, PaceJson(_host.GetPace()));
+                    return;
+                }
+                if (req.HttpMethod == "POST")
+                {
+                    using var paceReader = new StreamReader(req.InputStream, req.ContentEncoding);
+                    var paceBody = paceReader.ReadToEnd();
+                    PaceDto? want;
+                    try { want = JsonSerializer.Deserialize<PaceDto>(paceBody, ServerJson.Options); }
+                    catch (JsonException) { want = null; }
+                    if (want is null)
+                    {
+                        WriteJson(ctx, 400, "{\"error\":\"malformed pace body\"}");
+                        return;
+                    }
+                    WriteJson(ctx, 200, PaceJson(_host.SetPace(want.Paused, want.TicksPerSecond)));
+                    return;
+                }
+            }
+
             if (req.HttpMethod == "POST" && path == "/intent")
             {
                 using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
@@ -100,6 +132,20 @@ public sealed class HttpApi : IDisposable
             catch { /* client gone */ }
         }
     }
+
+    // The pace request/response body. Same field names both directions, so the
+    // client posts what it wants and renders what it got back — the clamp is
+    // visible rather than silent.
+    private sealed class PaceDto
+    {
+        public bool Paused { get; set; }
+        public double TicksPerSecond { get; set; } = 4.0;
+    }
+
+    private static string PaceJson((bool Paused, double TicksPerSecond) pace) =>
+        JsonSerializer.Serialize(
+            new PaceDto { Paused = pace.Paused, TicksPerSecond = pace.TicksPerSecond },
+            ServerJson.Options);
 
     private static void WriteJson(HttpListenerContext ctx, int status, string json)
     {

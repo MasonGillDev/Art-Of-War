@@ -192,4 +192,315 @@ public class WireV2Tests
             else Assert.Equal(-1, u.Health);   // enemy health is private, same rule as Power
         }
     }
+
+    // C2 — group membership, the last of C1's surfacing debt. Without this the client
+    // can only select N loose units where the player commanded one army.
+    [Fact]
+    public void GroupId_IsOnTheWireForOwnUnitsAndPrivateForEveryoneElse()
+    {
+        // Big enough that the AI faction actually gets a start — at 64x64 the
+        // generator skips it, and then the privacy half of this test is vacuous.
+        var (sim, projector, _) = MakeWorld(128);
+
+        // Two of player 0's own units, gathered where they already stand so the
+        // group forms immediately rather than after a march.
+        var mine = sim.World.Units.Values.Where(u => u.OwnerId == 0).Take(2).ToList();
+        Assert.Equal(2, mine.Count);
+        var rendezvous = mine[0].Position;
+        sim.SubmitIntent(sim.Now, new Sim.Core.Groups.FormGroupIntent(
+            mine.Select(u => u.Id).ToArray(), rendezvous) { PlayerId = 0 });
+        sim.Run(until: sim.Now + 1);
+
+        // The sim is the authority on who ended up grouped; the wire must agree
+        // with it exactly rather than with what we asked for.
+        var expected = sim.World.Units.Values
+            .Where(u => u.OwnerId == 0 && u.GroupId is not null)
+            .ToDictionary(u => u.Id, u => u.GroupId!.Value);
+        Assert.NotEmpty(expected);
+
+        // reveal:true so foreign units are in the payload at all — that is the only
+        // way to assert they are redacted.
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
+        var sawForeign = false;
+        foreach (var u in v2.Units)
+        {
+            if (u.OwnerId != 0)
+            {
+                sawForeign = true;
+                Assert.Equal(-1, u.GroupId);   // enemy order of battle is private
+                continue;
+            }
+            Assert.Equal(expected.TryGetValue(u.Id, out var g) ? g : -1, u.GroupId);
+        }
+        Assert.True(sawForeign, "no foreign units in the revealed view — privacy went unasserted");
+    }
+
+    // The fogged path builds units from UnitView, not Unit, and has to look the real
+    // unit back up to fill own-only fields. That is a separate code path from the one
+    // above and has silently dropped fields before.
+    [Fact]
+    public void GroupId_SurvivesTheFoggedProjectionPath()
+    {
+        var (sim, projector, _) = MakeWorld();
+
+        var mine = sim.World.Units.Values.Where(u => u.OwnerId == 0).Take(2).ToList();
+        sim.SubmitIntent(sim.Now, new Sim.Core.Groups.FormGroupIntent(
+            mine.Select(u => u.Id).ToArray(), mine[0].Position) { PlayerId = 0 });
+        sim.Run(until: sim.Now + 1);
+
+        var expected = sim.World.Units.Values
+            .Where(u => u.OwnerId == 0 && u.GroupId is not null)
+            .ToDictionary(u => u.Id, u => u.GroupId!.Value);
+        Assert.NotEmpty(expected);
+
+        var fogged = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        var matched = 0;
+        foreach (var u in fogged.Units.Where(u => u.OwnerId == 0))
+        {
+            Assert.Equal(expected.TryGetValue(u.Id, out var g) ? g : -1, u.GroupId);
+            if (u.GroupId != -1) matched++;
+        }
+        // Own units are always visible to their owner, so every grouped unit must
+        // have come through — a zero here would make the assert loop vacuous.
+        Assert.Equal(expected.Count, matched);
+    }
+
+    // Pacing is a HOST dial, not a sim one. These two tests pin the property that
+    // makes it safe to expose: the sim cannot tell the difference.
+    [Fact]
+    public void Pace_IsClampedAndReportedBack()
+    {
+        var (_, _, build) = MakeWorld();
+        using var host = new GameHost(build, seed: 0xBEEF, ticksPerSecond: 4.0);
+
+        Assert.Equal((false, 4.0), host.GetPace());
+
+        // Above the ceiling clamps down, and the caller is TOLD the real pace so the
+        // client's speed control can render the server's truth, not its own request.
+        Assert.Equal((false, GameHost.MaxTicksPerSecond), host.SetPace(false, 1000.0));
+        // Zero is not a back-door pause: the floor keeps "stopped" expressible only
+        // through the flag that actually means it.
+        Assert.Equal((false, GameHost.MinTicksPerSecond), host.SetPace(false, 0.0));
+
+        Assert.Equal((true, 8.0), host.SetPace(true, 8.0));
+        Assert.Equal((true, 8.0), host.GetPace());
+    }
+
+    [Fact]
+    public void Pace_NeverAppearsInTheDurableIntentLog()
+    {
+        var (_, _, build) = MakeWorld();
+        using var host = new GameHost(build, seed: 0xBEEF, ticksPerSecond: 4.0);
+
+        host.SetPace(true, 1.0);
+        host.SetPace(false, 32.0);
+
+        // A pause is not a world event. If pacing ever became an intent it would be
+        // replayed, and a replay would then be hostage to how fast someone once
+        // watched it — which is exactly the coupling this endpoint exists to avoid.
+        var pace = host.SubmitEnvelopeJson("{\"typeName\":\"SetPaceIntent\",\"payload\":\"{}\"}");
+        Assert.Contains("false", pace);   // no such intent type exists, and must not
+    }
+
+    // C2 — the build catalog rides genesis so the client's build menu is the sim's
+    // own table rather than a copy of it. The whole point is that it CANNOT drift,
+    // so this test compares against StructureCatalog directly.
+    [Fact]
+    public void BuildCatalog_IsExactlyTheSimsPlayerBuildableKinds()
+    {
+        var (_, projector, _) = MakeWorld();
+        var world = projector.BuildWorldDto();
+
+        var expected = Enum.GetValues<Sim.Core.World.StructureKind>()
+            .Where(k => Sim.Core.World.StructureCatalog.Spec(k).IsPlayerBuildable)
+            .Select(k => (int)k)
+            .OrderBy(k => k)
+            .ToArray();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, world.Buildable.Select(b => b.Kind).ToArray());
+
+        foreach (var opt in world.Buildable)
+        {
+            var spec = Sim.Core.World.StructureCatalog.Spec((Sim.Core.World.StructureKind)opt.Kind);
+            Assert.Equal((int)spec.RequiredBiome, opt.RequiredBiome);
+            Assert.Equal(spec.RequiredBuilderCount, opt.BuildersRequired);
+            Assert.Equal(spec.ClaimCount, opt.ClaimCount);
+            Assert.Equal(spec.BuildCost.Count, opt.Cost.Length);
+            foreach (var c in opt.Cost)
+                Assert.Equal(spec.BuildCost[(Sim.Core.World.Resource)c.Resource], c.Amount);
+
+            // What it DOES once built — the half of the catalog the build menu needs
+            // to answer "why would I want this?".
+            Assert.Equal((int)spec.OutputResource, opt.OutputResource);
+            Assert.Equal((int)spec.PreferredRole, opt.PreferredRole);
+            Assert.Equal(spec.WorkerCap, opt.WorkerCap);
+            Assert.Equal(spec.StorageCapacity, opt.StorageCapacity);
+            Assert.Equal(spec.ResidentCap, opt.ResidentCap);
+        }
+    }
+
+    // C2 — the current hop. Without it the client draws units at tile centres and
+    // they teleport 100 world units four times a second; nothing ever reads as
+    // marching. The numbers must be the SIM'S, not an estimate, or the animation
+    // drifts out of step with where the unit actually is.
+    [Fact]
+    public void Hop_MatchesTheSimsOwnArrivalTickAndCost()
+    {
+        var (sim, projector, _) = MakeWorld();
+
+        var mover = sim.World.Units.Values.First(u => u.OwnerId == 0);
+        var from = mover.Position;
+        var dest = new Sim.Core.World.TileCoord(from.X + 6, from.Y);
+        sim.SubmitIntent(sim.Now, new Sim.Core.Movement.MoveIntent(mover.Id, dest) { PlayerId = 0 });
+        sim.Run(until: sim.Now + 1);
+
+        // The sim must actually be mid-hop, or the assertions below are vacuous.
+        Assert.NotNull(mover.NextArrivalTick);
+        Assert.NotEmpty(mover.PathRemaining!);
+
+        var expectedTo = mover.PathRemaining![0];
+        var expectedCost = Sim.Core.Movement.MovementCost.ExecutionCost(
+            sim.World, mover.Position, expectedTo, sim.Now, mover.Traversal);
+
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        var dto = v2.Units.Single(u => u.Id == mover.Id);
+
+        Assert.Equal(expectedTo.X, dto.HopToX);
+        Assert.Equal(expectedTo.Y, dto.HopToY);
+        Assert.Equal(mover.NextArrivalTick!.Value, dto.HopArriveTick);
+        Assert.Equal(expectedCost, dto.HopTotalTicks);
+        Assert.True(dto.HopTotalTicks > 0, "a hop with no duration cannot be interpolated");
+    }
+
+    // A step is PUBLIC where a destination is PRIVATE: you can see which way an army
+    // is walking, but not where it is ultimately headed. If the hop were redacted
+    // like DestX/DestY, every foreign unit would slide around without animating.
+    [Fact]
+    public void Hop_IsPublicEvenThoughTheDestinationIsNot()
+    {
+        var (sim, projector, _) = MakeWorld(128);
+
+        var foreign = sim.World.Units.Values.First(u => u.OwnerId != 0);
+        var dest = new Sim.Core.World.TileCoord(foreign.Position.X + 6, foreign.Position.Y);
+        sim.SubmitIntent(sim.Now,
+            new Sim.Core.Movement.MoveIntent(foreign.Id, dest) { PlayerId = foreign.OwnerId });
+        sim.Run(until: sim.Now + 1);
+        Assert.NotNull(foreign.NextArrivalTick);
+
+        // reveal:true so the foreign unit is in the payload at all.
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
+        var dto = v2.Units.Single(u => u.Id == foreign.Id);
+
+        Assert.Equal(-1, dto.DestX);          // the plan stays private
+        Assert.Equal(-1, dto.DestY);
+        Assert.True(dto.HopToX >= 0, "the step a visible unit is taking is observable");
+        Assert.True(dto.HopTotalTicks > 0);
+    }
+
+    // A unit standing still has no hop, and -1 is what says so. A client that
+    // interpolated a stale hop would walk idle units off their tile.
+    [Fact]
+    public void Hop_IsAbsentForAStandingUnit()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+
+        var still = v2.Units.Where(u => u.OwnerId == 0).ToList();
+        Assert.NotEmpty(still);
+        foreach (var u in still)
+        {
+            Assert.Equal(-1, u.HopToX);
+            Assert.Equal(-1, u.HopToY);
+            Assert.Equal(-1, u.HopArriveTick);
+            Assert.Equal(-1, u.HopTotalTicks);
+        }
+    }
+
+    // The breeding UI has to say WHY a citizen is ineligible — too young, past the
+    // window, the house too poor. Those bounds are an explicit tuning knob sim-side
+    // ("change it here and every age gate follows"), so a copy in the client would
+    // start lying the first time demography was retuned.
+    [Fact]
+    public void PopulationRules_AreTheWorldsOwnConfig()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var cfg = sim.World.PopulationConfig;
+        var world = projector.BuildWorldDto(cfg);
+
+        Assert.Equal(cfg.TicksPerYear, world.Population.TicksPerYear);
+        Assert.Equal(cfg.MinTrainAge, world.Population.MinTrainAge);
+        Assert.Equal(cfg.MinFertileAge, world.Population.MinFertileAge);
+        Assert.Equal(cfg.MaxFertileAge, world.Population.MaxFertileAge);
+        Assert.Equal(cfg.GestationTicks, world.Population.GestationTicks);
+        Assert.Equal(cfg.BirthFoodCost, world.Population.BirthFoodCost);
+
+        // A window that is empty or inverted would gray out every citizen forever.
+        Assert.True(world.Population.MinFertileAge > 0);
+        Assert.True(world.Population.MaxFertileAge >= world.Population.MinFertileAge);
+        Assert.True(world.Population.BirthFoodCost > 0);
+    }
+
+    // Training is gated on standing INSIDE the right building, so the command panel
+    // must know which building teaches what. Inverted server-side from
+    // RoleTrainerCatalog rather than copied into the client, where it would drift the
+    // first time a role moved between the School and the Barracks.
+    [Fact]
+    public void BuildCatalog_SaysWhichRolesEachBuildingTrains()
+    {
+        var (_, projector, _) = MakeWorld();
+        var world = projector.BuildWorldDto();
+
+        foreach (var opt in world.Buildable)
+        foreach (var role in opt.TrainsRoles)
+            Assert.Equal((Sim.Core.World.StructureKind)opt.Kind,
+                Sim.Core.Population.RoleTrainerCatalog.TrainerFor((Sim.Core.World.UnitRole)role));
+
+        var school = world.Buildable.Single(b => b.Kind == (int)Sim.Core.World.StructureKind.School);
+        var barracks = world.Buildable.Single(b => b.Kind == (int)Sim.Core.World.StructureKind.Barracks);
+
+        Assert.Contains((int)Sim.Core.World.UnitRole.Farmer, school.TrainsRoles);
+        Assert.Contains((int)Sim.Core.World.UnitRole.Builder, school.TrainsRoles);
+        Assert.DoesNotContain((int)Sim.Core.World.UnitRole.Soldier, school.TrainsRoles);
+
+        Assert.Equal(
+            new[] { (int)Sim.Core.World.UnitRole.Soldier, (int)Sim.Core.World.UnitRole.Archer }
+                .OrderBy(r => r).ToArray(),
+            barracks.TrainsRoles.OrderBy(r => r).ToArray());
+
+        // A Boat is dock-produced, never trained from a citizen, so no building may
+        // offer it. A Farm teaches nobody at all.
+        foreach (var opt in world.Buildable)
+            Assert.DoesNotContain((int)Sim.Core.World.UnitRole.Boat, opt.TrainsRoles);
+        Assert.Empty(world.Buildable
+            .Single(b => b.Kind == (int)Sim.Core.World.StructureKind.Farm).TrainsRoles);
+    }
+
+    // The three kinds a single tile cannot express. PlaceSiteIntent rejects all of
+    // them outright, so a one-click build button for any of them is a button that
+    // can only ever fail — the flag is what keeps them out of that menu.
+    [Fact]
+    public void BuildCatalog_FlagsTheKindsASingleTileCannotPlace()
+    {
+        var (_, projector, _) = MakeWorld();
+        var world = projector.BuildWorldDto();
+
+        int ModeOf(Sim.Core.World.StructureKind k) =>
+            world.Buildable.Single(b => b.Kind == (int)k).PlacementMode;
+
+        // The Dock is placeable — it just wants a second click for its slip. Calling
+        // it merely "special" was what kept it out of the menu entirely.
+        Assert.Equal(PlacementModes.SiteAndSlip, ModeOf(Sim.Core.World.StructureKind.Dock));
+
+        // Whole-route builds with their own intents; PlaceSiteIntent rejects them.
+        Assert.Equal(PlacementModes.Path, ModeOf(Sim.Core.World.StructureKind.Canal));
+        Assert.Equal(PlacementModes.Path, ModeOf(Sim.Core.World.StructureKind.Wall));
+
+        // Cleared, never built.
+        Assert.Equal(PlacementModes.NotBuildable, ModeOf(Sim.Core.World.StructureKind.Rubble));
+
+        // Everything else is one click.
+        Assert.Equal(PlacementModes.Single, ModeOf(Sim.Core.World.StructureKind.Farm));
+        Assert.Equal(PlacementModes.Single, ModeOf(Sim.Core.World.StructureKind.House));
+    }
 }

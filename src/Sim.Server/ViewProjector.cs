@@ -65,7 +65,12 @@ public sealed class ViewProjector
     // GET /v2/world — the static genesis payload, fetched ONCE per session. Same
     // immutable, lock-free read as BuildElevationDto: terrain and the genesis biome
     // grid are generation-time facts. Everything a tick can change lives on the view.
-    public WorldDto BuildWorldDto()
+    public WorldDto BuildWorldDto() => BuildWorldDto(new Sim.Core.Population.PopulationConfig());
+
+    /// The genesis payload, with the world's own demographic rules folded in. The
+    /// parameterless overload above uses defaults and exists for tests and tooling
+    /// that have no world in hand.
+    public WorldDto BuildWorldDto(Sim.Core.Population.PopulationConfig population)
     {
         var w = _map.Width;
         var h = _map.Height;
@@ -87,8 +92,76 @@ public sealed class ViewProjector
             TicksPerDay = Sim.Core.Time.Day,
             Elevation = elev,
             Biome = biome,
+            Buildable = BuildCatalog(),
+            Population = new PopulationRulesDto
+            {
+                TicksPerYear = population.TicksPerYear,
+                MinTrainAge = population.MinTrainAge,
+                MinFertileAge = population.MinFertileAge,
+                MaxFertileAge = population.MaxFertileAge,
+                GestationTicks = population.GestationTicks,
+                BirthFoodCost = population.BirthFoodCost,
+            },
         };
     }
+
+    // The player-buildable kinds, read straight off StructureCatalog so the client's
+    // build menu and the sim's validator can never disagree. Ordered by kind for a
+    // deterministic payload.
+    private static BuildOptionDto[] BuildCatalog()
+    {
+        var options = new List<BuildOptionDto>();
+        foreach (var kind in Enum.GetValues<StructureKind>().OrderBy(k => (int)k))
+        {
+            var spec = StructureCatalog.Spec(kind);
+            if (!spec.IsPlayerBuildable) continue;
+
+            options.Add(new BuildOptionDto
+            {
+                Kind = (int)kind,
+                Name = kind.ToString(),
+                RequiredBiome = (int)spec.RequiredBiome,
+                Cost = spec.BuildCost
+                    .OrderBy(kv => (int)kv.Key)
+                    .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+                    .ToArray(),
+                BuildersRequired = spec.RequiredBuilderCount,
+                BuildDurationTicks = spec.BuildDurationTicks,
+                ClaimCount = spec.ClaimCount,
+                ClaimRange = spec.ClaimRange,
+                // The placement gesture. This must track the by-name rejections at
+                // the top of PlaceSiteIntent.Resolve — Canal and Wall are whole-path
+                // builds with their own intents, Rubble is cleared rather than built
+                // — plus the Dock, which resolves only when given a slip tile.
+                PlacementMode = kind switch
+                {
+                    StructureKind.Dock => PlacementModes.SiteAndSlip,
+                    StructureKind.Canal or StructureKind.Wall => PlacementModes.Path,
+                    StructureKind.Rubble => PlacementModes.NotBuildable,
+                    _ => PlacementModes.Single,
+                },
+                OutputResource = (int)spec.OutputResource,
+                PreferredRole = (int)spec.PreferredRole,
+                WorkerCap = spec.WorkerCap,
+                StorageCapacity = spec.StorageCapacity,
+                ResidentCap = spec.ResidentCap,
+                TrainsRoles = TrainableAt(kind),
+            });
+        }
+        return options.ToArray();
+    }
+
+    // Which roles this building trains, by inverting RoleTrainerCatalog. Boat maps
+    // to no trainer (dock-produced, never trained from a citizen) and None is not a
+    // role anyone asks for, so both are skipped. Ordered by role id, deterministic.
+    private static int[] TrainableAt(StructureKind kind) =>
+        Enum.GetValues<UnitRole>()
+            .Where(r => r != UnitRole.None && r != UnitRole.Boat
+                        && r != UnitRole.Bandit
+                        && Sim.Core.Population.RoleTrainerCatalog.TrainerFor(r) == kind)
+            .OrderBy(r => (int)r)
+            .Select(r => (int)r)
+            .ToArray();
 
     // GET /v2/view/{playerId} — the per-tick payload. Same sim reads as Project(),
     // but the tile arrays (96% of a v1 view, and almost entirely constant) become an
@@ -490,7 +563,7 @@ public sealed class ViewProjector
     {
         var mine = u.OwnerId == viewerPlayerId;
         var dest = mine ? FinalDestOf(u, world) : null;
-        return new UnitDto
+        var dto = new UnitDto
         {
             Id = u.Id, X = u.Position.X, Y = u.Position.Y, Role = (int)u.Role, OwnerId = u.OwnerId,
             Age = Sim.Core.Population.Population.AgeYears(u, now, world.PopulationConfig),
@@ -506,7 +579,69 @@ public sealed class ViewProjector
             Buffs = mine ? u.Buffs.Select(b => b.Kind).ToArray() : Array.Empty<string>(),
             DestX = dest?.X ?? -1,
             DestY = dest?.Y ?? -1,
+            // Private like Activity: you command your own formations, you do not
+            // read the enemy's order of battle off the map.
+            GroupId = mine ? u.GroupId ?? -1 : -1,
+            // M30 — the pending-goal tag. Own units only, same rule as Activity.
+            GoalKind = mine ? (int)(u.Goal?.Kind ?? 0) : 0,
+            GoalState = mine ? GoalStateOf(u, world) : "",
+            GoalX = mine ? u.Goal?.TargetTile.X ?? -1 : -1,
+            GoalY = mine ? u.Goal?.TargetTile.Y ?? -1 : -1,
         };
+        FillHop(dto, u, world, now);
+        return dto;
+    }
+
+    // M30 — what a pending goal is DOING right now, in the words the visibility
+    // contract asks for: "en route" while the body is still walking, and
+    // "waiting: <precondition>" once it has arrived and stalled. The two read
+    // differently on purpose — a stalled goal is waiting on something the
+    // player controls, and that is the one the player may want to act on.
+    private static string GoalStateOf(Unit u, GameWorld world)
+    {
+        if (u.Goal is not { } goal) return "";
+        if (u.Activity != Activity.Waiting) return "en route";
+
+        // Waiting: name the thing that has not happened yet. Today only the
+        // breeding pair waits, and it waits on one of exactly two things.
+        if (goal.Kind == GoalKind.Breed
+            && world.Structures.TryGetValue(goal.TargetTile, out var s) && s is House house)
+        {
+            var cfg = world.PopulationConfig;
+            if (house.AmountOf(Resource.Food) < cfg.BirthFoodCost) return "waiting: food";
+            return "waiting: partner";
+        }
+        return "waiting";
+    }
+
+    // The hop a unit is in the middle of: which tile it is stepping to, the tick it
+    // lands, and how many ticks the step takes. Everything the client needs to place
+    // it BETWEEN tiles instead of snapping it to a centre four times a second.
+    //
+    // Pure reads throughout — the anchor fields the sim already keeps for recovery
+    // (PathRemaining / NextArrivalTick) plus MovementCost.ExecutionCost, which is the
+    // same function that priced the hop when it was scheduled. So the duration is the
+    // sim's own number, not an estimate.
+    //
+    // Emitted for EVERY visible unit. See UnitDto.HopToX for why a step is public
+    // where a destination is not.
+    private static void FillHop(UnitDto dto, Unit u, GameWorld world, long now)
+    {
+        if (u.NextArrivalTick is not { } arriveAt) return;
+        if (u.PathRemaining is not { Count: > 0 } path) return;
+
+        var to = path[0];
+        var cost = Sim.Core.Movement.MovementCost.ExecutionCost(
+            world, u.Position, to, now, u.Traversal);
+
+        // Impassable comes back as a sentinel cost; a hop that cannot be priced is
+        // one the client should not try to animate.
+        if (cost <= 0 || cost >= Sim.Core.World.Biomes.Impassable) return;
+
+        dto.HopToX = to.X;
+        dto.HopToY = to.Y;
+        dto.HopArriveTick = arriveAt;
+        dto.HopTotalTicks = cost;
     }
 
     // Where is this unit ultimately headed? Solo movement carries its own
@@ -531,8 +666,13 @@ public sealed class ViewProjector
         var power = -1;
         var buffs = Array.Empty<string>();
         var destX = -1; var destY = -1;
+        var groupId = -1;
+        // The hop is public, so the real unit is looked up for EVERY visible unit,
+        // not only the viewer's own. The own-only enrichment stays inside the branch.
+        world.Units.TryGetValue(uv.Id, out var live);
         if (uv.OwnerId == viewerPlayerId && world.Units.TryGetValue(uv.Id, out var real))
         {
+            groupId = real.GroupId ?? -1;
             activity = (int)real.Activity;
             cap = real.PassengerCap;
             pax = real.Passengers.Count;
@@ -542,7 +682,7 @@ public sealed class ViewProjector
             buffs = real.Buffs.Select(b => b.Kind).ToArray();
             if (FinalDestOf(real, world) is { } dest) { destX = dest.X; destY = dest.Y; }
         }
-        return new UnitDto
+        var dto2 = new UnitDto
         {
             Id = uv.Id, X = uv.Position.X, Y = uv.Position.Y, Role = (int)uv.Role, OwnerId = uv.OwnerId,
             Age = uv.AgeYears,
@@ -556,7 +696,10 @@ public sealed class ViewProjector
             Buffs = buffs,
             DestX = destX,
             DestY = destY,
+            GroupId = groupId,
         };
+        if (live is not null) FillHop(dto2, live, world, now);
+        return dto2;
     }
 
     // Reveal path: the real Structure is in hand.

@@ -329,6 +329,47 @@ public sealed class UnitDto
     // as Activity.
     public int DestX { get; set; } = -1;
     public int DestY { get; set; } = -1;
+    // C2 — group membership. The last of the C1 surfacing debt: without this the
+    // client cannot select an army AS an army, only as N loose units. Own units
+    // only (-1 = ungrouped, or not yours) — an enemy stack's command structure is
+    // private, same rule as Activity and Power. The member list is not sent: it is
+    // exactly the set of units carrying this id, so the client derives it.
+    public int GroupId { get; set; } = -1;
+
+    // M30 — THE VISIBILITY CONTRACT (docs/goal-shaped-intents.md). Goal-shaped
+    // intents move work off the player's memory and into the sim; if the sim
+    // then says nothing about that work, appointment-anxiety is simply traded
+    // for silent-failure anxiety. So a unit under a goal always reports it.
+    //
+    // GoalKind: 0 = none, otherwise Sim.Core.World.GoalKind.
+    // GoalState: "" when idle, else "en route" or "waiting: <what for>", which
+    // is exactly the distinction the client needs to draw a STALLED goal
+    // differently from one that is progressing.
+    // Own units only, like Activity — an enemy's plans are not public.
+    public int GoalKind { get; set; }
+    public string GoalState { get; set; } = "";
+    public int GoalX { get; set; } = -1;
+    public int GoalY { get; set; } = -1;
+
+    // C2 — THE CURRENT HOP, so the client can draw motion instead of teleportation.
+    //
+    // Units move tile to tile on scheduled arrivals, so a client that draws them at
+    // their tile centre relocates them 100 world units four times a second and
+    // nothing ever reads as marching. With the destination tile, the tick the hop
+    // lands on, and how long the hop takes, the client can place a unit exactly where
+    // it is between tiles — derived from sim facts, not smoothed into existence.
+    //
+    // PUBLIC FOR EVERY VISIBLE UNIT, unlike DestX/DestY above. The distinction is
+    // between a plan and a physical fact: where an army is ultimately HEADED is
+    // private intelligence, but which way it is stepping right now is something you
+    // can see by looking at it. Emitting the hop reveals no plan — one tile of a
+    // march is not a destination.
+    //
+    // -1 on all four when the unit is standing still.
+    public int HopToX { get; set; } = -1;
+    public int HopToY { get; set; } = -1;
+    public long HopArriveTick { get; set; } = -1;
+    public int HopTotalTicks { get; set; } = -1;
 }
 
 public sealed class RoadDto

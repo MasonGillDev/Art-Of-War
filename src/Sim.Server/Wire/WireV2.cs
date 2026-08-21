@@ -30,6 +30,119 @@ public sealed class WorldDto
     // Row-major (index = y * Width + x), full map, fog-free.
     public int[] Elevation { get; set; } = []; // raw quantized heights, [0, 1000]
     public int[] Biome { get; set; } = [];     // GENESIS biome per tile; live drift arrives as view overrides
+
+    // C2 — what the player may build, straight off StructureCatalog.
+    //
+    // ON THE WIRE ON PURPOSE. The client needs to tell the player that a Farm wants
+    // Grassland and a Quarry wants Mountain; the alternative is a hard-coded table
+    // in the client that silently drifts from the catalog the moment anyone retunes
+    // it. Sending the server's own table means the UI cannot disagree with the sim.
+    //
+    // It is STATIC — a property of the build, not of the world — so it rides genesis
+    // and is fetched exactly once. It is also PUBLIC: what a Farm costs is common
+    // knowledge, not intelligence about anyone's holdings.
+    //
+    // This is REFERENCE DATA, not permission. The catalog says what a kind requires;
+    // only the sim says whether this tile, right now, will take it.
+    public BuildOptionDto[] Buildable { get; set; } = [];
+
+    /// The demographic rules, straight off the world's PopulationConfig.
+    ///
+    /// SAME ARGUMENT AS THE BUILD CATALOGUE. A breeding UI has to tell the player why
+    /// a citizen is not eligible — too young, past the window, house too poor — and
+    /// the alternative is hard-coding numbers that are explicitly a tuning knob
+    /// ("change it here and every age gate follows"). The client would start lying the
+    /// first time anyone retuned demography.
+    ///
+    /// Static and public: how long a pregnancy takes is not intelligence about anyone.
+    public PopulationRulesDto Population { get; set; } = new();
+}
+
+/// World-level demographic settings. Ages are in AGE-YEARS, the sim's compressed
+/// demographic clock — not game-days and not real years.
+public sealed class PopulationRulesDto
+{
+    public long TicksPerYear { get; set; }
+    public int MinTrainAge { get; set; }
+    public int MinFertileAge { get; set; }
+    public int MaxFertileAge { get; set; }
+    public long GestationTicks { get; set; }
+
+    /// Food the House pays at the moment breeding starts.
+    public int BirthFoodCost { get; set; }
+}
+
+// One player-buildable structure kind.
+/// The placement gestures carried by BuildOptionDto.PlacementMode. Lives beside the
+/// field it describes rather than inside the projector that happens to fill it.
+public static class PlacementModes
+{
+    public const int Single = 0;
+    public const int SiteAndSlip = 1;
+    public const int Path = 2;
+    public const int NotBuildable = 3;
+}
+
+public sealed class BuildOptionDto
+{
+    public int Kind { get; set; }
+    public string Name { get; set; } = "";
+
+    /// Biome the tile must be, or 0 (None) for "anywhere". The single most useful
+    /// thing the build UI can tell a player before they click.
+    public int RequiredBiome { get; set; }
+
+    public ResAmtDto[] Cost { get; set; } = [];
+    public int BuildersRequired { get; set; }
+    public long BuildDurationTicks { get; set; }
+
+    /// Working tiles this kind claims around itself (Farm 15, LumberCamp 8; 0 for
+    /// everything else). Claimed land excludes ALL other structures, so a player who
+    /// does not know this will not understand why their next building is refused.
+    public int ClaimCount { get; set; }
+    public int ClaimRange { get; set; }
+
+    /// HOW this kind is placed — the gesture the client must run, decided by the
+    /// server because the server is where the rejections live.
+    ///
+    ///   0 Single      one click on a tile.
+    ///   1 SiteAndSlip two clicks: the building's land tile, then an adjacent WATER
+    ///                 tile for its slip. The Dock, and only the Dock.
+    ///   2 Path        a whole line or route with its own intent (Canal, Wall).
+    ///                 PlaceSiteIntent rejects these by name.
+    ///   3 NotBuildable never placed by a player at all (Rubble is CLEARED, not built).
+    ///
+    /// A flag was not enough. "Needs something special" told the client to hide the
+    /// Dock, when what it actually needed was to know the Dock takes a second click.
+    public int PlacementMode { get; set; }
+
+    // What the thing DOES once it stands. The build menu has to answer "why would I
+    // want this?" before the player commits wood to it, and every field below is a
+    // pure read of the same StructureSpec the sim resolves against — so the menu
+    // cannot describe a building the sim would not build.
+
+    /// Resource it produces, or 0 (None) for non-extractors.
+    public int OutputResource { get; set; }
+
+    /// The role that works it best — a real production bonus, not flavour. This is
+    /// the "what units work it" the build menu needs, and getting it from here rather
+    /// than from a table in the client is what keeps the two from drifting.
+    public int PreferredRole { get; set; }
+
+    /// Workers it can take (0 = takes none).
+    public int WorkerCap { get; set; }
+
+    /// Resources it can hold (0 = not storage).
+    public int StorageCapacity { get; set; }
+
+    /// How many may call it home (0 = not a home, or uncapped as with the Castle).
+    public int ResidentCap { get; set; }
+
+    /// Roles a unit STANDING ON THIS BUILDING can be trained into — the School's
+    /// civilian trades, the Barracks' Soldier and Archer, empty for everything else.
+    /// Inverted from RoleTrainerCatalog so the client never has to know which
+    /// building teaches what; a role added sim-side simply appears.
+    public int[] TrainsRoles { get; set; } = [];
 }
 
 // Per-tile knowledge state, run-length encoded row-major across the whole grid.

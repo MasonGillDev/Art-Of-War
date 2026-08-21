@@ -17,7 +17,32 @@ public sealed class GameHost : IDisposable
 {
     private readonly Simulation _sim;
     private readonly ViewProjector _projector;
-    private readonly double _ticksPerSecond;
+    // PACING IS NOT SIMULATION. This is the wall-clock rate at which the host feeds
+    // ticks to a sim that has no idea time is passing unevenly — pausing stops the
+    // host asking for ticks, it does not stop or alter a single sim rule. The tick
+    // stream is byte-identical whatever the player does with these controls, which is
+    // why they are safe to expose and why they never appear in the replay log.
+    //
+    // Volatile double is not a thing in C#, so the rate rides an Interlocked-friendly
+    // long via BitConverter. The clock thread reads it every iteration; the HTTP
+    // thread writes it. No lock, because a torn read here would be one frame of
+    // slightly-wrong pace, and taking _gate would block the HTTP thread behind a
+    // whole tick's worth of AI thinking.
+    private long _paceBits;
+    private volatile bool _paused;
+
+    private double TicksPerSecond
+    {
+        get => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _paceBits));
+        set => Interlocked.Exchange(ref _paceBits, BitConverter.DoubleToInt64Bits(value));
+    }
+
+    /// Host pacing bounds. The floor is above zero because "paused" is its own flag —
+    /// a zero rate would be a second, silent way to pause. The ceiling exists because
+    /// the clock loop sleeps 20ms, so past ~50 ticks/sec each wake has to run a burst
+    /// of ticks and the AI drivers start dominating the frame.
+    public const double MinTicksPerSecond = 0.25;
+    public const double MaxTicksPerSecond = 32.0;
     private readonly Bandits.BanditDriver? _bandits;
     private readonly List<Ai.AiPlayerDriver> _ais = new();
     private readonly Automation.SubstrateDriver? _automation;
@@ -63,7 +88,7 @@ public sealed class GameHost : IDisposable
         // leave starting units immortal.
         _sim = new Simulation(build.Spec, seed);
         _projector = new ViewProjector(build);
-        _ticksPerSecond = ticksPerSecond;
+        TicksPerSecond = Math.Clamp(ticksPerSecond, MinTicksPerSecond, MaxTicksPerSecond);
         // M16 — the bandit brain rides the clock loop (same thread, same
         // lock); null when disabled.
         if (banditConfig is { Enabled: true })
@@ -141,7 +166,10 @@ public sealed class GameHost : IDisposable
         while (_running)
         {
             var now = sw.Elapsed.TotalSeconds;
-            accum += (now - last) * _ticksPerSecond;
+            // Paused: advance `last` but not `accum`. Doing both is what keeps a
+            // resume from time-warping — the sim never owes catch-up for wall-clock
+            // that elapsed while it was stopped.
+            if (!_paused) accum += (now - last) * TicksPerSecond;
             last = now;
             lock (_gate)
             {
@@ -164,6 +192,19 @@ public sealed class GameHost : IDisposable
             }
             Thread.Sleep(20);
         }
+    }
+
+    /// Current host pacing. Read by GET /v2/pace so the client's controls show the
+    /// server's truth rather than what the client last asked for.
+    public (bool Paused, double TicksPerSecond) GetPace() => (_paused, TicksPerSecond);
+
+    /// Set host pacing. Returns the pace actually adopted, which may differ from the
+    /// request because the rate is clamped — the client renders what came back.
+    public (bool Paused, double TicksPerSecond) SetPace(bool paused, double ticksPerSecond)
+    {
+        TicksPerSecond = Math.Clamp(ticksPerSecond, MinTicksPerSecond, MaxTicksPerSecond);
+        _paused = paused;
+        return GetPace();
     }
 
     // POST /intent: parse the {typeName,payload} envelope, rebuild the Intent via the
@@ -234,8 +275,12 @@ public sealed class GameHost : IDisposable
     // GET /v2/world: the static genesis payload (terrain + genesis biome grid).
     // Immutable generation-time data, so like BuildElevationJson it reads nothing
     // live and takes no _gate lock.
+    // Genesis is immutable generation-time data, so this stays lock-free — but the
+    // world's PopulationConfig is a readonly record struct set once at genesis, so
+    // reading it here races nothing.
     public string BuildWorldJson() =>
-        JsonSerializer.Serialize(_projector.BuildWorldDto(), ServerJson.Options);
+        JsonSerializer.Serialize(
+            _projector.BuildWorldDto(_sim.World.PopulationConfig), ServerJson.Options);
 
     // GET /v2/view/{playerId}: the slim per-tick view. Identical lock discipline and
     // notice/report attachment to BuildViewJson — only the tile encoding differs.
