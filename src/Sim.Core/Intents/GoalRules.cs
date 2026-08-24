@@ -126,6 +126,24 @@ public static class GoalRules
                 }
                 return;
 
+            case GoalKind.Train:
+            {
+                var role = (UnitRole)goal.Arg;
+                // Re-check on arrival, not just at firing: the school may have
+                // been razed and rebuilt as something else, the unit may have
+                // aged into or out of eligibility, the owner may have changed.
+                if (Sim.Core.Population.TrainingRules.Blocker(sim, unit, role) is { } why)
+                {
+                    Dissolve(sim, unit, why);
+                    return;
+                }
+                if (Sim.Core.Population.TrainingRules.Train(sim, unit, role))
+                    Complete(unit);
+                else
+                    Dissolve(sim, unit, "no trainer here for that role");
+                return;
+            }
+
             case GoalKind.Breed:
                 if (structure is not House house)
                 {

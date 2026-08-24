@@ -121,7 +121,7 @@ public static class Snapshot
     //       cursor MUST persist: a caravan mid-circuit has to resume where
     //       it was rather than restart at the first stop, and "which stop"
     //       is not derivable from the world.
-    public const int FormatVersion = 28;
+    public const int FormatVersion = 29;
 
     public static string Hash(Simulation sim)
     {
@@ -463,6 +463,7 @@ public static class Snapshot
         bw.Write((byte)goal.Kind);
         bw.Write(goal.TargetTile.X); bw.Write(goal.TargetTile.Y);
         bw.Write(goal.PartnerUnitId);
+        bw.Write(goal.Arg);              // M30 follow-up (v29)
     }
 
     private static GoalPlan? ReadGoal(BinaryReader br)
@@ -471,7 +472,8 @@ public static class Snapshot
         var kind = (GoalKind)br.ReadByte();
         var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
         var partner = br.ReadInt32();
-        return new GoalPlan(kind, tile, partner);
+        var arg = br.ReadInt32();        // M30 follow-up (v29)
+        return new GoalPlan(kind, tile, partner, arg);
     }
 
     private static Pursuit? ReadPursuit(BinaryReader br)

@@ -437,6 +437,101 @@ public class GoalShapedIntentsTests
         Assert.Null(sim.World.Units[4].Goal);
     }
 
+    // ---- training ----------------------------------------------------------
+    //
+    // "Train him as a builder" used to mean: walk him to the school, wait,
+    // come back, fire the intent. The middle two steps were the appointment.
+
+    private static readonly TileCoord SchoolAt = new(4, 14);
+
+    [Fact]
+    public void ACitizenTrainedFromAcrossTheMap_WalksToTheSchoolAndChangesRole()
+    {
+        var sim = BuildWorld(out _);
+        sim.World.AddStructure(new School(SchoolAt) { OwnerId = 0 });
+
+        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Builder, SchoolAt) { PlayerId = 0 });
+        sim.Run(0);
+
+        Assert.False(sim.ResolvedLog[^1].Outcome.IsRejected);
+        Assert.NotNull(sim.World.Units[1].Goal);
+        Assert.Equal(GoalKind.Train, sim.World.Units[1].Goal!.Kind);
+        Assert.Equal(UnitRole.Farmer, sim.World.Units[1].Role);   // not yet
+
+        sim.Run(10 * Time.Day);
+
+        Assert.Equal(SchoolAt, sim.World.Units[1].Position);
+        Assert.Equal(UnitRole.Builder, sim.World.Units[1].Role);
+        Assert.Null(sim.World.Units[1].Goal);
+    }
+
+    [Fact]
+    public void WithoutATrainerTile_TheOldStandingOnItContractIsUnchanged()
+    {
+        // Back-compatibility is the point of the optional parameter: seven
+        // existing call sites keep working without being touched.
+        var sim = BuildWorld(out _);
+        sim.World.AddStructure(new School(SchoolAt) { OwnerId = 0 });
+        sim.World.Units[1].Position = SchoolAt;
+
+        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Builder) { PlayerId = 0 });
+        sim.Run(0);
+
+        Assert.Equal(UnitRole.Builder, sim.World.Units[1].Role);
+        Assert.Null(sim.World.Units[1].Goal);   // no walk, no anchor
+    }
+
+    [Fact]
+    public void TrainingElsewhereWithoutATile_StillRejects()
+    {
+        // The unit is nowhere near a school and named no tile: that is a
+        // malformed request, not a goal, and it must not silently become one.
+        var sim = BuildWorld(out _);
+        sim.World.AddStructure(new School(SchoolAt) { OwnerId = 0 });
+
+        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Builder) { PlayerId = 0 });
+        sim.Run(0);
+
+        Assert.True(sim.ResolvedLog[^1].Outcome.IsRejected);
+        Assert.Null(sim.World.Units[1].Goal);
+    }
+
+    [Fact]
+    public void TheSchoolRazedMidWalk_DissolvesTheTrainingGoal()
+    {
+        var sim = BuildWorld(out _);
+        var school = sim.World.AddStructure(new School(SchoolAt) { OwnerId = 0 });
+
+        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Builder, SchoolAt) { PlayerId = 0 });
+        sim.Run(0);
+        Assert.NotNull(sim.World.Units[1].Goal);
+
+        SiegeDamage.RazeStructure(sim, school);
+        sim.Run(sim.Now);
+
+        Assert.Null(sim.World.Units[1].Goal);
+        Assert.Equal(UnitRole.Farmer, sim.World.Units[1].Role);   // unchanged
+        Assert.Contains(sim.ResolvedLog, e => e is GoalDissolvedEvent);
+    }
+
+    [Fact]
+    public void ATrainingGoalCarriesItsRoleThroughASnapshot()
+    {
+        // The role to train into lives in GoalPlan.Arg; losing it across a
+        // restore would resume the walk and then train the wrong thing.
+        var sim = BuildWorld(out _);
+        sim.World.AddStructure(new School(SchoolAt) { OwnerId = 0 });
+        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Scout, SchoolAt) { PlayerId = 0 });
+        sim.Run(0);
+
+        var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 11);
+        Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
+        Assert.Equal((int)UnitRole.Scout, restored.World.Units[1].Goal!.Arg);
+
+        restored.Run(10 * Time.Day);
+        Assert.Equal(UnitRole.Scout, restored.World.Units[1].Role);
+    }
+
     // ---- the composite ------------------------------------------------------
 
     [Fact]

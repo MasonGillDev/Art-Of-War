@@ -6,6 +6,7 @@ public enum GoalKind : byte
     AssignWorker  = 1,
     AssignBuilder = 2,
     Breed         = 3,
+    Train         = 4,
 }
 
 // M30 — the on-unit GOAL anchor (docs/goal-shaped-intents.md).
@@ -41,10 +42,20 @@ public sealed class GoalPlan
     // symmetric — each parent carries a GoalPlan naming the other.
     public int PartnerUnitId { get; init; }
 
-    public GoalPlan(GoalKind kind, TileCoord targetTile, int partnerUnitId = 0)
+    // The goal's PARAMETER, meaning defined by Kind: for Train it is the
+    // UnitRole to train into. 0 for kinds that take no parameter.
+    //
+    // One generic int rather than a field per kind: every remaining candidate
+    // in the goal-shaping sweep (train a role, craft an item) needs exactly
+    // one small enum, and a widening union of typed fields would make the
+    // snapshot format grow every time a kind is added.
+    public int Arg { get; init; }
+
+    public GoalPlan(GoalKind kind, TileCoord targetTile, int partnerUnitId = 0, int arg = 0)
     {
         Kind = kind;
         TargetTile = targetTile;
         PartnerUnitId = partnerUnitId;
+        Arg = arg;
     }
 }

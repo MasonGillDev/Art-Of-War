@@ -201,23 +201,38 @@ Every intent in `src/Sim.Core/**/*Intent.cs`, checked against the principle.
   `OrderStatus`), and the bandit spawn/despawn pair — no travel in their
   meaning at all.
 
-**Deferred, with the reason** — the "target is whatever I am standing on"
-family: `TrainUnitIntent`, `EquipUnitIntent`, `CraftEquipmentIntent`,
-`LootCacheIntent`, `LoadCargoIntent`, `UnloadCargoIntent`, and the
-`Embark`/`Disembark` pair.
+**Converted 2026-08-23 (sweep, part 1): `TrainUnitIntent`.** "Train him as a
+builder" used to mean walk him to the school, wait, come back, fire the
+intent — the middle two steps being exactly the appointment this milestone
+exists to delete. It now takes an **optional** `TrainerTile`: named, the sim
+walks him there and flips the role on arrival; omitted, the pre-existing
+"must be standing on it" contract holds byte for byte. Optional is what let
+all seven existing call sites (AI ladders, client, tests) stay untouched
+instead of needing a flag-day change.
 
-These have the same defect (`TrainUnitIntent` reads the trainer out of
-`unit.Position`, src/Sim.Core/Logistics/TrainUnitIntent.cs:71) but they cannot
-be goal-shaped without **first giving each one an explicit target parameter** —
-today the target is derived from where the body already is, so there is nothing
-for a goal to aim at. That is a wire-shape change on seven intents plus their
-client and AI callers, landing in the middle of the v2-wire migration.
+Two supporting pieces landed with it: `GoalPlan.Arg`, one generic int
+parameter whose meaning is defined by `Kind` (here the `UnitRole`), and
+`TrainingRules`, which extracts the per-unit training body so the hand path
+and the walked path share one implementation — the same argument that put the
+assignment helpers next to `WorkAssignment.Release`. Snapshot **v29** carries
+`Arg`. A training goal that lost its role across a restore would resume the
+walk and then train the wrong thing, so that round-trip is a test.
 
-They are deferred as a named follow-up rather than quietly dropped: the
-conversion is mechanical once each intent names its target, and `GoalKind`
-takes new members without disturbing anything built here. `GoalPlan` will need
-one generic argument field (the role to train, the item to craft) at that
-point.
+**Still deferred** — the rest of the "target is whatever I am standing on"
+family: `EquipUnitIntent`, `CraftEquipmentIntent`, `LootCacheIntent`,
+`LoadCargoIntent`, `UnloadCargoIntent`, and the `Embark`/`Disembark` pair.
+
+These have the same defect: the target is derived from where the body already
+is, so there is nothing for a goal to aim at until each one names a target
+tile. Train showed the conversion is mechanical once that parameter exists —
+optional tile, re-check on arrival, one shared apply — and the remaining pieces
+it needed (`GoalPlan.Arg`, a new `GoalKind` member) are now in place, so each
+of these is a self-contained follow-up rather than a blocked one.
+
+Ranked by how much appointment they actually remove: `LootCache` and
+`Equip`/`Craft` are worth doing; `Load`/`UnloadCargo` and `Embark`/`Disembark`
+are the least valuable, since the player is generally standing there already
+and the carrier pair has adjacency semantics of its own to preserve.
 
 ### Phase E — `BuildIntent` composite
 
