@@ -110,6 +110,20 @@ public sealed class Unit
     // cleared on completion. See HaulPlan.cs.
     public HaulPlan? HaulPlan { get; set; }
 
+    // ---- M31 parentage ----
+    // The two units whose breeding cycle produced this one. Null for genesis
+    // units and for anything spawned outside BirthEvent (bandits, boats).
+    //
+    // Stored because it is NOT derivable: BirthEvent has the parent ids in
+    // hand and used to drop them on the floor, which meant "the eldest living
+    // child of the king" was not a pure read over current state but a fact the
+    // world had never recorded. Both parents rather than one: the sim has no
+    // gender, so there is no father to privilege, and the pair is the reusable
+    // bone for kinship, inheritance and chronicler lineage prose.
+    // docs/m31-king-dynasty-spec.md.
+    public int? ParentAId { get; init; }
+    public int? ParentBId { get; init; }
+
     // ---- M30 in-flight goal anchor ----
     // Set by GoalRules.Begin (from AssignWorkers/AssignBuilders/BeginBreeding
     // when the unit isn't standing where the work is), dispatched by

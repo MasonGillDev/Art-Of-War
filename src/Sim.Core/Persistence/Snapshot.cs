@@ -121,7 +121,7 @@ public static class Snapshot
     //       cursor MUST persist: a caravan mid-circuit has to resume where
     //       it was rather than restart at the first stop, and "which stop"
     //       is not derivable from the world.
-    public const int FormatVersion = 27;
+    public const int FormatVersion = 28;
 
     public static string Hash(Simulation sim)
     {
@@ -153,6 +153,7 @@ public static class Snapshot
             WriteOrders(bw, sim.World);
             WriteClaims(bw, sim.World);
             WriteScoutMissions(bw, sim.World);
+            WriteRoyalty(bw, sim.World);        // M31 (v28)
         }
         return ms.ToArray();
     }
@@ -191,6 +192,7 @@ public static class Snapshot
         ReadOrders(br, world);
         ReadClaims(br, world);
         ReadScoutMissions(br, world);
+        ReadRoyalty(br, world);             // M31 (v28)
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -199,6 +201,29 @@ public static class Snapshot
         // next-event anchors. See Persistence/RegenerateQueue.cs.
         RegenerateQueue.From(sim);
         return sim;
+    }
+
+    // ----- royalty (M31) -------------------------------------------------
+    //
+    // Config only. The crown rides in the player rows and parentage rides on
+    // the units, because both are per-entity facts; everything royal that is
+    // NOT stored -- who is royal, who is the heir, who is a minor -- is
+    // derived on read and so has nothing to serialize.
+
+    private static void WriteRoyalty(BinaryWriter bw, GameWorld world)
+    {
+        var c = world.RoyaltyConfig;
+        bw.Write(c.AuraRadius);
+        bw.Write(c.AuraPowerBonus);
+        bw.Write(c.MajorityAge);
+    }
+
+    private static void ReadRoyalty(BinaryReader br, GameWorld world)
+    {
+        var radius = br.ReadInt32();
+        var bonus = br.ReadInt32();
+        var majority = br.ReadInt32();
+        world.RestoreRoyaltyConfig(new Sim.Core.Royalty.RoyaltyConfig(radius, bonus, majority));
     }
 
     // ----- clocks --------------------------------------------------------
@@ -252,6 +277,10 @@ public static class Snapshot
             // gate keeps the player muted across restore. PopulationCount
             // is still re-derived from the restored units below.
             bw.Write(p.Defeated);
+            // M31 (v28) -- the crown. Null through an interregnum and after
+            // the line is extinct; both are legitimate long-lived states, so
+            // both must survive a restart.
+            WriteNullableInt(bw, p.KingUnitId);
         }
     }
 
@@ -262,8 +291,10 @@ public static class Snapshot
         {
             var id = br.ReadInt32();
             var defeated = br.ReadBoolean();
+            var kingUnitId = ReadNullableInt(br);   // M31 (v28)
             var p = new Player(id);
             if (defeated) p.Defeated = true;
+            p.KingUnitId = kingUnitId;
             world.Players[id] = p;
         }
     }
@@ -332,6 +363,11 @@ public static class Snapshot
             // still doing it, or the player's one decision quietly evaporates
             // across the restart. docs/goal-shaped-intents.md.
             WriteGoal(bw, u.Goal);
+            // M31 (v28): parentage. The dynasty's entire line question is a
+            // pure read over these two, so losing them across a restore would
+            // orphan every living child of the king.
+            WriteNullableInt(bw, u.ParentAId);
+            WriteNullableInt(bw, u.ParentBId);
         }
     }
 
@@ -494,8 +530,10 @@ public static class Snapshot
             var home = ReadNullableTileCoord(br);   // M19 (v13)
             var isProtected = br.ReadBoolean();     // v22 automation substrate
             var goal = ReadGoal(br);                // M30 (v27)
+            var parentA = ReadNullableInt(br);      // M31 (v28)
+            var parentB = ReadNullableInt(br);
 
-            var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap };
+            var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap, ParentAId = parentA, ParentBId = parentB };
             u.Home = home;   // ResidentCount restores from the House payload; no recompute
             u.Protected = isProtected;
             foreach (var pid in passengers) u.Passengers.Add(pid);

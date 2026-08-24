@@ -47,6 +47,12 @@ public sealed class BirthEvent : ScheduledEvent
             Role = UnitRole.None,
             OwnerId = house.OwnerId,
             BornTick = sim.Now,
+            // M31 — record who made this child. The dynasty's whole line
+            // question ("who is the eldest living child of the king") is a
+            // pure read over these two fields; before M31 they were discarded
+            // here and the answer was simply unavailable.
+            ParentAId = occ.ParentAId,
+            ParentBId = occ.ParentBId,
         });
         Population.ScheduleLifespan(sim, child);
 

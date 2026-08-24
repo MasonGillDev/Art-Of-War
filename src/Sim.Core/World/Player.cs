@@ -22,6 +22,18 @@ public sealed class Player
     // (snapshot v19+). See docs/sieges-and-conquest.md.
     public bool Defeated { get; internal set; }
 
+    // M31 — the reigning monarch's unit id; null during an interregnum and
+    // after the line is extinct (docs/king-and-dynasty.md).
+    //
+    // SINGLE MUTATION POINT: Royalty.Succession.OnRoyalRemoved, reached from
+    // Population.OnUnitRemoved, which every death path already converges on.
+    // Restored directly by Snapshot (v28).
+    //
+    // Stored rather than derived for one concrete reason: the aura is a pure
+    // read evaluated per unit inside the combat rollup, and a derived king
+    // would make that check O(N) and the rollup O(N^2). One int buys O(1).
+    public int? KingUnitId { get; internal set; }
+
     public Player(int id) { Id = id; }
 
     internal void IncrementPopulation() => PopulationCount++;

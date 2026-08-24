@@ -130,6 +130,16 @@ public static class WorldFactory
             {
                 OwnerId = ownerId,
                 CastlePosition = castleAt,
+                // M31 — every realm starts with a king, the player's and each
+                // rival's alike (docs/king-and-dynasty.md). Symmetry is the
+                // point: the King's Buff is real combat power, so a world
+                // where only some factions are crowned is quietly unfair.
+                //
+                // The crown goes on the FIRST founder rather than on an extra
+                // body: the king is an ordinary unit who works, ages and dies
+                // like anyone, and adding a thirteenth mouth to carry a title
+                // would change the opening economy for a cosmetic reason.
+                KingUnitId = spawns[0].Id,
                 CastleHoldings = new SortedDictionary<Resource, int>
                 {
                     [Resource.Wood] = 70,

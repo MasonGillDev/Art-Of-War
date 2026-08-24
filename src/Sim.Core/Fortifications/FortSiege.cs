@@ -82,7 +82,7 @@ public static class FortSiege
             if (u.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId) continue;
             if (!diplomacy.AreHostile(u.OwnerId, fort.OwnerId)) continue;
             if (u.Position != tile && !Is4Adjacent(u.Position, tile)) continue;
-            damage += CombatRules.EffectivePower(u, sim.Now);
+            damage += CombatRules.EffectivePower(sim.World, u, sim.Now);   // M31 — aura included
         }
 
         // Nobody hostile in reach (they marched off / died / made peace) or

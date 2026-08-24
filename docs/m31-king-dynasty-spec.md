@@ -272,3 +272,51 @@ never hard-coded to a tuned value.**
   from tick 0 — AI players and rivals included — or the aura silently
   favours whoever has one. Genesis validation should make a kingless player
   faction an explicit choice, not an accident.
+
+---
+
+## Built state (2026-08-23)
+
+Phases A-D landed. Suite: **1014 + 39 green, 0 failures.**
+
+New: `RoyaltyConfig`, `Royalty` (the pure-read wall), `Succession` (the single
+mutator), `SuccessionEvent`, `Unit.ParentAId`/`ParentBId`, `Player.KingUnitId`,
+`FactionStartSpec.KingUnitId` + genesis validation, `CombatRules.KingAuraBonus`
+and the world-aware `EffectivePower` overload, snapshot **v28**, and a
+`Royal` tag (1 = king, 2 = heir) on `UnitDto` for own units.
+
+`WorldFactory` crowns the first founder of EVERY faction, player and rival
+alike -- the King's Buff is real combat power, so a world where only some
+factions are crowned is quietly unfair. Lab scenarios in `Sim.Host` stay
+kingless on purpose (kingless has to be an explicit choice, and crowning them
+would move existing AI-balance baselines).
+
+### Two things the build turned up
+
+**1. Succession must not depend on removal order.** `CombatRules.OnUnitDeath`
+removes the unit from `world.Units` and THEN notifies the population layer,
+while the age and starvation paths notify first. A heir search that began with
+"look up the current king" therefore found nothing on the combat path and
+declared the line extinct -- **a king killed in battle would have ended his own
+dynasty**, the exact catastrophic-failure mode this design exists to reject.
+Fixed by deriving the heir from the DYING KING'S ID
+(`Royalty.HeirApparentOf`), which removes the ordering dependency entirely
+rather than documenting it. `EveryDeathPath_CrownsTheSameHeir` is the guard.
+
+**2. The aura's upper bound is a tuning constraint, not a structural one.**
+The buff is a flat per-unit add, so its contribution scales with the number of
+bodies standing inside the disc: a large enough `AuraPowerBonus` genuinely does
+become an I-win button. Nothing in the mechanism prevents it. The balance-lab
+guard is therefore an assertion at the SHIPPED default
+(`AtTheShippedDefault_TheKingIsNoSubstituteForAnArmy`) plus the temptation-zone
+inequality -- not a claim that holds for all values. If the design ever wants
+the ceiling to be structural, the aura has to stop being a flat add
+(diminishing returns, or a per-battle cap).
+
+### Still deferred
+
+The heir's own buff, royal doctrine postures, new-dynasty founding after
+extinction, the chronicler's prose, the gentle narrow-line variant, and the
+fog question for enemy royal markers (the wire sends the `Royal` tag for own
+units only, which is the conservative answer until #6 is settled).
+

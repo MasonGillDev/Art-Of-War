@@ -146,6 +146,13 @@ public static class Population
         if (home is not null)
             Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(home, sim);
 
+        // M31 — the crown, if this was the one wearing it. Placed with the
+        // other stop-on-removal hooks because that is exactly what succession
+        // is: the One Stop Rule applied to the dynasty. Every death path
+        // (age, starvation, combat) already converges here, so this one line
+        // is the whole of succession's plumbing.
+        Sim.Core.Royalty.Succession.OnRoyalRemoved(sim, unit);
+
         // M30 — goal stop-on-removal, the One Stop Rule applied to goals
         // (docs/goal-shaped-intents.md). Two halves:
         //   * the dead unit's own goal is cancelled and announced;

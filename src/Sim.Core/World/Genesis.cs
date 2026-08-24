@@ -46,6 +46,10 @@ public sealed record GenesisSpec
     // resulting Cache structures persist. See docs/loot-caches.md.
     public Sim.Core.Caches.CacheConfig Caches { get; init; } = new();
 
+    // M31: world-level dynasty configuration (aura radius/bonus, majority
+    // age). Defaulted; scenarios override, same as every config above.
+    public Sim.Core.Royalty.RoyaltyConfig Royalty { get; init; } = new();
+
     public int FactionCount => FactionStarts.Count;
 }
 
@@ -72,6 +76,16 @@ public sealed record FactionStartSpec
     // M8: per-faction default starting age (years) for spawned units that
     // don't override via UnitSpawn.StartingAgeYears. 30 = productive adult.
     public int StartingAgeYears { get; init; } = 30;
+
+    // M31 — which UnitSpawn.Id wears the crown from tick zero. Every realm
+    // starts with a king (docs/king-and-dynasty.md): stakes before the first
+    // enemy appears, and a one-unit tutorial for the game's deepest loop.
+    //
+    // Nullable, and validated at Build: a kingless faction has to be an
+    // EXPLICIT choice (minimal test worlds, the bandit faction) rather than an
+    // accident, because a realm without a king is quietly at a permanent
+    // disadvantage against every realm that has one.
+    public int? KingUnitId { get; init; }
 }
 
 public sealed record UnitSpawn(
@@ -98,6 +112,16 @@ public static class Genesis
             if (!seenOwners.Add(fs.OwnerId))
                 throw new InvalidOperationException(
                     $"GenesisSpec.FactionStarts has duplicate OwnerId {fs.OwnerId}.");
+            // M31 — the crown must name one of THIS faction's own spawns.
+            if (fs.KingUnitId is { } kid)
+            {
+                var found = false;
+                foreach (var u in fs.UnitSpawns)
+                    if (u.Id == kid) { found = true; break; }
+                if (!found)
+                    throw new InvalidOperationException(
+                        $"FactionStartSpec.KingUnitId {kid} is not among faction {fs.OwnerId}'s UnitSpawns.");
+            }
         }
 
         var grid = new TileGrid(spec.Width, spec.Height, spec.DefaultBiome);
@@ -105,6 +129,7 @@ public static class Genesis
             grid.SetBiome(coord, biome);
 
         var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population, spec.BiomeDegradation);
+        world.RestoreRoyaltyConfig(spec.Royalty);   // M31 — genesis-set, then immutable
 
         // M16 — every world carries the bandit faction, usually empty: a
         // Player row with no castle, no holdings, no spawns. Registering it
@@ -156,6 +181,13 @@ public static class Genesis
                 // M3 Phase B: each spawned unit reveals around its spawn tile.
                 Sight.Reveal(world, unit.OwnerId, unit.Position, Sight.RadiusFor(unit.Role), now: 0);
             }
+
+            // M31 — crown the founder. Genesis kings have no parents (their
+            // ParentAId/ParentBId stay null), so the line starts one
+            // generation deep and grows downward, exactly as the narrow-line
+            // rule intends.
+            if (fs.KingUnitId is { } kingId)
+                world.Players[fs.OwnerId].KingUnitId = kingId;
         }
 
         // M8: seed the monotonic unit-id counter so BirthEvent allocates

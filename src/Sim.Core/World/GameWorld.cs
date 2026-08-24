@@ -142,6 +142,12 @@ public sealed class GameWorld
     // with no cache write on the fog path.
     public IReadOnlySet<TileCoord> CommonKnowledgeTerrain { get; }
 
+    // M31 — dynasty config (aura radius/bonus, majority age). Defaulted rather
+    // than threaded through the constructor chain: the telescoping ctors above
+    // are already five deep, and Genesis is the only caller that ever sets a
+    // non-default. Restored by Snapshot (v28), same shape as the configs above.
+    public Sim.Core.Royalty.RoyaltyConfig RoyaltyConfig { get; private set; } = new();
+
     public GameWorld(TileGrid grid)
         : this(grid, new Diplomacy.DiplomacyConfig(), new Combat.CombatConfig(), new Population.PopulationConfig(), new Sim.Core.Biomes.BiomeDegradationConfig()) { }
 
@@ -184,6 +190,7 @@ public sealed class GameWorld
     internal void RestoreCombatConfig(Combat.CombatConfig config) => CombatConfig = config;
     internal void RestorePopulationConfig(Population.PopulationConfig config) => PopulationConfig = config;
     internal void RestoreBiomeDegradationConfig(Sim.Core.Biomes.BiomeDegradationConfig config) => BiomeDegradationConfig = config;
+    internal void RestoreRoyaltyConfig(Sim.Core.Royalty.RoyaltyConfig config) => RoyaltyConfig = config;
 
     public Unit AddUnit(int id, TileCoord position)
     {

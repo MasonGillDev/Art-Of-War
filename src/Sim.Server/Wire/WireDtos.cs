@@ -346,6 +346,20 @@ public sealed class UnitDto
     // is exactly the distinction the client needs to draw a STALLED goal
     // differently from one that is progressing.
     // Own units only, like Activity — an enemy's plans are not public.
+    // M31 — the dynasty, OWN UNITS ONLY (docs/king-and-dynasty.md).
+    //
+    // Royal = 1 king, 2 heir-apparent, 0 otherwise. Both are DERIVED
+    // server-side and sent as a tag rather than as ids, because the client
+    // needs to draw a crown, not to recompute a line.
+    //
+    // Own-only for now, which is the conservative end of the design's open
+    // question #6 (does the heir marker leak through fog, or is it
+    // scout-discoverable intel?). Sending it for enemy units would silently
+    // answer that question in the most generous direction — an enemy dynasty
+    // readable off the map with no scouting at all — so the wire stays quiet
+    // until the question is settled.
+    public int Royal { get; set; }
+
     public int GoalKind { get; set; }
     public string GoalState { get; set; } = "";
     public int GoalX { get; set; } = -1;

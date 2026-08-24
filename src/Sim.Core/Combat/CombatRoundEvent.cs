@@ -81,7 +81,9 @@ public sealed class CombatRoundEvent : ScheduledEvent
         //    these snapshot values — simultaneous resolution).
         var startPower = new Dictionary<int, int>();
         foreach (var (ownerId, units) in forces)
-            startPower[ownerId] = units.Sum(u => CombatRules.EffectivePower(u, sim.Now));
+            // M31 — as fought: the King's Buff is part of what a side brings
+            // to the round, which is the whole point of a positional aura.
+            startPower[ownerId] = units.Sum(u => CombatRules.EffectivePower(sim.World, u, sim.Now));
 
         // 3b) No-progress guard. If no belligerent can deal positive damage
         //     (e.g. two hostile but power-0 forces — empty boats pinned by the

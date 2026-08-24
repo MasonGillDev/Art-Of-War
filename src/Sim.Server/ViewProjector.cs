@@ -575,13 +575,15 @@ public sealed class ViewProjector
             CargoAmount = mine ? u.CargoAmount : 0,
             // Loadout is private military info — same rule as Activity.
             // EffectivePower is a pure read.
-            Power = mine ? Sim.Core.Combat.CombatRules.EffectivePower(u, now) : -1,
+            Power = mine ? Sim.Core.Combat.CombatRules.EffectivePower(world, u, now) : -1,
             Buffs = mine ? u.Buffs.Select(b => b.Kind).ToArray() : Array.Empty<string>(),
             DestX = dest?.X ?? -1,
             DestY = dest?.Y ?? -1,
             // Private like Activity: you command your own formations, you do not
             // read the enemy's order of battle off the map.
             GroupId = mine ? u.GroupId ?? -1 : -1,
+            // M31 — crown / heir tag. Derived, own units only.
+            Royal = mine ? RoyalTagOf(u, world) : 0,
             // M30 — the pending-goal tag. Own units only, same rule as Activity.
             GoalKind = mine ? (int)(u.Goal?.Kind ?? 0) : 0,
             GoalState = mine ? GoalStateOf(u, world) : "",
@@ -590,6 +592,20 @@ public sealed class ViewProjector
         };
         FillHop(dto, u, world, now);
         return dto;
+    }
+
+    // M31 — 1 = the reigning monarch, 2 = the heir-apparent, 0 = neither.
+    //
+    // The heir lookup is a scan over the owner's units, so it runs ONCE per
+    // projected unit only because the alternative (precomputing per player)
+    // would put mutable cache state on a pure-read path. Royal lines are tiny
+    // and unit counts are in the hundreds; if this ever shows up in a profile,
+    // the fix is a per-projection local, not a stored field.
+    private static int RoyalTagOf(Unit u, GameWorld world)
+    {
+        if (Sim.Core.Royalty.Royalty.IsKing(world, u)) return 1;
+        if (Sim.Core.Royalty.Royalty.HeirApparent(world, u.OwnerId)?.Id == u.Id) return 2;
+        return 0;
     }
 
     // M30 — what a pending goal is DOING right now, in the words the visibility
@@ -667,18 +683,24 @@ public sealed class ViewProjector
         var buffs = Array.Empty<string>();
         var destX = -1; var destY = -1;
         var groupId = -1;
+        // M30 — the visibility contract, on the path clients actually use.
+        var goalKind = 0; var goalState = ""; var goalX = -1; var goalY = -1;
         // The hop is public, so the real unit is looked up for EVERY visible unit,
         // not only the viewer's own. The own-only enrichment stays inside the branch.
         world.Units.TryGetValue(uv.Id, out var live);
         if (uv.OwnerId == viewerPlayerId && world.Units.TryGetValue(uv.Id, out var real))
         {
             groupId = real.GroupId ?? -1;
+            goalKind = (int)(real.Goal?.Kind ?? 0);
+            goalState = GoalStateOf(real, world);
+            goalX = real.Goal?.TargetTile.X ?? -1;
+            goalY = real.Goal?.TargetTile.Y ?? -1;
             activity = (int)real.Activity;
             cap = real.PassengerCap;
             pax = real.Passengers.Count;
             cargoRes = (int)real.CargoResource;
             cargoAmt = real.CargoAmount;
-            power = Sim.Core.Combat.CombatRules.EffectivePower(real, now);
+            power = Sim.Core.Combat.CombatRules.EffectivePower(world, real, now);
             buffs = real.Buffs.Select(b => b.Kind).ToArray();
             if (FinalDestOf(real, world) is { } dest) { destX = dest.X; destY = dest.Y; }
         }
@@ -697,6 +719,10 @@ public sealed class ViewProjector
             DestX = destX,
             DestY = destY,
             GroupId = groupId,
+            GoalKind = goalKind,
+            GoalState = goalState,
+            GoalX = goalX,
+            GoalY = goalY,
         };
         if (live is not null) FillHop(dto2, live, world, now);
         return dto2;

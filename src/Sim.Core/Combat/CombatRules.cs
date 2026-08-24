@@ -18,6 +18,13 @@ public static class CombatRules
     // inactive (ExpiresAt <= now). This is a PURE READ: expired buffs
     // are filtered, never pruned here (pruning happens at deterministic
     // mutation sites when timed buffs land; see docs/equipment-model.md).
+    //
+    // M31 — THIS TWO-ARG FORM IS THE UNIT'S OWN POWER: catalog + what it
+    // carries. It deliberately does NOT include the king's aura, because an
+    // aura is a fact about where a unit is STANDING, not about the unit. Every
+    // rollup that decides a fight uses the world-aware overload below; this
+    // one survives for the stat tests and for any caller that genuinely means
+    // "what does this body bring by itself".
     public static int EffectivePower(Unit u, long now)
     {
         var p = UnitCombatCatalog.Spec(u.Role).BasePower;
@@ -27,6 +34,44 @@ public static class CombatRules
             p += b.PowerModifier;
         }
         return p < 0 ? 0 : p;
+    }
+
+    // M31 — power AS FOUGHT: own power plus the King's Buff if the unit is
+    // standing inside its disc (docs/king-and-dynasty.md).
+    //
+    // Why the aura is computed here rather than granted as a Buff instance:
+    // Unit.Buffs is a STORED two-slot equipment loadout (BuffRules), so an
+    // aura-as-buff would eat a sword slot and need grant/revoke churn on every
+    // hop by every unit near the king — a mutation storm for something that is
+    // a pure function of two positions. So it is a pure read, like every other
+    // derived quantity in the sim.
+    //
+    // Cost is O(1) per unit: the crown is a stored id, so this is one lookup
+    // and one integer distance test, not a scan for royalty.
+    public static int EffectivePower(GameWorld world, Unit u, long now) =>
+        EffectivePower(u, now) + KingAuraBonus(world, u, now);
+
+    // The aura itself. Zero unless a LIVING, NON-MINOR, NON-EMBARKED king of
+    // the unit's OWN owner is within AuraRadius — the three ways a realm can
+    // be without a projecting monarch (interregnum, a child on the throne, a
+    // king at sea) all collapse to the same zero here, and each is a separate
+    // rule that produced it.
+    //
+    // Integer EUCLIDEAN disc (dx*dx + dy*dy <= r*r), matching Sight.Reveal, so
+    // "radius R" means the same shape everywhere in the codebase. Integer math
+    // only — no floats anywhere near the sim.
+    public static int KingAuraBonus(GameWorld world, Unit u, long now)
+    {
+        if (u.IsEmbarked) return 0;   // passengers don't fight; nothing to buff
+        var cfg = world.RoyaltyConfig;
+        if (cfg.AuraPowerBonus == 0 || cfg.AuraRadius <= 0) return 0;
+
+        if (Sim.Core.Royalty.Royalty.ProjectingKing(world, u.OwnerId, now) is not { } king)
+            return 0;
+
+        var dx = king.Position.X - u.Position.X;
+        var dy = king.Position.Y - u.Position.Y;
+        return dx * dx + dy * dy <= cfg.AuraRadius * cfg.AuraRadius ? cfg.AuraPowerBonus : 0;
     }
 
     // Sum of EffectivePower across all units on `tile` owned by
@@ -42,7 +87,7 @@ public static class CombatRules
             if (u.IsEmbarked) continue;  // M12 — passengers don't fight
             if (u.OwnerId != ownerId) continue;
             if (u.Position != tile) continue;
-            total += EffectivePower(u, now);
+            total += EffectivePower(world, u, now);   // M31 — as fought, aura included
         }
         return total;
     }

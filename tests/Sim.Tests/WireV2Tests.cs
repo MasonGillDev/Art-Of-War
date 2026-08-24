@@ -441,6 +441,70 @@ public class WireV2Tests
         Assert.True(world.Population.BirthFoodCost > 0);
     }
 
+    // M30 — the visibility contract has to hold on the path CLIENTS USE.
+    //
+    // The goal fields were filled in the reveal-path projection and not in the fogged
+    // one, so a player watching their own builder walk across the map saw goalKind 0
+    // and an empty goalState the whole way: the errand was invisible to the only
+    // person it exists for. reveal:true is a dev switch; reveal:false is the game.
+    [Fact]
+    public void Goal_IsVisibleOnTheFoggedPathNotJustTheRevealedOne()
+    {
+        var (sim, projector, _) = MakeWorld();
+
+        // A site somewhere the builder is NOT, so the goal has to carry them there.
+        var builder = sim.World.Units.Values.First(
+            u => u.OwnerId == 0 && u.Role == Sim.Core.World.UnitRole.Builder);
+        var castle = sim.World.Structures.Values.First(
+            s => s.OwnerId == 0 && s.Kind == Sim.Core.World.StructureKind.Castle);
+        var siteTile = new Sim.Core.World.TileCoord(castle.At.X - 4, castle.At.Y - 4);
+
+        sim.SubmitIntent(sim.Now, new Sim.Core.Logistics.BuildIntent(
+            siteTile, Sim.Core.World.StructureKind.Stockpile, builderId: builder.Id)
+            { PlayerId = 0 });
+        sim.Run(until: sim.Now + 1);
+
+        // The sim must actually have bound a goal, or this proves nothing.
+        Assert.NotNull(builder.Goal);
+
+        var fogged = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        var mine = fogged.Units.Single(u => u.Id == builder.Id);
+
+        Assert.Equal((int)builder.Goal!.Kind, mine.GoalKind);
+        Assert.Equal(builder.Goal.TargetTile.X, mine.GoalX);
+        Assert.Equal(builder.Goal.TargetTile.Y, mine.GoalY);
+        Assert.False(string.IsNullOrEmpty(mine.GoalState),
+            "a bound errand must say what it is doing — that is the whole contract");
+
+        // And the two projections must agree, since they describe the same unit.
+        var revealed = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true)
+            .Units.Single(u => u.Id == builder.Id);
+        Assert.Equal(revealed.GoalKind, mine.GoalKind);
+        Assert.Equal(revealed.GoalState, mine.GoalState);
+        Assert.Equal(revealed.GoalX, mine.GoalX);
+        Assert.Equal(revealed.GoalY, mine.GoalY);
+    }
+
+    // Someone else's errands are their business.
+    [Fact]
+    public void Goal_IsOwnOnly()
+    {
+        var (sim, projector, _) = MakeWorld(128);
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
+
+        var sawForeign = false;
+        foreach (var u in v2.Units)
+        {
+            if (u.OwnerId == 0) continue;
+            sawForeign = true;
+            Assert.Equal(0, u.GoalKind);
+            Assert.Equal("", u.GoalState);
+            Assert.Equal(-1, u.GoalX);
+            Assert.Equal(-1, u.GoalY);
+        }
+        Assert.True(sawForeign, "no foreign units — privacy went unasserted");
+    }
+
     // Training is gated on standing INSIDE the right building, so the command panel
     // must know which building teaches what. Inverted server-side from
     // RoleTrainerCatalog rather than copied into the client, where it would drift the

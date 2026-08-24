@@ -229,3 +229,23 @@ The King's Buff is also pinned as a **pure-read aura** rather than an instance
 of the existing stored `Buff` (which is a 2-slot equipment loadout) — see the
 spec for why, and for the `CombatRules.EffectivePower` signature change that
 pays for it.
+
+## Update 2026-08-23 — built as M31 (line, succession, aura)
+
+Built; see `docs/m31-king-dynasty-spec.md`. Two notes that change claims above:
+
+- **§6 "succession fires from existing death events" needed one correction to
+  be true.** The death paths disagree about ordering — combat removes the body
+  before notifying, aging and starvation notify first — so succession derives
+  the heir from the dying king's id rather than from the stored crown. Without
+  that, a king killed in battle ended his own line, inverting the entire
+  stakes-with-recovery design.
+- **§8's "tempting always, mandatory never" is a tuning property, not a
+  structural one.** The King's Buff is a flat per-unit add, so it scales with
+  army size and a large enough bonus is decisive on its own. Making the
+  ceiling structural would mean diminishing returns or a per-battle cap —
+  recorded as an open option, not built.
+
+Also settled in code: the strict narrow line (royalty is a pure predicate over
+stored parentage + one stored crown, so sibling branches lapse for free), and
+majority as a pure age gate with nothing scheduled.
