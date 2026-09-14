@@ -42,6 +42,12 @@ public static class UnitCombatCatalog
         // M16 — Bandit: between a Soldier and a citizen. A lone citizen
         // loses to one, a Soldier beats one, a party is a real threat.
         [UnitRole.Bandit]     = new UnitCombatSpec { Role = UnitRole.Bandit,     BaseHealth = 25, BasePower = 3 },
+        // M31 — a king is an ordinary body carrying an extraordinary aura. These
+        // match a citizen's exactly, on purpose: the crown's power is the radius
+        // buff it projects onto OTHERS, and giving the monarch better stats too
+        // would stack a second, invisible advantage on the one the design tunes.
+        [UnitRole.King]       = new UnitCombatSpec { Role = UnitRole.King,       BaseHealth = 10, BasePower = 1 },
+        [UnitRole.Heir]       = new UnitCombatSpec { Role = UnitRole.Heir,       BaseHealth = 10, BasePower = 1 },
     };
 
     public static UnitCombatSpec Spec(UnitRole role) =>

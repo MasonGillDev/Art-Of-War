@@ -280,7 +280,8 @@ public sealed class GameHost : IDisposable
     // reading it here races nothing.
     public string BuildWorldJson() =>
         JsonSerializer.Serialize(
-            _projector.BuildWorldDto(_sim.World.PopulationConfig), ServerJson.Options);
+            _projector.BuildWorldDto(_sim.World.PopulationConfig, _sim.World.RoyaltyConfig),
+            ServerJson.Options);
 
     // GET /v2/view/{playerId}: the slim per-tick view. Identical lock discipline and
     // notice/report attachment to BuildViewJson — only the tile encoding differs.

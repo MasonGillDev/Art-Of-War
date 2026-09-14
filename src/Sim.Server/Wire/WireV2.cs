@@ -56,6 +56,32 @@ public sealed class WorldDto
     ///
     /// Static and public: how long a pregnancy takes is not intelligence about anyone.
     public PopulationRulesDto Population { get; set; } = new();
+
+    /// M31 — the dynasty's rules, straight off the world's RoyaltyConfig.
+    ///
+    /// The Royal TAG on a unit says who wears the crown; these say what wearing it
+    /// MEANS. Without them the client can draw a crown and nothing else: it cannot
+    /// show the aura the king actually projects, and it cannot tell the player their
+    /// monarch is a child projecting nothing — which is a visible, plannable window
+    /// of weakness the design deliberately telegraphs. A window nobody can see is not
+    /// telegraphed.
+    ///
+    /// Public and static, like every other rules block here.
+    public RoyaltyRulesDto Royalty { get; set; } = new();
+}
+
+/// World-level dynasty settings. Ages are in AGE-YEARS, like every population gate.
+public sealed class RoyaltyRulesDto
+{
+    /// Tiles. An integer EUCLIDEAN disc (dx*dx + dy*dy <= r*r), the same shape
+    /// Sight.Reveal uses — so a client drawing a square would be drawing a lie.
+    public int AuraRadius { get; set; }
+
+    /// Flat power added to each of the king's own units inside the disc.
+    public int AuraPowerBonus { get; set; }
+
+    /// Below this age a crowned heir is a child monarch and projects NOTHING.
+    public int MajorityAge { get; set; }
 }
 
 /// World-level demographic settings. Ages are in AGE-YEARS, the sim's compressed

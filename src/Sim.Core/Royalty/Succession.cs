@@ -49,5 +49,33 @@ public static class Succession
         sim.Schedule(sim.Now, new SuccessionEvent(
             unit.OwnerId, unit.Id, heir?.Id,
             heir is not null && Royalty.IsMinor(world, heir, sim.Now)));
+
+        SyncRoles(world, unit.OwnerId);
+    }
+
+    // M31 — KEEP THE ROLES HONEST.
+    //
+    // The crown used to be purely derived, and Royalty's own header argued that a
+    // stored flag "would be a second source of truth about the same fact". Making
+    // King and Heir real UnitRoles makes that flag real, so this is the one place
+    // that keeps the stored roles equal to the derived truth — and
+    // RoyalRolesMatchTheDerivedLine is the test that fails the moment they part.
+    //
+    // PROMOTION ONLY, and that is a property rather than a shortcut. The heir is
+    // the ELDEST living child of the current king, so no younger sibling can ever
+    // overtake a living heir; heirship moves only when its holder dies or is
+    // crowned. A living unit therefore never has to be demoted out of a royal
+    // role, which is also what makes "royalty is for life" true rather than
+    // aspirational.
+    //
+    // Called after every crown movement and after every birth, because those are
+    // the only two events that can change who the answer is.
+    public static void SyncRoles(GameWorld world, int ownerId)
+    {
+        if (Royalty.King(world, ownerId) is { } king && king.Role != UnitRole.King)
+            king.SetRoleForCrowning(UnitRole.King);
+
+        if (Royalty.HeirApparent(world, ownerId) is { } heir && heir.Role != UnitRole.Heir)
+            heir.SetRoleForCrowning(UnitRole.Heir);
     }
 }

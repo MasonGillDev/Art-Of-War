@@ -10,9 +10,22 @@ events.
 
 ## The decision
 
-Every realm starts with a **king**: an ordinary unit, flagged royal, who ages
+Every realm starts with a **king**: a unit of role `UnitRole.King`, who ages
 from `BornTick`, rolls a lifespan at birth, and dies of age or violence like
-anyone else. He carries a **military, radius-based, positional buff** — troops
+anyone else.
+
+> **Amended after M31 shipped.** The crown was first built as a *flag* on an
+> ordinary unit, and this paragraph said so. It is now a **role** — `King` and
+> `Heir`, untrainable in both directions: no citizen is trained into a crown,
+> and no monarch is ever trained out of one. The change is deliberate and its
+> price is recorded: royalty stops being a worker, so the crown costs the realm
+> one body's trade. It goes on the first Builder, because `TrainRung`'s pool
+> already excludes Builders — a crowned Builder costs the AI no *trainable*
+> body, where a crowned Scout starved a faction outright in testing.
+>
+> What did not change: he still works an extractor, hauls, breeds, marches and
+> **fights**. The aura only reaches troops standing near him, so bringing him to
+> the battle is the whole benefit of having one. He carries a **military, radius-based, positional buff** — troops
 within R tiles (world grid) / R sub-tiles (battlefield grid). Exactly one
 **heir-apparent** exists at any time — the eldest living child of the current
 king, purely derived, never stored — carrying a **small, differently flavoured

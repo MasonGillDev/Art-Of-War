@@ -24,6 +24,12 @@ public static class RoleTrainerCatalog
         UnitRole.Soldier    => StructureKind.Barracks,
         UnitRole.Archer     => StructureKind.Barracks,
         UnitRole.Boat       => null,
+        // M31 — nobody is TRAINED into a crown. Mapping these to no trainer makes
+        // TrainUnitIntent's existing "role X is not trainable from a citizen"
+        // rejection cover the into-royalty direction for free; the out-of-royalty
+        // direction needs its own check, and has one.
+        UnitRole.King       => null,
+        UnitRole.Heir       => null,
         _ => throw new InvalidOperationException(
             $"RoleTrainerCatalog has no trainer mapping for {role} — add a row when a new role lands."),
     };

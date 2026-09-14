@@ -62,9 +62,20 @@ public sealed class TrainRung : IRung
         {
             bool Trainable(UnitDto u) => ctx.IsFree(u)
                 && u.CargoAmount == 0 && u.Age >= ctx.Cfg.MinAdultAgeYears
+                // M31 — ROYALTY IS EXCLUDED HERE AND ONLY HERE. Both royal roles are
+                // untrainable in either direction, so a brain that offers one up
+                // burns a rung every tick on an intent the sim refuses by name.
+                //
+                // This is a TRAINING pool, not a labour or a war pool. A king hauls,
+                // works an extractor, joins a group and FIGHTS like anyone — that
+                // last one is the whole point of the crown, since the aura only
+                // reaches troops standing near him. Taking him out of those pools
+                // would cost the realm a working body, and taking him off the
+                // battlefield would remove the reason to have a king at all.
                 && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
                     or UnitRole.Scout or UnitRole.Farmer
-                    or UnitRole.Soldier or UnitRole.Archer);
+                    or UnitRole.Soldier or UnitRole.Archer
+                    or UnitRole.King or UnitRole.Heir);
             var cand = ctx.OwnUnits.Where(u => ctx.IsIdleStill(u) && Trainable(u))
                 .OrderBy(u => (UnitRole)u.Role == UnitRole.None ? 0 : 1).ThenBy(u => u.Id)
                 .FirstOrDefault();

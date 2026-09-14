@@ -336,6 +336,18 @@ public sealed class UnitDto
     // exactly the set of units carrying this id, so the client derives it.
     public int GroupId { get; set; } = -1;
 
+    // The group's STATE, because "which group" is not enough to command one.
+    //
+    // A freshly formed group is Forming — its members are still walking to the
+    // rendezvous — and MoveGroupIntent refuses it outright ("group 1 is still
+    // forming"). Without this on the wire the player forms an army, orders it to
+    // march, and is refused for a reason they had no way to see and no way to
+    // predict the end of. Same defect the M30 goal fields fixed for errands.
+    //
+    // Own units only, like GroupId: an enemy's order of battle stays private.
+    // 0 = not in a group; otherwise Sim.Core GroupState (1 forming, 2 idle, 3 moving).
+    public int GroupState { get; set; }
+
     // M30 — THE VISIBILITY CONTRACT (docs/goal-shaped-intents.md). Goal-shaped
     // intents move work off the player's memory and into the sim; if the sim
     // then says nothing about that work, appointment-anxiety is simply traded

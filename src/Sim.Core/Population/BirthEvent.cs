@@ -56,6 +56,11 @@ public sealed class BirthEvent : ScheduledEvent
         });
         Population.ScheduleLifespan(sim, child);
 
+        // M31 — a first child born to a king IS the heir apparent, so the role has
+        // to follow the derivation immediately. The other event that can change
+        // the answer is a death, and Succession handles that one.
+        Sim.Core.Royalty.Succession.SyncRoles(world, house.OwnerId);
+
         // M19 — auto-assignment trigger 1 (birth): home at the birth
         // house if a bed is free, else the nearest house with one, else
         // the castle (Home stays null). Capacity never blocks the birth

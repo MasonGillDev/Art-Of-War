@@ -23,6 +23,17 @@ public static class TrainingRules
     // the world may have moved on during the walk.
     public static string? Blocker(Simulation sim, Unit unit, UnitRole newRole)
     {
+        // M31 — ROYALTY IS FOR LIFE. A crown is not a trade you can retrain out
+        // of; the only thing that ever changes a royal role is death, through
+        // Succession. Without this a player could launder their king into a
+        // Farmer and the realm would lose its aura with no event to explain it.
+        //
+        // The other direction — training a citizen INTO a crown — is already
+        // covered below, because RoleTrainerCatalog maps King and Heir to no
+        // trainer at all.
+        if (unit.Role is UnitRole.King or UnitRole.Heir)
+            return $"is {unit.Role} — royalty is not a trade and cannot be retrained";
+
         if (unit.GroupId is not null) return "in a group";
         if (unit.IsEmbarked) return "embarked";
         if (Population.GetActiveBreedingFor(sim.World, unit.Id) is not null) return "locked breeding";

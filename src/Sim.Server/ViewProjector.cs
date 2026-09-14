@@ -65,12 +65,14 @@ public sealed class ViewProjector
     // GET /v2/world — the static genesis payload, fetched ONCE per session. Same
     // immutable, lock-free read as BuildElevationDto: terrain and the genesis biome
     // grid are generation-time facts. Everything a tick can change lives on the view.
-    public WorldDto BuildWorldDto() => BuildWorldDto(new Sim.Core.Population.PopulationConfig());
+    public WorldDto BuildWorldDto() => BuildWorldDto(
+        new Sim.Core.Population.PopulationConfig(), new Sim.Core.Royalty.RoyaltyConfig());
 
-    /// The genesis payload, with the world's own demographic rules folded in. The
-    /// parameterless overload above uses defaults and exists for tests and tooling
-    /// that have no world in hand.
-    public WorldDto BuildWorldDto(Sim.Core.Population.PopulationConfig population)
+    /// The genesis payload, with the world's own rules folded in. The parameterless
+    /// overload above uses defaults and exists for tests and tooling with no world in
+    /// hand.
+    public WorldDto BuildWorldDto(Sim.Core.Population.PopulationConfig population,
+                                  Sim.Core.Royalty.RoyaltyConfig royalty = default)
     {
         var w = _map.Width;
         var h = _map.Height;
@@ -101,6 +103,12 @@ public sealed class ViewProjector
                 MaxFertileAge = population.MaxFertileAge,
                 GestationTicks = population.GestationTicks,
                 BirthFoodCost = population.BirthFoodCost,
+            },
+            Royalty = new RoyaltyRulesDto
+            {
+                AuraRadius = royalty.AuraRadius,
+                AuraPowerBonus = royalty.AuraPowerBonus,
+                MajorityAge = royalty.MajorityAge,
             },
         };
     }
@@ -582,6 +590,7 @@ public sealed class ViewProjector
             // Private like Activity: you command your own formations, you do not
             // read the enemy's order of battle off the map.
             GroupId = mine ? u.GroupId ?? -1 : -1,
+            GroupState = mine ? GroupStateOf(u, world) : 0,
             // M31 — crown / heir tag. Derived, own units only.
             Royal = mine ? RoyalTagOf(u, world) : 0,
             // M30 — the pending-goal tag. Own units only, same rule as Activity.
@@ -629,6 +638,10 @@ public sealed class ViewProjector
         }
         return "waiting";
     }
+
+    // The state of the group a unit belongs to, or 0 when it is in none. Pure read.
+    private static int GroupStateOf(Unit u, GameWorld world) =>
+        u.GroupId is { } gid && world.Groups.TryGetValue(gid, out var g) ? (int)g.State : 0;
 
     // The hop a unit is in the middle of: which tile it is stepping to, the tick it
     // lands, and how many ticks the step takes. Everything the client needs to place
@@ -685,12 +698,16 @@ public sealed class ViewProjector
         var groupId = -1;
         // M30 — the visibility contract, on the path clients actually use.
         var goalKind = 0; var goalState = ""; var goalX = -1; var goalY = -1;
+        var groupState = 0;
+        var royal = 0;
         // The hop is public, so the real unit is looked up for EVERY visible unit,
         // not only the viewer's own. The own-only enrichment stays inside the branch.
         world.Units.TryGetValue(uv.Id, out var live);
         if (uv.OwnerId == viewerPlayerId && world.Units.TryGetValue(uv.Id, out var real))
         {
             groupId = real.GroupId ?? -1;
+            groupState = GroupStateOf(real, world);
+            royal = RoyalTagOf(real, world);
             goalKind = (int)(real.Goal?.Kind ?? 0);
             goalState = GoalStateOf(real, world);
             goalX = real.Goal?.TargetTile.X ?? -1;
@@ -719,6 +736,8 @@ public sealed class ViewProjector
             DestX = destX,
             DestY = destY,
             GroupId = groupId,
+            GroupState = groupState,
+            Royal = royal,
             GoalKind = goalKind,
             GoalState = goalState,
             GoalX = goalX,

@@ -505,6 +505,142 @@ public class WireV2Tests
         Assert.True(sawForeign, "no foreign units — privacy went unasserted");
     }
 
+    // A freshly formed group is FORMING — members still walking to the rendezvous —
+    // and MoveGroupIntent refuses it outright. Without the state on the wire the
+    // player forms an army, orders it to march, and is refused for a reason they had
+    // no way to see and no way to predict the end of.
+    [Fact]
+    public void GroupState_IsOnTheWireSoAFormingArmyCanSaySo()
+    {
+        var (sim, projector, _) = MakeWorld();
+
+        // Two units that are NOT already together, so the group must actually form.
+        var mine = sim.World.Units.Values.Where(u => u.OwnerId == 0).ToList();
+        var a = mine[0];
+        var b = mine.First(u => u.Position != a.Position);
+
+        sim.SubmitIntent(sim.Now, new Sim.Core.Groups.FormGroupIntent(
+            new[] { a.Id, b.Id }, a.Position) { PlayerId = 0 });
+        sim.Run(until: sim.Now + 1);
+
+        var gid = a.GroupId;
+        Assert.NotNull(gid);
+        var group = sim.World.Groups[gid!.Value];
+
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        foreach (var u in v2.Units.Where(u => u.GroupId == gid.Value))
+            Assert.Equal((int)group.State, u.GroupState);
+
+        // The whole point: a member that is still walking reports Forming, which is
+        // exactly the state MoveGroupIntent refuses.
+        Assert.Equal((int)Sim.Core.Groups.GroupState.Forming, (int)group.State);
+        Assert.Equal((int)Sim.Core.Groups.GroupState.Forming,
+            v2.Units.First(u => u.Id == a.Id).GroupState);
+
+        // Ungrouped units report 0, not a state they do not have.
+        foreach (var u in v2.Units.Where(u => u.OwnerId == 0 && u.GroupId <= 0))
+            Assert.Equal(0, u.GroupState);
+    }
+
+    // M31 — the crown tag says WHO wears it; these say what wearing it means. A
+    // client with the tag alone can draw a crown and nothing else: no aura, and no
+    // way to tell the player their monarch is a child projecting nothing. That
+    // minority window is meant to be a visible, plannable weakness — and a window
+    // nobody can see is not telegraphed.
+    [Fact]
+    public void RoyaltyRules_AreTheWorldsOwnConfig()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var cfg = sim.World.RoyaltyConfig;
+        var world = projector.BuildWorldDto(sim.World.PopulationConfig, cfg);
+
+        Assert.Equal(cfg.AuraRadius, world.Royalty.AuraRadius);
+        Assert.Equal(cfg.AuraPowerBonus, world.Royalty.AuraPowerBonus);
+        Assert.Equal(cfg.MajorityAge, world.Royalty.MajorityAge);
+
+        // A zero radius or bonus would mean the aura does not exist, and the client
+        // would be drawing a disc for nothing.
+        Assert.True(world.Royalty.AuraRadius > 0);
+        Assert.True(world.Royalty.AuraPowerBonus > 0);
+    }
+
+    // The crown reaches the fogged path, and stays own-only.
+    [Fact]
+    public void Royal_IsTaggedForOwnUnitsAndPrivateForEveryoneElse()
+    {
+        var (sim, projector, _) = MakeWorld(128);
+
+        var fogged = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        var kings = fogged.Units.Where(u => u.Royal == 1).ToList();
+        Assert.Single(kings);
+        Assert.Equal(0, kings[0].OwnerId);
+
+        // Every faction is crowned at genesis, so a revealed view would show other
+        // kings too if the tag were public — it must not.
+        var revealed = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
+        var sawForeign = false;
+        foreach (var u in revealed.Units)
+        {
+            if (u.OwnerId == 0) continue;
+            sawForeign = true;
+            Assert.Equal(0, u.Royal);
+        }
+        Assert.True(sawForeign, "no foreign units — privacy went unasserted");
+    }
+
+    // THE GUARD FOR A BUG CLASS, not for one bug.
+    //
+    // UnitDto is projected by TWO overloads: one from a real Unit (the reveal path,
+    // a dev switch) and one from a UnitView (the fogged path, which is the actual
+    // game). Every own-only field added since the v2 wire landed has gone into the
+    // first and been forgotten in the second — the M30 goal fields, and then the M31
+    // Royal tag. Both times the feature worked perfectly with reveal=1 and was
+    // invisible to every real player.
+    //
+    // For the VIEWER'S OWN units the two projections describe the same unit with the
+    // same knowledge, so they must agree field for field. Comparing by reflection
+    // means the next field added is covered without anyone remembering to cover it.
+    [Fact]
+    public void OwnUnits_ProjectIdenticallyOnBothPaths()
+    {
+        var (sim, projector, _) = MakeWorld();
+
+        // Give the units something to be mid-doing, so this compares live state and
+        // not fourteen identical rows of defaults.
+        var mover = sim.World.Units.Values.First(u => u.OwnerId == 0);
+        sim.SubmitIntent(sim.Now, new Sim.Core.Movement.MoveIntent(
+            mover.Id, new Sim.Core.World.TileCoord(mover.Position.X + 5, mover.Position.Y))
+            { PlayerId = 0 });
+        sim.Run(until: sim.Now + 1);
+
+        var fogged = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false)
+            .Units.Where(u => u.OwnerId == 0).ToDictionary(u => u.Id);
+        var revealed = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true)
+            .Units.Where(u => u.OwnerId == 0).ToDictionary(u => u.Id);
+
+        Assert.NotEmpty(fogged);
+        Assert.Equal(revealed.Keys.OrderBy(k => k), fogged.Keys.OrderBy(k => k));
+
+        var props = typeof(UnitDto).GetProperties();
+        foreach (var (id, f) in fogged)
+        {
+            var r = revealed[id];
+            foreach (var prop in props)
+            {
+                var a = prop.GetValue(r);
+                var b = prop.GetValue(f);
+                if (a is Array aa && b is Array bb)
+                {
+                    Assert.Equal(aa.Length, bb.Length);
+                    continue;
+                }
+                Assert.True(Equals(a, b),
+                    $"unit {id}: {prop.Name} is {a} when revealed but {b} through the fog — " +
+                    "a field was added to one projection overload and not the other");
+            }
+        }
+    }
+
     // Training is gated on standing INSIDE the right building, so the command panel
     // must know which building teaches what. Inverted server-side from
     // RoleTrainerCatalog rather than copied into the client, where it would drift the

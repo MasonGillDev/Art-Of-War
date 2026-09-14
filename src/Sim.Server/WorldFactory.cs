@@ -108,12 +108,32 @@ public static class WorldFactory
                 UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer, UnitRole.Scout,
             };
             var need = roster.Length * 2;
+
+            // M31 — WHICH founder wears the crown.
+            //
+            // The FIRST BUILDER, which is where the crown already sat when royalty
+            // was a flag. As a role the king stops doing his trade, so crowning
+            // anyone costs the realm something; the question is only what.
+            //
+            // Two wrong answers came first, and both are worth recording. A
+            // FIFTEENTH BODY kept all fourteen workers and broke three balance
+            // baselines on food alone — an extra mouth is an extra mouth, exactly as
+            // this comment used to warn. Crowning a SCOUT looked cheapest (nothing
+            // downstream depends on exploration) and was the worst of the three: it
+            // starved faction 1 outright, because TrainRung's pool already excludes
+            // Builders and Haulers, so a crowned scout is a TRAINABLE body removed
+            // while a crowned builder is not.
+            //
+            // The cost of crowning a builder is therefore a temporary one the AI
+            // already knows how to repair: its builder-floor rung exists precisely
+            // to retrain a lost Builder, and the player can do the same.
+            var kingSlot = 0;
             var spawnTiles = GatherSpawnTiles(need);
 
             var spawns = new List<UnitSpawn>(need);
             for (var slot = 0; slot < need; slot++)
             {
-                var role = roster[slot / 2];
+                var role = slot == kingSlot ? UnitRole.King : roster[slot / 2];
                 // STAGGERED ages 18..40 (deterministic by slot). A uniform-age
                 // roster hits a synchronized fertility cliff — every founder ages
                 // past MaxFertileAge the same game-day and births stop dead until
@@ -135,11 +155,12 @@ public static class WorldFactory
                 // point: the King's Buff is real combat power, so a world
                 // where only some factions are crowned is quietly unfair.
                 //
-                // The crown goes on the FIRST founder rather than on an extra
-                // body: the king is an ordinary unit who works, ages and dies
-                // like anyone, and adding a thirteenth mouth to carry a title
-                // would change the opening economy for a cosmetic reason.
-                KingUnitId = spawns[0].Id,
+                // Whose body: see the kingSlot note above. Crowning slot 0 costs
+                // the faction one of its two Builders, because a King cannot build
+                // — AssignBuildersIntent takes Builders only. That cost is the
+                // cheapest of the three that were tried, and it is one the AI's
+                // builder-floor rung already knows how to repair.
+                KingUnitId = spawns[kingSlot].Id,
                 CastleHoldings = new SortedDictionary<Resource, int>
                 {
                     [Resource.Wood] = 70,

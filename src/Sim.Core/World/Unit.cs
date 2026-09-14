@@ -15,6 +15,20 @@ public enum UnitRole : byte
     Soldier = 9, // military — melee tank, trained at Barracks
     Archer = 10, // military — glass cannon, trained at Barracks (ranged-from-adjacent deferred)
     Bandit = 11, // M16 — NPC raider; never trainable, spawned only by the bandit driver
+    // M31 — the dynasty as ROLES rather than a derived tag.
+    //
+    // NEITHER IS TRAINABLE, IN EITHER DIRECTION. No citizen is trained into a
+    // crown (RoleTrainerCatalog maps both to no trainer) and no monarch is ever
+    // trained out of one (TrainUnitIntent refuses a royal subject outright).
+    // Royalty is for life; the only thing that changes a royal role is death,
+    // through Succession.
+    //
+    // Their combat numbers are deliberately IDENTICAL to a citizen's: the design
+    // is that a king is an ordinary person carrying an extraordinary aura, and
+    // giving the body itself better stats would quietly make the crown a
+    // combat upgrade on top of the buff it already projects.
+    King = 12,
+    Heir = 13,
 }
 
 public sealed class Unit
@@ -228,6 +242,11 @@ public sealed class Unit
     // a move-then-move sequence on an Idle unit would leave both chains
     // running interleaved.
     internal void BumpEpoch() { unchecked { AssignmentEpoch++; } }
+
+    // M31 — the ONLY other writer of Role besides training, and deliberately a
+    // separate method: crowning is not retraining. Called from Succession, which
+    // is the single mutation point for the whole dynasty.
+    internal void SetRoleForCrowning(UnitRole role) => _role = role;
 
     // Restore-only. Used by Snapshot.Restore to rebuild a Unit's epoch without
     // running through TrySetActivity's bump logic.

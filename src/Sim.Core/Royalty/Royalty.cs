@@ -9,8 +9,22 @@ namespace Sim.Core.Royalty;
 // these freely. The ONE mutator of Player.KingUnitId is Succession.OnRoyalRemoved
 // — no second writer, no post-hoc sweep.
 //
-// ROYALTY IS DERIVED, NOT FLAGGED. Given stored parentage plus one stored
-// KingUnitId per player, "is royal" is a predicate:
+// ROYALTY IS DERIVED HERE, AND ALSO STORED AS A ROLE.
+//
+// AMENDED. This header used to argue that a stored royal flag "would be a
+// second source of truth about the same fact", and that argument was right —
+// King and Heir are now real UnitRoles, so that second source exists. The
+// derivation below is still THE truth; the roles follow it, they never lead it.
+// Succession.SyncRoles is the one place they are reconciled, and
+// RoyalRoleTests.AssertRolesMatchTheLine is what fails if they ever part.
+//
+// Why the roles were worth the cost: a crown that is only a flag is invisible
+// to every system that reasons about roles — the AI's pools, the client's
+// silhouettes, the training rules. As a role, "you cannot train a king" is one
+// line in TrainingRules instead of a rule each caller has to remember.
+//
+// Given stored parentage plus one stored KingUnitId per player, "is royal" is
+// still a predicate:
 //
 //     royal(u) = u is the king || u is a child of the king
 //
