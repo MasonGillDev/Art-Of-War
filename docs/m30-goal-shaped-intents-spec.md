@@ -218,6 +218,25 @@ assignment helpers next to `WorkAssignment.Release`. Snapshot **v29** carries
 `Arg`. A training goal that lost its role across a restore would resume the
 walk and then train the wrong thing, so that round-trip is a test.
 
+**Client half, 2026-09-14.** The sim could walk a citizen to the school before
+the client could ask it to, so the appointment survived in the UI for three
+weeks: `CommandPanel` only offered a trade when the selection was *standing
+inside* the building. It now offers every trade you own a trainer for, from
+anywhere, and **the button names the destination** — "Builder — School (4,
+12)". Choosing the nearest is client convenience; choosing it invisibly would
+be the silent failure the visibility contract exists to prevent, so the tile is
+on the face of the control before it is pressed.
+
+Supporting: `TrainUnitAtPayload` (a separate class, because JsonUtility cannot
+omit a field and an always-present `TrainerTile` of (0,0) would read as a real
+instruction — the same split as `PlaceSitePayload`/`PlaceDockPayload`),
+`IntentFactory.TrainAt`, `OrderIssuer.NearestTrainerFor`, `GoalTrain` in
+`SimVocabulary`, and the Train case in the HUD's errand noun. Two tests in
+`IntentJsonTests` feed the client's **verbatim** JSON through the server
+deserializer — including the absent-field case that must land as null rather
+than as (0,0) — so a rename on either side of the seam fails a test instead of
+silently dropping orders in a running game.
+
 **Still deferred** — the rest of the "target is whatever I am standing on"
 family: `EquipUnitIntent`, `CraftEquipmentIntent`, `LootCacheIntent`,
 `LoadCargoIntent`, `UnloadCargoIntent`, and the `Embark`/`Disembark` pair.

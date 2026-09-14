@@ -10,6 +10,44 @@ namespace Sim.Persistence.Tests;
 // registry contract).
 public class IntentJsonTests
 {
+    // ---- the client's own payload shapes ---------------------------------
+    //
+    // The Unity client hand-writes its JSON (JsonUtility cannot omit a field, so
+    // an optional parameter gets its own payload class there). These two tests
+    // are the contract between that hand-written shape and this deserializer:
+    // they feed the EXACT bytes the client sends, so a rename on either side
+    // fails here rather than in a running game as a silently ignored order.
+
+    [Fact]
+    public void TrainUnitIntent_FromTheClientsWireShape_CarriesTheTrainerTile()
+    {
+        // TrainUnitAtPayload, verbatim.
+        const string payload =
+            "{\"UnitId\":7,\"NewRole\":1,\"TrainerTile\":{\"X\":4,\"Y\":12},\"PlayerId\":0}";
+
+        var replay = Assert.IsType<Sim.Core.Population.TrainUnitIntent>(
+            IntentJson.Deserialize("TrainUnitIntent", payload));
+
+        Assert.Equal(7, replay.UnitId);
+        Assert.Equal(UnitRole.Builder, replay.NewRole);
+        Assert.Equal(new TileCoord(4, 12), replay.TrainerTile);
+    }
+
+    [Fact]
+    public void TrainUnitIntent_WithoutATrainerTile_KeepsTheStandingOnItContract()
+    {
+        // TrainUnitPayload, verbatim: the field is ABSENT, not null. That is how
+        // the client says "no opinion", and it must land as null rather than as
+        // an instruction to train at (0,0).
+        const string payload = "{\"UnitId\":7,\"NewRole\":9,\"PlayerId\":0}";
+
+        var replay = Assert.IsType<Sim.Core.Population.TrainUnitIntent>(
+            IntentJson.Deserialize("TrainUnitIntent", payload));
+
+        Assert.Equal(UnitRole.Soldier, replay.NewRole);
+        Assert.Null(replay.TrainerTile);
+    }
+
     [Fact]
     public void CraftEquipmentIntent_RoundTrips()
     {
