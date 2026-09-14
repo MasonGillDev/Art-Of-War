@@ -110,7 +110,37 @@ public sealed class ViewProjector
                 AuraPowerBonus = royalty.AuraPowerBonus,
                 MajorityAge = royalty.MajorityAge,
             },
+            Craftable = CraftCatalog(),
         };
+    }
+
+    // The forgeable items, read straight off EquipmentCatalog so the client's
+    // armoury menu and the sim's validator can never disagree — the same
+    // contract as BuildCatalog below, and added because the hand-written mirror
+    // it replaces had already lost the Cart. Ordered by item for a
+    // deterministic payload.
+    private static EquipmentOptionDto[] CraftCatalog()
+    {
+        var options = new List<EquipmentOptionDto>();
+        foreach (var item in Enum.GetValues<Resource>().OrderBy(r => (int)r))
+        {
+            if (!Sim.Core.Equipment.EquipmentCatalog.TryGetSpec(item, out var spec)) continue;
+            options.Add(new EquipmentOptionDto
+            {
+                Item = (int)item,
+                CraftedAt = (int)spec.CraftedAt,
+                Cost = spec.CraftCost
+                    .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+                    .ToArray(),
+                AllowedRoles = spec.AllowedRoles.Select(r => (int)r).OrderBy(r => r).ToArray(),
+                PowerModifier = spec.PowerModifier,
+                HealthModifier = spec.HealthModifier,
+                CargoModifier = spec.CargoModifier,
+                MoveCostPercent = spec.MoveCostPercent,
+                BuffKind = spec.BuffKind,
+            });
+        }
+        return options.ToArray();
     }
 
     // The player-buildable kinds, read straight off StructureCatalog so the client's

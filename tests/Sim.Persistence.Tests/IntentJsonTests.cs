@@ -139,6 +139,23 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void CraftEquipmentIntent_FromTheClientsWireShape()
+    {
+        // The client's CraftEquipmentPayload, verbatim. The field is still
+        // BarracksTile even though the catalog now names the forge per item —
+        // it is a durable wire name, and renaming it would break every replay
+        // ever recorded for a cosmetic gain.
+        const string payload =
+            "{\"BarracksTile\":{\"X\":6,\"Y\":9},\"Item\":5,\"PlayerId\":0}";
+
+        var replay = Assert.IsType<CraftEquipmentIntent>(
+            IntentJson.Deserialize("CraftEquipmentIntent", payload));
+
+        Assert.Equal(new TileCoord(6, 9), replay.BarracksTile);
+        Assert.Equal(Resource.Sword, replay.Item);
+    }
+
+    [Fact]
     public void CraftEquipmentIntent_RoundTrips()
     {
         var intent = new CraftEquipmentIntent(new TileCoord(3, 7), Resource.Sword) { PlayerId = 2 };

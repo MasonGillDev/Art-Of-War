@@ -68,6 +68,56 @@ public sealed class WorldDto
     ///
     /// Public and static, like every other rules block here.
     public RoyaltyRulesDto Royalty { get; set; } = new();
+
+    /// What can be forged, what it costs, and who may carry it — straight off
+    /// EquipmentCatalog.
+    ///
+    /// THE SAME ARGUMENT AS THE BUILD CATALOGUE, and it had already failed once
+    /// without it. The client kept a hand-written copy of "a Sword is for
+    /// Soldiers, a Bow for Archers", and that copy silently omitted the Cart —
+    /// so a hauler could never be given one through the UI, and nothing in
+    /// either codebase could notice. A mirror maintained by hand drifts the
+    /// first time the catalog grows, which is exactly when a player most needs
+    /// the UI to be right.
+    ///
+    /// Sending the server's own table means a new item APPEARS in the client
+    /// with no client work at all — which is the real answer to "is the catalog
+    /// easy to expand".
+    ///
+    /// Static and public, like every rules block above: what a sword costs is
+    /// common knowledge, not intelligence about anyone's armoury.
+    public EquipmentOptionDto[] Craftable { get; set; } = [];
+}
+
+/// One forgeable item.
+public sealed class EquipmentOptionDto
+{
+    /// The Resource value the item IS — equipment lives in the resource
+    /// namespace, so a sword sits in a stockpile and can be hauled like grain.
+    public int Item { get; set; }
+
+    /// Which building forges it (StructureKind), from the catalog's CraftedAt.
+    public int CraftedAt { get; set; }
+
+    /// The bill of materials, consumed from that building's own holdings.
+    public ResAmtDto[] Cost { get; set; } = [];
+
+    /// Roles that may carry it. The client greys or hides by this rather than
+    /// by a table of its own — the omission that lost the Cart.
+    public int[] AllowedRoles { get; set; } = [];
+
+    // What it DOES. The player is spending ore on this; the menu has to say
+    // why. All four are the same fields the sim copies into the buff instance
+    // at equip time, so the menu cannot promise an effect the sim won't grant.
+    public int PowerModifier { get; set; }
+    public int HealthModifier { get; set; }
+    public int CargoModifier { get; set; }
+    public int MoveCostPercent { get; set; }
+
+    /// Stable buff identity. A unit carries at most one buff of a given kind,
+    /// and the wire already reports a unit's buffs BY KIND — so this is what
+    /// lets the client say "he already has a sword" without a second lookup.
+    public string BuffKind { get; set; } = "";
 }
 
 /// World-level dynasty settings. Ages are in AGE-YEARS, like every population gate.

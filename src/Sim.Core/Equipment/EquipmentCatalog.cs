@@ -24,8 +24,16 @@ public sealed record EquipmentSpec
     public int CargoModifier { get; init; }
     public int MoveCostPercent { get; init; }
     public required IReadOnlySet<UnitRole> AllowedRoles { get; init; }
-    // Consumed from the Barracks' own holdings by CraftEquipmentIntent.
+    // Consumed from the crafting building's own holdings by
+    // CraftEquipmentIntent.
     public required SortedDictionary<Resource, int> CraftCost { get; init; }
+
+    // WHICH building forges it. Named per item rather than hard-typed in the
+    // intent, because the intent used to test `is not Barracks` and that is
+    // already strained: a Cart is a HAULER's tool and has no business being
+    // made in a barracks. With this field a Workshop or a Smithy is a catalog
+    // row plus a StructureKind, not a second intent.
+    public required StructureKind CraftedAt { get; init; }
 }
 
 public static class EquipmentCatalog
@@ -38,6 +46,7 @@ public static class EquipmentCatalog
         [Resource.Sword] = new EquipmentSpec
         {
             Item = Resource.Sword,
+            CraftedAt = StructureKind.Barracks,
             BuffKind = "sword",
             PowerModifier = 3,
             AllowedRoles = new HashSet<UnitRole> { UnitRole.Soldier },
@@ -50,6 +59,7 @@ public static class EquipmentCatalog
         [Resource.Bow] = new EquipmentSpec
         {
             Item = Resource.Bow,
+            CraftedAt = StructureKind.Barracks,
             BuffKind = "bow",
             PowerModifier = 4,
             AllowedRoles = new HashSet<UnitRole> { UnitRole.Archer },
@@ -61,6 +71,7 @@ public static class EquipmentCatalog
         [Resource.Shield] = new EquipmentSpec
         {
             Item = Resource.Shield,
+            CraftedAt = StructureKind.Barracks,
             BuffKind = "shield",
             HealthModifier = 10,
             AllowedRoles = new HashSet<UnitRole> { UnitRole.Soldier, UnitRole.Archer },
@@ -79,6 +90,11 @@ public static class EquipmentCatalog
         [Resource.Cart] = new EquipmentSpec
         {
             Item = Resource.Cart,
+            // Still the Barracks today — moving it is a one-line change now
+            // rather than a refactor, and moving it is a BALANCE decision
+            // (a cart at a workshop unbinds haulage from military build-out),
+            // so it waits for that call rather than riding this one.
+            CraftedAt = StructureKind.Barracks,
             BuffKind = "cart",
             CargoModifier = 25,
             MoveCostPercent = 50,

@@ -189,3 +189,58 @@ demands it. The craft/equip/drop loop and the slot rules were reused unchanged.
 - `docs/cargo-capacity.md` — the catalog-pattern precedent.
 - `src/Sim.Core/Combat/Buff.cs` — the M7 scaffold contract this
   implements.
+
+## Update 2026-09-14 — the catalogue goes on the wire, and the forge is named
+
+Two changes, both about **expansion cost** rather than balance.
+
+### `CraftedAt` on the spec
+
+`CraftEquipmentIntent` used to test `is not Barracks`, which made the forge a
+property of the *intent* rather than of the *item*. That was already strained —
+a Cart is a hauler's tool being made in a barracks — and it meant a Workshop or
+a Smithy would have needed a second intent. The building is now a catalog field,
+so a new forge is a `StructureKind` plus a row.
+
+The Cart stays at the Barracks for now: moving it is a one-line change, but it
+is a **balance** decision (a cart at a workshop unbinds haulage from military
+build-out), so it waits for that call rather than riding this one.
+
+The intent's `BarracksTile` property keeps its name. It is a durable wire name
+in the intent log, and renaming it would break every recorded replay for a
+purely cosmetic gain.
+
+### The catalogue rides genesis
+
+`WorldV2Dto.Craftable` now carries every forgeable item — cost, forge, allowed
+roles, all four modifiers, and the buff kind — exactly as `Buildable` has
+carried the structure catalog.
+
+**This replaced a hand-written mirror that had already failed.** The client kept
+its own copy of "Sword for Soldiers, Bow for Archers" and that copy silently
+omitted the **Cart**, so a hauler could never be given one through the UI — and
+nothing in either codebase could notice, because a mirror has no counterpart to
+disagree with. `WireV2Tests.CraftCatalog_IsExactlyTheSimsForgeableItems`
+compares against `EquipmentCatalog` directly and names the Cart explicitly, so
+the same loss cannot happen twice.
+
+The practical answer to "is the catalog easy to expand": **a new item is now one
+dictionary row and no client work at all** — it appears in the armoury menu
+priced, described by its real modifiers, and restricted to the roles the sim
+actually allows.
+
+### What is still hard to expand
+
+Recorded so the next person does not have to rediscover it:
+
+- **Four modifier axes only** (power, health, cargo, move-cost). A genuinely new
+  *kind* of effect — vision, build speed, food draw, bonus-vs-structures — needs
+  a field on `EquipmentSpec` *and* a new read site in whatever rolls it up. The
+  catalog is easy to widen and hard to deepen.
+- **Two buff slots, distinct kinds** (`BuffRules.MaxBuffsPerUnit`). Sword +
+  shield is a full loadout, so past roughly six items most become unreachable in
+  practice. Growing the catalog much further needs a slot decision first.
+- **No craft time.** Crafting is instant and the pacing lives upstream in mining
+  and hauling. A timed craft would need an anchor plus an event, the same shape
+  as construction.
+

@@ -302,6 +302,53 @@ public class WireV2Tests
         Assert.Contains("false", pace);   // no such intent type exists, and must not
     }
 
+    // The equipment catalog rides genesis for the same reason the build catalog
+    // does — and this one has a scar. The client kept a hand-written copy of
+    // "Sword for Soldiers, Bow for Archers", and that copy quietly omitted the
+    // Cart, so a hauler could never be given one and nothing in either codebase
+    // could notice. Comparing against EquipmentCatalog directly is what makes a
+    // future item impossible to lose the same way.
+    [Fact]
+    public void CraftCatalog_IsExactlyTheSimsForgeableItems()
+    {
+        var (_, projector, _) = MakeWorld();
+        var world = projector.BuildWorldDto();
+
+        var expected = Enum.GetValues<Sim.Core.World.Resource>()
+            .Where(r => Sim.Core.Equipment.EquipmentCatalog.TryGetSpec(r, out _))
+            .Select(r => (int)r)
+            .OrderBy(r => r)
+            .ToArray();
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, world.Craftable.Select(c => c.Item).ToArray());
+
+        // The Cart specifically: the item the mirror lost. If it ever falls off
+        // the wire again, this is the line that says so.
+        Assert.Contains(world.Craftable, c => c.Item == (int)Sim.Core.World.Resource.Cart);
+
+        foreach (var opt in world.Craftable)
+        {
+            var item = (Sim.Core.World.Resource)opt.Item;
+            Assert.True(Sim.Core.Equipment.EquipmentCatalog.TryGetSpec(item, out var spec));
+
+            Assert.Equal((int)spec.CraftedAt, opt.CraftedAt);
+            Assert.Equal(spec.BuffKind, opt.BuffKind);
+            Assert.Equal(spec.PowerModifier, opt.PowerModifier);
+            Assert.Equal(spec.HealthModifier, opt.HealthModifier);
+            Assert.Equal(spec.CargoModifier, opt.CargoModifier);
+            Assert.Equal(spec.MoveCostPercent, opt.MoveCostPercent);
+
+            Assert.Equal(spec.CraftCost.Count, opt.Cost.Length);
+            foreach (var c in opt.Cost)
+                Assert.Equal(spec.CraftCost[(Sim.Core.World.Resource)c.Resource], c.Amount);
+
+            Assert.Equal(
+                spec.AllowedRoles.Select(r => (int)r).OrderBy(r => r).ToArray(),
+                opt.AllowedRoles);
+        }
+    }
+
     // C2 — the build catalog rides genesis so the client's build menu is the sim's
     // own table rather than a copy of it. The whole point is that it CANNOT drift,
     // so this test compares against StructureCatalog directly.
