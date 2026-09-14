@@ -93,6 +93,14 @@ public sealed class MoveArrivalEvent : ScheduledEvent
         // a single dict lookup — for any unit without an active mission. See
         // Scouting/ScoutObservation.cs.
         ScoutObservation.Capture(sim, unit);
+        // M30 sweep — a hull finishing a hop alongside a dock boards whoever is
+        // standing there waiting for it. The passenger-arrives-last case is
+        // handled by the goal dispatch below; this is the boat-arrives-last one,
+        // and a boarding needs both or the late half waits forever. Role-gated,
+        // so it costs every other unit one comparison. docs/goal-shaped-intents.md.
+        if (unit.Role == UnitRole.Boat)
+            Sim.Core.Boats.EmbarkGoal.OnBoatArrived(sim, unit);
+
         // M7: presence-gated combat trigger. Hostile-owner co-location on
         // an arrived-at tile starts a fight; benign co-occupancy is a
         // no-op. Already-contested tile fences inside the trigger.

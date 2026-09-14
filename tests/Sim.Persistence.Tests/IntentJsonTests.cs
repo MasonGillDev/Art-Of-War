@@ -49,6 +49,53 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void EquipUnitIntent_CarriesAnOptionalStoreTile()
+    {
+        // The errand form and the standing-there form are the same intent type,
+        // told apart only by whether the tile is present — so both shapes have
+        // to survive the durable log, or a replay would arm the wrong soldier
+        // in the wrong place.
+        var far = new EquipUnitIntent(7, Resource.Sword, new TileCoord(14, 4)) { PlayerId = 0 };
+        var (n1, p1) = IntentJson.Serialize(far);
+        var r1 = Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize(n1, p1));
+        Assert.Equal(new TileCoord(14, 4), r1.StoreTile);
+        Assert.Equal(Resource.Sword, r1.Item);
+
+        var here = new EquipUnitIntent(7, Resource.Sword) { PlayerId = 0 };
+        var (n2, p2) = IntentJson.Serialize(here);
+        Assert.Null(Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize(n2, p2)).StoreTile);
+    }
+
+    [Fact]
+    public void LootCacheIntent_CarriesAnOptionalCacheTile()
+    {
+        var far = new Sim.Core.Caches.LootCacheIntent(3, Resource.Wood, new TileCoord(4, 14)) { PlayerId = 1 };
+        var (n1, p1) = IntentJson.Serialize(far);
+        var r1 = Assert.IsType<Sim.Core.Caches.LootCacheIntent>(IntentJson.Deserialize(n1, p1));
+        Assert.Equal(new TileCoord(4, 14), r1.CacheTile);
+
+        var here = new Sim.Core.Caches.LootCacheIntent(3, Resource.Wood) { PlayerId = 1 };
+        var (n2, p2) = IntentJson.Serialize(here);
+        Assert.Null(Assert.IsType<Sim.Core.Caches.LootCacheIntent>(
+            IntentJson.Deserialize(n2, p2)).CacheTile);
+    }
+
+    [Fact]
+    public void EmbarkIntent_CarriesAnOptionalDockTile()
+    {
+        var far = new Sim.Core.Boats.EmbarkIntent(50, new[] { 1, 2 }, new TileCoord(9, 4)) { PlayerId = 0 };
+        var (n1, p1) = IntentJson.Serialize(far);
+        var r1 = Assert.IsType<Sim.Core.Boats.EmbarkIntent>(IntentJson.Deserialize(n1, p1));
+        Assert.Equal(new TileCoord(9, 4), r1.DockTile);
+        Assert.Equal(new[] { 1, 2 }, r1.UnitIds);
+
+        var here = new Sim.Core.Boats.EmbarkIntent(50, new[] { 1 }) { PlayerId = 0 };
+        var (n2, p2) = IntentJson.Serialize(here);
+        Assert.Null(Assert.IsType<Sim.Core.Boats.EmbarkIntent>(
+            IntentJson.Deserialize(n2, p2)).DockTile);
+    }
+
+    [Fact]
     public void CraftEquipmentIntent_RoundTrips()
     {
         var intent = new CraftEquipmentIntent(new TileCoord(3, 7), Resource.Sword) { PlayerId = 2 };

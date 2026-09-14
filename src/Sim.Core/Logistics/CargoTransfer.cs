@@ -67,6 +67,13 @@ public static class CargoTransfer
         if (dest is House house && house.PendingBreed is not null && resource == Resource.Food)
             Sim.Core.Population.BreedGoal.OnHouseSupplied(sim, house);
 
+        // And once more for the armoury: a soldier standing in a storehouse
+        // waiting for a sword is armed by the delivery that brings one. Same
+        // rule, same hook, no third mechanism — a state change that clears a
+        // precondition completes the goal that was waiting on it.
+        if (dest is StorageStructure store)
+            Sim.Core.Equipment.EquipRules.OnStoreSupplied(sim, store, resource);
+
         return deposited;
     }
 

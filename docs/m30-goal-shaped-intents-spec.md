@@ -237,8 +237,44 @@ deserializer — including the absent-field case that must land as null rather
 than as (0,0) — so a rename on either side of the seam fails a test instead of
 silently dropping orders in a running game.
 
-**Still deferred** — the rest of the "target is whatever I am standing on"
-family: `EquipUnitIntent`, `CraftEquipmentIntent`, `LootCacheIntent`,
+**Sweep completed 2026-09-14: Equip, Loot, Embark.** Each takes an optional
+target tile, so the standing-there contract is untouched and every existing
+call site kept working. The interesting part was that the three need
+**different answers** to "the precondition is unmet on arrival", and the
+differences are not arbitrary:
+
+| errand | unmet on arrival | why |
+|---|---|---|
+| Equip | **waits**, indefinitely | a shelf gets restocked; the deposit that brings a sword is the wake-up (`CargoTransfer`) |
+| Loot | **dissolves** | a cache never refills — losing the race is a real outcome, and waiting for a refill that cannot come is the stall the contract forbids |
+| Embark | **waits** for an absent hull, **dissolves** at a full one | a boat sails back; a full boat does not empty on any schedule the sim can wake on |
+
+Embark is the one with two moving parts, so it needed a second wake-up:
+`EmbarkGoal.OnBoatArrived`, hung off `MoveArrivalEvent` and gated on
+`Role == Boat`. It also keeps **all-or-nothing on the immediate path and
+per-passenger on the walked one** — a player looking at a crew on a quay is
+entitled to "all of them or tell me why", but an errand spread over game-days
+cannot honour that without letting one straggler hold the whole crew, forever
+if they die en route.
+
+Two defects the tests caught rather than review:
+
+1. `EmbarkIntent` derived the quay from the **boat's** position, so a hull out
+   at sea was beside no dock and the intent rejected — which made the
+   boat-arrives-last case unreachable and `OnBoatArrived` dead code. Fixed with
+   an optional `DockTile`; naming the quay is what makes "meet her at the
+   harbour" expressible at all.
+2. A passenger arriving at a **full** hull waited forever, because only the
+   boat-arrival path checked the cap. Now both do.
+
+No `FormatVersion` bump: `GoalKind` is an append-only byte enum and `GoalPlan`
+already carries `TargetTile`, `PartnerUnitId` and `Arg`, so the three new kinds
+changed no shape. `Arg` carries the item/resource; `PartnerUnitId` carries the
+hull, which is not derivable from the berth (several boats can share a dock)
+and which moves.
+
+**Left step-shaped, deliberately** — the rest of the "target is whatever I am
+standing on" family: `EquipUnitIntent`, `CraftEquipmentIntent`, `LootCacheIntent`,
 `LoadCargoIntent`, `UnloadCargoIntent`, and the `Embark`/`Disembark` pair.
 
 These have the same defect: the target is derived from where the body already
@@ -248,10 +284,25 @@ optional tile, re-check on arrival, one shared apply — and the remaining piece
 it needed (`GoalPlan.Arg`, a new `GoalKind` member) are now in place, so each
 of these is a self-contained follow-up rather than a blocked one.
 
-Ranked by how much appointment they actually remove: `LootCache` and
-`Equip`/`Craft` are worth doing; `Load`/`UnloadCargo` and `Embark`/`Disembark`
-are the least valuable, since the player is generally standing there already
-and the carrier pair has adjacency semantics of its own to preserve.
+`CraftEquipmentIntent` was on this list by mistake and is now off it: it
+already names a `BarracksTile` and no body travels, so it is an order to a
+building with nothing to goal-shape. (Whether it should *wait* on materials
+rather than reject is a separate precondition question, and belongs with
+demand-driven haulage.)
+
+`LoadCargoIntent` and `UnloadCargoIntent` are the real remainder.
+Load-at-a-distance is very nearly `HaulIntent`'s first leg with no destination,
+so converting it adds a second way to say one thing. Unload is the better half
+— "go empty yourself at that stockpile" is a genuine one-decision goal you
+cannot express today — but the cleaner fix may be upstream: teach `HaulIntent`
+deposit-first semantics so it accepts a laden carrier, which removes the reason
+`UnloadCargoIntent` exists as an escape hatch at all. That question should be
+settled before either is converted.
+
+`DisembarkIntent` is not a conversion at all: the passengers are already
+aboard, so no body walks. The useful version — "sail to that dock and put
+everyone ashore" — is a new composite (boat moves, arrival dispatches the
+unload), and should be built as one if it is wanted.
 
 ### Phase E — `BuildIntent` composite
 

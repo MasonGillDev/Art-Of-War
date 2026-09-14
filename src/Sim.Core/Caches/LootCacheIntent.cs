@@ -1,71 +1,70 @@
 using System.Text.Json.Serialization;
+using Sim.Core.Intents;
+using Sim.Core.World;
 
 namespace Sim.Core.Caches;
 
-// M23 — loot a discovered cache (docs/loot-caches.md). A unit standing on a
-// Cache tile takes one named resource into its cargo, CARGO-CAPPED: it loads
-// up to its free cargo space and the remainder stays in the cache (which
-// persists, re-lootable — a big haul wants a hauler or several trips, and a
-// rival can grab the leftovers). The cache is removed once emptied — the
-// treasure is gone.
+// M23 — loot a discovered cache (docs/loot-caches.md). A unit takes one named
+// resource into its cargo, CARGO-CAPPED: it loads up to its free space and the
+// remainder stays in the cache, which persists and stays re-lootable — a big
+// haul wants a hauler or several trips, and a rival can grab the leftovers. The
+// cache is removed once emptied; the treasure is gone.
 //
-// Mirrors LoadCargoIntent's preconditions (the M16 cargo atom); cargo is
-// single-resource, so the caller names which resource to take. Source
-// ownership is irrelevant — a cache belongs to no one; whoever reaches it
-// first may loot it (the exploration-and-speed reward).
+// GOAL-SHAPED. "Go take that cache" is one decision and the trek across the fog
+// is execution, so naming a CacheTile sends the body there and loots on
+// arrival. Omit it and the old contract holds: the cache under their feet.
+//
+// IT NEVER WAITS, and that is the difference between treasure and trade. An
+// empty shelf in a storehouse will be restocked, so an equip errand stands and
+// waits; a cache does not refill, so arriving to an emptied one is the end of
+// the errand and it dissolves saying so. Somebody else got there first is a
+// real outcome of a race the design wants you to feel.
+//
+// Source ownership is irrelevant — a cache belongs to no one, and whoever
+// reaches it first may loot it. That is the exploration-and-speed reward.
 public sealed class LootCacheIntent : Intent
 {
     public int UnitId { get; }
     public Resource Resource { get; }
 
+    // Which cache. Null = "the one under their feet", the pre-errand contract.
+    public TileCoord? CacheTile { get; }
+
     [JsonConstructor]
-    public LootCacheIntent(int unitId, Resource resource)
+    public LootCacheIntent(int unitId, Resource resource, TileCoord? cacheTile = null)
     {
         UnitId = unitId;
         Resource = resource;
+        CacheTile = cacheTile;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
     {
         var world = sim.World;
-        if (Resource == Resource.None)
-            return IntentOutcome.Reject("no resource named");
         if (!world.Units.TryGetValue(UnitId, out var unit))
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
         if (unit.OwnerId != PlayerId)
             return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
-        if (unit.GroupId is not null)
-            return IntentOutcome.Reject($"unit {UnitId} is in a group");
-        if (unit.IsEmbarked)
-            return IntentOutcome.Reject($"unit {UnitId} is embarked");
         if (unit.Activity != Activity.Idle)
             return IntentOutcome.Reject($"unit {UnitId} is not Idle (current: {unit.Activity})");
-        if (unit.CargoAmount > 0 && unit.CargoResource != Resource)
-            return IntentOutcome.Reject(
-                $"unit {UnitId} already carries {unit.CargoResource} (unload first)");
+        if (CacheLooting.Blocker(unit, Resource) is { } why)
+            return IntentOutcome.Reject($"unit {UnitId} {why}");
 
-        var space = unit.CargoCapacity - unit.CargoAmount;
-        if (space <= 0)
-            return IntentOutcome.Reject($"unit {UnitId} has no cargo space free");
+        var tile = CacheTile ?? unit.Position;
+        if (!world.Structures.TryGetValue(tile, out var s) || s is not Cache)
+            return IntentOutcome.Reject($"no cache at {tile.X},{tile.Y}");
 
-        if (!world.Structures.TryGetValue(unit.Position, out var s) || s is not Cache cache)
-            return IntentOutcome.Reject(
-                $"no cache at {unit.Position.X},{unit.Position.Y}");
+        if (unit.Position == tile)
+            return CacheLooting.TryLoot(world, unit, Resource) > 0
+                ? IntentOutcome.Applied
+                : IntentOutcome.Reject($"cache at {tile.X},{tile.Y} has no {Resource}");
 
-        var taken = cache.Withdraw(Resource, space);
-        if (taken == 0)
-            return IntentOutcome.Reject($"cache has no {Resource}");
-
-        unit.CargoResource = Resource;
-        unit.CargoAmount += taken;
-        unit.BumpEpoch();   // defensive: fence any latent per-unit event (Idle had none)
-
-        // Consumed when emptied.
-        if (cache.TotalHeld() == 0)
-            world.Structures.Remove(unit.Position);
-
-        return IntentOutcome.Applied;
+        return GoalRules.Begin(sim, unit, new GoalPlan(GoalKind.Loot, tile, arg: (int)Resource))
+            ? IntentOutcome.Applied
+            : IntentOutcome.Reject($"unit {UnitId} cannot reach the cache at {tile.X},{tile.Y}");
     }
 
-    public override string Describe() => $"LootCache(unit={UnitId} {Resource})";
+    public override string Describe() => CacheTile is { } t
+        ? $"LootCache(unit={UnitId} {Resource} @ {t.X},{t.Y})"
+        : $"LootCache(unit={UnitId} {Resource})";
 }

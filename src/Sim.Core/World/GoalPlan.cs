@@ -7,6 +7,9 @@ public enum GoalKind : byte
     AssignBuilder = 2,
     Breed         = 3,
     Train         = 4,
+    Equip         = 5,
+    Loot          = 6,
+    Embark        = 7,
 }
 
 // M30 — the on-unit GOAL anchor (docs/goal-shaped-intents.md).
@@ -38,12 +41,16 @@ public sealed class GoalPlan
     // to be built, the house to breed in.
     public TileCoord TargetTile { get; init; }
 
-    // Breed only: the other parent. 0 for every other kind. The pair is
-    // symmetric — each parent carries a GoalPlan naming the other.
+    // The OTHER UNIT this goal is about. Breed: the partner — the pair is
+    // symmetric, each parent carrying a plan that names the other. Embark: the
+    // boat being boarded, which is not derivable from the dock (several hulls
+    // can share one) and which moves, so the errand has to name the hull rather
+    // than the berth. 0 for every kind that involves one body only.
     public int PartnerUnitId { get; init; }
 
-    // The goal's PARAMETER, meaning defined by Kind: for Train it is the
-    // UnitRole to train into. 0 for kinds that take no parameter.
+    // The goal's PARAMETER, meaning defined by Kind: Train carries the UnitRole
+    // to train into, Equip and Loot the Resource to take. 0 for kinds that take
+    // no parameter.
     //
     // One generic int rather than a field per kind: every remaining candidate
     // in the goal-shaping sweep (train a role, craft an item) needs exactly

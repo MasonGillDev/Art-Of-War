@@ -514,12 +514,22 @@ public class BoatsPhaseDTests
     }
 
     [Fact]
-    public void Embark_PassengerNotOnDock_Rejected()
+    public void Embark_PassengerNotOnDock_WalksToTheQuayAndBoards()
     {
+        // INVERTED. This asserted the defect: standing somewhere else made the
+        // whole boarding fail, so the player had to march each passenger to the
+        // quay, wait, and only then issue the intent. Walking to a dock is
+        // execution, not a decision (docs/goal-shaped-intents.md).
         var (sim, dock, boat, citizen) = MakeReadyToEmbark();
         citizen.Position = new TileCoord(2, 1);
+
         var outcome = new EmbarkIntent(boat.Id, new[] { citizen.Id }) { PlayerId = 0 }.Resolve(sim);
-        Assert.False(outcome.IsApplied);
+
+        Assert.True(outcome.IsApplied);
+        Assert.NotNull(citizen.Goal);
+        Assert.Equal(GoalKind.Embark, citizen.Goal!.Kind);
+        Assert.Equal(boat.Id, citizen.Goal.PartnerUnitId);   // the HULL, not the berth
+        Assert.False(citizen.IsEmbarked);                    // not yet
     }
 
     [Fact]

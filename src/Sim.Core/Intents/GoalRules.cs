@@ -153,6 +153,54 @@ public static class GoalRules
                 Sim.Core.Population.BreedGoal.OnArrival(sim, unit, house);
                 return;
 
+            case GoalKind.Equip:
+            {
+                var item = (Resource)goal.Arg;
+                if (Sim.Core.Equipment.EquipRules.Blocker(unit, item) is { } why)
+                {
+                    Dissolve(sim, unit, why);
+                    return;
+                }
+                if (Sim.Core.Equipment.EquipRules.StoreUnder(sim.World, unit) is null)
+                {
+                    Dissolve(sim, unit, "no storehouse of ours here");
+                    return;
+                }
+                if (Sim.Core.Equipment.EquipRules.TryEquip(sim.World, unit, item))
+                {
+                    Complete(unit);
+                    return;
+                }
+                // The shelf is bare. Scarcity is a PRECONDITION, not a failure:
+                // the smith may still be at work and the haul still on the road,
+                // so the body waits here and the next delivery into this store
+                // arms them (CargoTransfer). Indefinite by design and visible as
+                // "waiting: a sword" — the same shape as a construction site
+                // short of timber, which also waits until the player intervenes.
+                unit.TrySetActivity(Activity.Waiting, goal.TargetTile);
+                return;
+            }
+
+            case GoalKind.Loot:
+            {
+                var res = (Resource)goal.Arg;
+                if (Sim.Core.Caches.CacheLooting.Blocker(unit, res) is { } why)
+                {
+                    Dissolve(sim, unit, why);
+                    return;
+                }
+                // No waiting branch, and that is the difference between treasure
+                // and trade: a cache never refills. Either it still holds what
+                // the player sent this body for, or the errand is over.
+                if (Sim.Core.Caches.CacheLooting.TryLoot(sim.World, unit, res) > 0) Complete(unit);
+                else Dissolve(sim, unit, "nothing left in the cache");
+                return;
+            }
+
+            case GoalKind.Embark:
+                Sim.Core.Boats.EmbarkGoal.OnArrival(sim, unit);
+                return;
+
             default:
                 Dissolve(sim, unit, "unknown goal");
                 return;
