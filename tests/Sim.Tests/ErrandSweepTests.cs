@@ -184,9 +184,14 @@ public class ErrandSweepTests
 
     // ---- loot --------------------------------------------------------------
 
+    // CacheConstants.OwnerId, not the default 0. A cache belongs to NOBODY, and
+    // a fixture that quietly gave it to player zero is what let a blanket
+    // ownership check in GoalRules pass here while dissolving every loot errand
+    // in a real game. Build the fixture the way the world builds it.
     private static Cache AddCache(Simulation sim, int wood)
     {
-        var cache = (Cache)sim.World.AddStructure(new Cache(CacheAt));
+        var cache = (Cache)sim.World.AddStructure(
+            new Cache(CacheAt) { OwnerId = CacheConstants.OwnerId });
         cache.Deposit(Resource.Wood, wood);
         return cache;
     }
@@ -229,6 +234,42 @@ public class ErrandSweepTests
         Assert.Null(sim.World.Units[1].Goal);
         Assert.Equal(0, sim.World.Units[1].CargoAmount);
         Assert.Contains(sim.ResolvedLog, e => e is GoalDissolvedEvent);
+    }
+
+    [Fact]
+    public void AnUNOWNEDCacheIsStillLootable_TheRegressionThatOnlyALiveRunFound()
+    {
+        // The bug this pins: GoalRules dissolved any errand whose target was
+        // not owned by the traveller, which is right for a workplace and wrong
+        // for treasure. Caches carry CacheConstants.OwnerId (-2) precisely
+        // because they belong to nobody, so every loot errand in a real game
+        // walked the whole way and dissolved on arrival with "target no longer
+        // ours" — while the tests passed, because their fixtures built caches
+        // with the default owner 0 and player zero happened to match.
+        //
+        // Hence the explicit sentinel here, and hence the rule: a fixture that
+        // is more convenient than the world is a fixture that hides bugs.
+
+        var sim = BuildWorld();
+        var cfg = sim.World.PopulationConfig;
+        var hauler = sim.World.AddUnit(new Unit(9, Keep)
+        { Role = UnitRole.Hauler, OwnerId = 0, BornTick = -25 * cfg.TicksPerYear });
+        var cache = (Cache)sim.World.AddStructure(
+            new Cache(CacheAt) { OwnerId = CacheConstants.OwnerId });
+        cache.Deposit(Resource.Food, 60);
+        Assert.NotEqual(0, CacheConstants.OwnerId);   // the whole point
+
+        sim.SubmitIntent(0, new LootCacheIntent(9, Resource.Food, CacheAt) { PlayerId = 0 });
+        sim.Run(0);
+        var dispatched = sim.World.Units[9].Goal is not null;
+
+        sim.Run(30 * Time.Day);
+        var u = sim.World.Units[9];
+        Assert.True(u.CargoAmount > 0,
+            $"dispatched={dispatched} pos=({u.Position.X},{u.Position.Y}) act={u.Activity} " +
+            $"goal={u.Goal?.Kind.ToString() ?? "none"} cargo={u.CargoResource}:{u.CargoAmount} " +
+            $"cacheThere={sim.World.Structures.ContainsKey(CacheAt)} " +
+            $"reasons=[{string.Join("|", sim.ResolvedLog.OfType<GoalDissolvedEvent>().Select(e => e.Reason))}]");
     }
 
     [Fact]

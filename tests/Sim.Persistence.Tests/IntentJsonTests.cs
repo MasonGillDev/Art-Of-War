@@ -49,6 +49,49 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void TheClientsErrandPayloads_DeserializeVerbatim()
+    {
+        // The Unity client hand-writes these, and JsonUtility cannot omit a
+        // field — so each optional target gets its own payload class there, and
+        // an always-present tile of (0,0) would read here as a real instruction
+        // to walk to the map corner. These are the EXACT bytes it sends.
+
+        var equip = Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize("EquipUnitIntent",
+            "{\"UnitId\":7,\"Item\":5,\"StoreTile\":{\"X\":14,\"Y\":4},\"PlayerId\":0}"));
+        Assert.Equal(Resource.Sword, equip.Item);
+        Assert.Equal(new TileCoord(14, 4), equip.StoreTile);
+
+        var loot = Assert.IsType<Sim.Core.Caches.LootCacheIntent>(
+            IntentJson.Deserialize("LootCacheIntent",
+                "{\"UnitId\":3,\"Resource\":1,\"CacheTile\":{\"X\":4,\"Y\":14},\"PlayerId\":0}"));
+        Assert.Equal(Resource.Wood, loot.Resource);
+        Assert.Equal(new TileCoord(4, 14), loot.CacheTile);
+
+        var embark = Assert.IsType<Sim.Core.Boats.EmbarkIntent>(
+            IntentJson.Deserialize("EmbarkIntent",
+                "{\"BoatId\":50,\"UnitIds\":[1,2],\"DockTile\":{\"X\":9,\"Y\":4},\"PlayerId\":0}"));
+        Assert.Equal(new TileCoord(9, 4), embark.DockTile);
+        Assert.Equal(new[] { 1, 2 }, embark.UnitIds);
+    }
+
+    [Fact]
+    public void TheClientsStandingTherePayloads_LeaveTheTargetNull()
+    {
+        // The field is ABSENT, not null — that is how the client says "no
+        // opinion", and it must not land as (0,0).
+        Assert.Null(Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize("EquipUnitIntent",
+            "{\"UnitId\":7,\"Item\":5,\"PlayerId\":0}")).StoreTile);
+
+        Assert.Null(Assert.IsType<Sim.Core.Caches.LootCacheIntent>(
+            IntentJson.Deserialize("LootCacheIntent",
+                "{\"UnitId\":3,\"Resource\":1,\"PlayerId\":0}")).CacheTile);
+
+        Assert.Null(Assert.IsType<Sim.Core.Boats.EmbarkIntent>(
+            IntentJson.Deserialize("EmbarkIntent",
+                "{\"BoatId\":50,\"UnitIds\":[1],\"PlayerId\":0}")).DockTile);
+    }
+
+    [Fact]
     public void EquipUnitIntent_CarriesAnOptionalStoreTile()
     {
         // The errand form and the standing-there form are the same intent type,

@@ -257,7 +257,22 @@ entitled to "all of them or tell me why", but an errand spread over game-days
 cannot honour that without letting one straggler hold the whole crew, forever
 if they die en route.
 
-Two defects the tests caught rather than review:
+**A third defect that only a LIVE run found, and the lesson in it.**
+`GoalRules.OnArrival` dissolved any errand whose target was not owned by the
+traveller. That is right for a workplace, a site, a house, a trainer or a
+storehouse — and wrong for treasure. Caches carry `CacheConstants.OwnerId`
+(-2) precisely because they belong to nobody, so **every loot errand in a real
+game walked the entire way and dissolved on arrival** with "target no longer
+ours".
+
+The tests passed throughout, because their fixtures built caches with the
+default `OwnerId` of 0 and player zero happened to match. A fixture that is
+more convenient than the world is a fixture that hides bugs. Fixed with
+`RequiresOwnership(kind)`, which names the rule once and documents the single
+exception; the fixtures now use the sentinel, and the regression test says so
+in its name.
+
+Two further defects the tests caught rather than review:
 
 1. `EmbarkIntent` derived the quay from the **boat's** position, so a hull out
    at sea was beside no dock and the intent rejected — which made the
@@ -272,6 +287,29 @@ already carries `TargetTile`, `PartnerUnitId` and `Arg`, so the three new kinds
 changed no shape. `Arg` carries the item/resource; `PartnerUnitId` carries the
 hull, which is not derivable from the berth (several boats can share a dock)
 and which moves.
+
+**Client (2026-09-14).** `Equip` and `LootCache` were not on the client's verb
+list *at all* — C2's exit criteria named build/train/breed/haul/fight/expand
+and these were never in that set — so this was two new verbs plus a field on
+embark, not the three-field patch it looked like from the server side.
+
+Landed: `EquipUnitPayload`/`EquipUnitAtPayload`, `LootCachePayload`/
+`LootCacheAtPayload`, `EmbarkAtPayload`; `Equip`/`EquipAt`, `Loot`/`LootAt`,
+`EmbarkAt` on `IntentFactory`; `NearestStoreWith`, `NearestDockWithBoat`,
+`Equip`, `Loot`, `EmbarkSelected` on `OrderIssuer`; `EquipVerbs`, `SailVerbs`
+and `LootVerbs` on the panel; the three goal nouns in the HUD.
+
+Every button names its destination, as the training panel does — arming says
+which store, boarding says which quay, and looting names the single carrier it
+will send (looting is cargo-capped, so a crowd sent at one pile would race
+each other and most would arrive to nothing).
+
+One new mirror: `SimVocabulary.CanCarry`, a copy of the server's
+`EquipmentCatalog` role rules. It exists only to keep the panel quiet — offering
+a bow to a swordsman and letting the rejection explain it would leave a
+permanently useless row in front of the player. Marked as a mirror, with the
+note that it should be deleted if the wire ever carries the catalogue the way
+it already carries each building's trades.
 
 **Left step-shaped, deliberately** — the rest of the "target is whatever I am
 standing on" family: `EquipUnitIntent`, `CraftEquipmentIntent`, `LootCacheIntent`,

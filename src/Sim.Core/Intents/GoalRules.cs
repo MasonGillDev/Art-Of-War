@@ -76,7 +76,7 @@ public static class GoalRules
             Dissolve(sim, unit, "target gone");
             return;
         }
-        if (structure.OwnerId != unit.OwnerId)
+        if (RequiresOwnership(goal.Kind) && structure.OwnerId != unit.OwnerId)
         {
             Dissolve(sim, unit, "target no longer ours");
             return;
@@ -206,6 +206,22 @@ public static class GoalRules
                 return;
         }
     }
+
+    // Does this errand's target have to belong to the traveller's owner?
+    //
+    // Yes for everything that uses one of YOUR buildings — a workplace, a site,
+    // a house, a trainer, a storehouse. No for LOOT, and that exception is the
+    // design rather than an oversight: a cache belongs to no faction and
+    // whoever reaches it first may take it (docs/loot-caches.md), which is the
+    // whole exploration-and-speed reward.
+    //
+    // This was a blanket check once, and it silently broke every loot errand in
+    // the real game: caches carry the unowned sentinel CacheConstants.OwnerId
+    // (-2), so the traveller walked the entire way and dissolved on arrival
+    // with "target no longer ours". Tests missed it because their fixtures
+    // built caches with a default OwnerId of 0, which happened to match player
+    // zero — the bug needed a live run to surface.
+    private static bool RequiresOwnership(GoalKind kind) => kind != GoalKind.Loot;
 
     // The goal did what it was fired to do. The anchor clears; the unit keeps
     // whatever activity the completion put it in (Working, Building, …).
