@@ -1,3 +1,4 @@
+using Sim.Core;
 using Sim.Core.Canals;
 using Sim.Core.Engine;
 using Sim.Core.Logistics;
@@ -96,5 +97,71 @@ public class RubbleTests
         var rr = (Rubble)restored.World.Structures[new TileCoord(1, 1)];
         Assert.Equal(SiegeConstants.RubbleOwnerId, rr.OwnerId);
         Assert.Equal(0, rr.Health);
+    }
+
+    // THE CLIENT'S TWO-INTENT GESTURE. "Clear this" means both "turn the pile
+    // into a job" and "put someone on it", so the client sends ClearRubble and
+    // AssignBuilders back to back in one tick and relies on them resolving in
+    // submission order -- the site must EXIST by the time the assignment looks
+    // for it.
+    //
+    // That ordering is an assumption the client makes about the engine, which
+    // makes it exactly the kind of thing to pin here rather than to discover
+    // when a player's builder silently fails to turn up.
+    [Fact]
+    public void ClearThenStaff_InOneTick_LeavesTheJobStaffed()
+    {
+        var world = new GameWorld(new TileGrid(16, 16, Biome.Grassland));
+        world.Players[0] = new Player(0);
+        var at = new TileCoord(6, 6);
+        world.AddStructure(new Rubble(at)
+        { OwnerId = Sim.Core.Sieges.SiegeConstants.RubbleOwnerId });
+
+        var cfg = world.PopulationConfig;
+        world.AddUnit(new Unit(1, new TileCoord(2, 6))
+        { Role = UnitRole.Builder, OwnerId = 0, BornTick = -25 * cfg.TicksPerYear });
+
+        var explored = new HashSet<TileCoord>();
+        for (var y = 0; y < 16; y++)
+            for (var x = 0; x < 16; x++) explored.Add(new TileCoord(x, y));
+        world.Explored[0] = explored;
+
+        var sim = new Simulation(world, seed: 4);
+
+        // Exactly what the client sends, in exactly that order, at one tick.
+        sim.SubmitIntent(0, new Sim.Core.Sieges.ClearRubbleIntent(at) { PlayerId = 0 });
+        sim.SubmitIntent(0, new AssignBuildersIntent(at, new[] { 1 }) { PlayerId = 0 });
+        sim.Run(0);
+
+        // The pile is a JOB now, and the builder is on their way to it.
+        var site = Assert.IsType<ConstructionSite>(sim.World.Structures[at]);
+        Assert.Equal(StructureKind.Rubble, site.TargetKind);
+        Assert.Equal(0, site.OwnerId);
+        Assert.NotNull(sim.World.Units[1].Goal);
+
+        // And it runs to completion: they walk over, work, and the ground ends
+        // EMPTY -- reclaimed and buildable, which is the point of the verb.
+        sim.Run(30 * Time.Day);
+        Assert.False(sim.World.Structures.ContainsKey(at));
+    }
+
+    // Anyone may clear anyone's wreckage. The client's verb asks nothing about
+    // ownership, so the sim had better not either.
+    [Fact]
+    public void AnyPlayerMayClearRubbleTheyNeverOwned()
+    {
+        var world = new GameWorld(new TileGrid(12, 12, Biome.Grassland));
+        world.Players[0] = new Player(0);
+        world.Players[7] = new Player(7);
+        var at = new TileCoord(4, 4);
+        world.AddStructure(new Rubble(at)
+        { OwnerId = Sim.Core.Sieges.SiegeConstants.RubbleOwnerId });
+        var sim = new Simulation(world, seed: 4);
+
+        Assert.True(new Sim.Core.Sieges.ClearRubbleIntent(at) { PlayerId = 7 }
+            .Resolve(sim).IsApplied);
+
+        var site = Assert.IsType<ConstructionSite>(sim.World.Structures[at]);
+        Assert.Equal(7, site.OwnerId);   // the job belongs to whoever ordered it
     }
 }

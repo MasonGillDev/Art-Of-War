@@ -353,3 +353,37 @@ nothing is left to raze. Deferred: AI-driven `ClearRubbleIntent`
 reclamation of the razed tiles themselves (the fallen kingdom's WORKED
 LAND is claimable immediately — only the rubble tiles wait), and probing
 dead kingdoms for structures never seen.
+
+## Update 2026-09-14 — the client can reclaim the ground
+
+The conquest flow this doc describes — destroy a structure, clear the rubble,
+build on the land — had its last step unreachable from the client. There was no
+`ClearRubbleIntent` verb in the UI at all, so a besieged tile stayed wrecked
+and unbuildable for the rest of the game while the sim sat perfectly able to
+clear it.
+
+**One decision, two intents, and that is the honest shape.** Clearing does not
+remove the pile: it swaps it for a materials-free *labour* job, an ordinary
+construction site that needs hands like any other. A player who says "clear
+this" means both halves, so the client sends `ClearRubbleIntent` and then
+`AssignBuildersIntent` with its nearest free builder — picking and naming the
+body, which is the client's job by design, and never the sim's.
+
+That relies on the two resolving in submission order within the tick, so the
+site exists by the time the assignment looks for it. Being an assumption the
+client makes about the engine, it is pinned by a test
+(`RubbleTests.ClearThenStaff_InOneTick_LeavesTheJobStaffed`) rather than left
+to be discovered when a player's builder silently fails to turn up. With nobody
+free the job still stands and simply waits, visible as an unstaffed site —
+availability is a precondition, never a rejection.
+
+**The verb asks nothing about ownership**, alone among the client's structure
+verbs, because this doc's rule says any player may clear any rubble: reclaiming
+the land of fallen kingdoms is the point, and wreckage belongs to nobody. A
+second test pins that the job belongs to whoever *ordered* it.
+
+Verified live only as far as a fresh world allows — a new map has no rubble, so
+what the running server confirmed is that the client's payload reaches the right
+intent and validates ("no rubble at 30,30"). The positive path is covered by
+tests rather than by a live siege.
+

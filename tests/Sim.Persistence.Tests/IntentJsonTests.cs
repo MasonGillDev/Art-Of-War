@@ -139,6 +139,20 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void ClearRubbleIntent_FromTheClientsWireShape()
+    {
+        const string payload = "{\"Tile\":{\"X\":12,\"Y\":5},\"PlayerId\":2}";
+
+        var replay = Assert.IsType<Sim.Core.Sieges.ClearRubbleIntent>(
+            IntentJson.Deserialize("ClearRubbleIntent", payload));
+
+        Assert.Equal(new TileCoord(12, 5), replay.Tile);
+        // Player 2 clearing rubble they never owned is the ordinary case, not
+        // an edge one: wreckage belongs to nobody.
+        Assert.Equal(2, replay.PlayerId);
+    }
+
+    [Fact]
     public void ThePathIntents_FromTheClientsWireShape()
     {
         // The client sends one PlacePathPayload for both, and the TYPE NAME
