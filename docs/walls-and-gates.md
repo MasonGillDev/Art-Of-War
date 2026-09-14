@@ -240,3 +240,45 @@ breach is still a real scar (a day of clearing plus a new segment's stone
 and build time, all under fire if the siege continues), but the ring can
 be healed. In-place REPAIR of a damaged-but-standing wall remains
 deferred.
+
+## Update 2026-09-14 — the client can finally draw one
+
+Walls and canals had been buildable sim-side since M26 and M21, and
+unreachable from the client the whole time: `PlacementModes.Path` was defined
+on the wire from C2, but `IsPlaceable()` returned true only for `Single` and
+`SiteAndSlip`, so both kinds were filtered out of the build menu. Two
+milestones of simulation existed only for the AI to use against the player.
+
+**The gesture is click-to-extend.** Each click appends a 4-connected L-run from
+the head of the line to the clicked tile, so a straight seawall is two clicks
+and a corner is three — while every tile is still explicitly the player's,
+because a wall's exact line is the whole tactical point of building one.
+Auto-routing the full line would be the client deciding where your
+fortifications go.
+
+Backspace and right-click undo the last CLICK, not the last tile — the run it
+added goes with it, because a click is what the player thinks they made.
+Escape still drops the whole tool. Enter commits, and so does a button in the
+panel: a multi-click gesture that can only be finished with a keystroke is one
+a good share of players never finish, so the panel makes a deliberate exception
+to its "get out of the way while placing" rule and shows a banner with the
+running cost and a commit button.
+
+**The preview re-walks the same L the gesture would.** Committed tiles draw
+solid, the pending run draws thinner and dimmer, and an unplaceable run draws
+in the bad colour — the preview and the click's refusal agree because both ask
+`BuildPlacement` the same question.
+
+**The one rule that differs between the two kinds** is enforced in the preview
+as well as by the sim: a wall may stand on Mountain (fortifying a pass is the
+point), a canal may not (you dig through soil, not rock). The canal's
+water-root rule is checked once at commit rather than per click, because the
+player draws outward from the shore and it constrains only the first tile.
+
+Verified live against a running server: a 3-tile wall produced three
+independent `ConstructionSite`s at exactly those tiles, and a 2-tile canal
+produced ONE site at `path[0]` priced at 2x the catalog row — the documented
+difference between the two shapes, observed rather than assumed. Both rejection
+paths were exercised too (a canal into Mountain, a wall with a gap), and each
+came back as a readable notice.
+

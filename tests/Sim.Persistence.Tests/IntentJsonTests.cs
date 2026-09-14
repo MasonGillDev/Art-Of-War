@@ -139,6 +139,30 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void ThePathIntents_FromTheClientsWireShape()
+    {
+        // The client sends one PlacePathPayload for both, and the TYPE NAME
+        // picks which — the two sim intents happen to share a shape. Order is
+        // load-bearing in a way most payloads are not: a canal is dug outward
+        // from water and a wall is a connected line, so a reordered path is a
+        // different build or no build at all.
+        const string wall =
+            "{\"Path\":[{\"X\":3,\"Y\":1},{\"X\":4,\"Y\":1},{\"X\":5,\"Y\":1}],\"PlayerId\":0}";
+        var w = Assert.IsType<Sim.Core.Fortifications.PlaceWallIntent>(
+            IntentJson.Deserialize("PlaceWallIntent", wall));
+        Assert.Equal(
+            new[] { new TileCoord(3, 1), new TileCoord(4, 1), new TileCoord(5, 1) },
+            w.Path.ToArray());
+
+        const string canal =
+            "{\"Path\":[{\"X\":2,\"Y\":2},{\"X\":2,\"Y\":3}],\"PlayerId\":1}";
+        var c = Assert.IsType<Sim.Core.Canals.PlaceCanalIntent>(
+            IntentJson.Deserialize("PlaceCanalIntent", canal));
+        Assert.Equal(new[] { new TileCoord(2, 2), new TileCoord(2, 3) }, c.Path.ToArray());
+        Assert.Equal(1, c.PlayerId);
+    }
+
+    [Fact]
     public void CraftEquipmentIntent_FromTheClientsWireShape()
     {
         // The client's CraftEquipmentPayload, verbatim. The field is still
