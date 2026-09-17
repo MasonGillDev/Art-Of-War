@@ -35,6 +35,14 @@ public sealed record GenerationConfig
     //   else                                 → Forest (moisture > MoistureSplit) or Grassland
     public double WaterMax { get; init; } = 0.30;
     public double HillsMin { get; init; } = 0.65;
+    // Tried 0.90 (fewer, more landmark-like mountains) and reverted: combined with the
+    // dome no longer clipping at 1.0 (ContinentShaper), the highest ground stopped
+    // reaching 0.90 on some seeds, StartPicker could not find a Grassland start with
+    // Mountain in range, and generation threw. Mountains are a START REQUIREMENT, not
+    // just scenery, so this threshold cannot move without re-tuning ContinentDome and
+    // sweeping seeds. The cliff-like LOOK was the render curve, not this number, and is
+    // fixed client-side in WorldGeometry.
+    // The client's WorldGeometry.MountainBand must match this.
     public double MountainMin { get; init; } = 0.85;
     public double MoistureSplit { get; init; } = 0.50;
     // Below this moisture, low-elevation (non-water, non-hills, non-mountain)

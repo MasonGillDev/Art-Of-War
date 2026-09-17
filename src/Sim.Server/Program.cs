@@ -20,6 +20,7 @@ using var host = new GameHost(build, options.Seed, options.TicksPerSecond,
         SpawnGraceTicks = options.BanditGraceDays * Sim.Core.Time.Day,
     },
     new Sim.Server.Ai.AiConfig { Enabled = options.AiPlayers > 0, TracePrint = options.AiTrace, RivalCount = options.Rivals });
+host.LightCycle = Sim.Server.Atmosphere.LightCycleConfig.ForCycle(options.LightCycleTicks);
 host.Start();
 
 using var api = new HttpApi(host, options.Port);

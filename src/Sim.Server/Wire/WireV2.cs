@@ -87,6 +87,23 @@ public sealed class WorldDto
     /// Static and public, like every rules block above: what a sword costs is
     /// common knowledge, not intelligence about anyone's armoury.
     public EquipmentOptionDto[] Craftable { get; set; } = [];
+
+    /// The world's time of day, as parameters (Atmosphere/WorldClock.cs).
+    ///
+    /// ONE MAPPING, TWO CONSUMERS. The client's sky and server-side narration must
+    /// agree about when things happen, so the client evaluates the server's formula
+    /// from these rather than inventing a clock of its own — and each view carries
+    /// LightPhase so it can check that it did.
+    public LightCycleDto LightCycle { get; set; } = new();
+}
+
+/// How long a day of light lasts, and where tick 0 falls in it.
+/// Phase = ((tick + PhaseOffsetTicks) mod TicksPerCycle) / TicksPerCycle,
+/// with 0 midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset.
+public sealed class LightCycleDto
+{
+    public long TicksPerCycle { get; set; }
+    public long PhaseOffsetTicks { get; set; }
 }
 
 /// One forgeable item.
@@ -277,4 +294,9 @@ public sealed class ViewV2Dto : ViewDto
 
     public BiomeOverrideDto[] BiomeOverrides { get; set; } = [];
     public CombatDto[] Combats { get; set; } = [];
+
+    /// The world's time of day at Tick, in [0, 1) — the server's own evaluation of
+    /// WorldClock.Phase. The client interpolates between ticks from genesis
+    /// LightCycle and uses this to prove its sky and the chronicle agree.
+    public double LightPhase { get; set; }
 }

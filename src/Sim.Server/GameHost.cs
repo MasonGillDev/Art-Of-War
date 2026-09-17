@@ -17,6 +17,13 @@ public sealed class GameHost : IDisposable
 {
     private readonly Simulation _sim;
     private readonly ViewProjector _projector;
+
+    // C3 — the world's time of day (Atmosphere/WorldClock.cs). Set before Start().
+    public Atmosphere.LightCycleConfig LightCycle
+    {
+        get => _projector.LightCycle;
+        set => _projector.LightCycle = Atmosphere.WorldClock.Normalize(value);
+    }
     // PACING IS NOT SIMULATION. This is the wall-clock rate at which the host feeds
     // ticks to a sim that has no idea time is passing unevenly — pausing stops the
     // host asking for ticks, it does not stop or alter a single sim rule. The tick

@@ -38,6 +38,10 @@ public sealed class ViewProjector
     // (brains read the world, not their own paperwork).
     public Automation.OrderJournal? OrderSource { get; set; }
 
+    // The world's time of day (Atmosphere/WorldClock.cs). Presentation-only: nothing
+    // in the sim reads it. Genesis ships the parameters, every v2 view the phase.
+    public Atmosphere.LightCycleConfig LightCycle { get; set; } = new();
+
     public ViewProjector(WorldBuild build)
     {
         _map = build.Map;
@@ -111,6 +115,11 @@ public sealed class ViewProjector
                 MajorityAge = royalty.MajorityAge,
             },
             Craftable = CraftCatalog(),
+            LightCycle = new LightCycleDto
+            {
+                TicksPerCycle = LightCycle.TicksPerCycle,
+                PhaseOffsetTicks = LightCycle.PhaseOffsetTicks,
+            },
         };
     }
 
@@ -273,6 +282,7 @@ public sealed class ViewProjector
             Height = h,
             WaterLevel = _waterLevel,
             Tick = now,
+            LightPhase = Atmosphere.WorldClock.Phase(now, LightCycle),
             FogRunState = runState.ToArray(),
             FogRunLength = runLen.ToArray(),
             BiomeOverrides = overrides.ToArray(),

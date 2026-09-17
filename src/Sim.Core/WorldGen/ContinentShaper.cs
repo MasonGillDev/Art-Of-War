@@ -66,7 +66,12 @@ public static class ContinentShaper
                 // the continent's actual shape, not the map's geometry).
                 var dome = cfg.ContinentDome * (1.0 - Smooth01(d / cfg.CoastInner));
 
-                elevation[x, y] = Math.Min(1.0, elevation[x, y] + dome) * mask * ramp;
+                // COMPRESS, do not clip. Math.Min(1.0, e + dome) flattened every tile above
+                // (1 - dome) to exactly 1.0, so the highest ground came out as wide plateaus
+                // at maximum height — the flat-topped mesas, baked into the data rather than
+                // into the rendering. Dividing by (1 + dome) keeps the field inside [0,1]
+                // while preserving the ORDER of the summits, so peaks stay distinct.
+                elevation[x, y] = (elevation[x, y] + dome) / (1.0 + dome) * mask * ramp;
             }
         }
         return elevation;

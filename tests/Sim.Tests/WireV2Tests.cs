@@ -611,6 +611,27 @@ public class WireV2Tests
         Assert.True(world.Royalty.AuraPowerBonus > 0);
     }
 
+    // C3 — one clock, two consumers. Genesis ships the projector's own light cycle
+    // and every view carries the server's evaluation of it, so the client's sky can
+    // prove it agrees with what narration will read.
+    [Fact]
+    public void LightCycle_GenesisShipsTheConfig_AndEachViewCarriesItsPhase()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var cfg = Sim.Server.Atmosphere.LightCycleConfig.ForCycle(Sim.Core.Time.Day);
+        projector.LightCycle = cfg;
+
+        var world = projector.BuildWorldDto(sim.World.PopulationConfig, sim.World.RoyaltyConfig);
+        Assert.Equal(cfg.TicksPerCycle, world.LightCycle.TicksPerCycle);
+        Assert.Equal(cfg.PhaseOffsetTicks, world.LightCycle.PhaseOffsetTicks);
+
+        foreach (var now in new long[] { 0, 1, Sim.Core.Time.Day / 2, Sim.Core.Time.Day * 3 + 17 })
+        {
+            var view = projector.ProjectV2(sim, now, playerId: 0, reveal: false);
+            Assert.Equal(Sim.Server.Atmosphere.WorldClock.Phase(now, cfg), view.LightPhase);
+        }
+    }
+
     // The crown reaches the fogged path, and stays own-only.
     [Fact]
     public void Royal_IsTaggedForOwnUnitsAndPrivateForEveryoneElse()
