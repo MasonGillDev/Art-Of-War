@@ -121,7 +121,16 @@ public static class Snapshot
     //       cursor MUST persist: a caravan mid-circuit has to resume where
     //       it was rather than restart at the first stop, and "which stop"
     //       is not derivable from the world.
-    public const int FormatVersion = 29;
+    // v30 — rivers (docs/rivers.md): a RiverEdge byte per tile written right
+    //       after the biome grid. Terrain, set at genesis, never mutated by
+    //       the sim — but hashed, because the crossing fee is a function of
+    //       it and two worlds that differ only in rivers must not hash equal.
+    // v31 — refining (docs/refining-structures.md): the Extractor payload
+    //       gains the refiner INPUT STORE (count + (resource, amount) pairs,
+    //       enum-ordinal order) after the claim list; empty for ordinary
+    //       extractors. Three new kinds dispatch: Smelter → Extractor,
+    //       Workshop / Smithy → StorageStructure.
+    public const int FormatVersion = 31;
 
     public static string Hash(Simulation sim)
     {
@@ -252,6 +261,10 @@ public static class Snapshot
         for (var y = 0; y < grid.Height; y++)
             for (var x = 0; x < grid.Width; x++)
                 bw.Write((byte)grid.BiomeAt(new TileCoord(x, y)));
+        // v30 — river edge mask, same (y, x) order.
+        for (var y = 0; y < grid.Height; y++)
+            for (var x = 0; x < grid.Width; x++)
+                bw.Write((byte)grid.RiverEdgesAt(new TileCoord(x, y)));
     }
 
     private static TileGrid ReadGrid(BinaryReader br)
@@ -262,6 +275,9 @@ public static class Snapshot
         for (var y = 0; y < h; y++)
             for (var x = 0; x < w; x++)
                 grid.SetBiome(new TileCoord(x, y), (Biome)br.ReadByte());
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+                grid.SetRiverEdges(new TileCoord(x, y), (RiverEdge)br.ReadByte());
         return grid;
     }
 
@@ -646,7 +662,10 @@ public static class Snapshot
                 StructureKind.LumberCamp
                   or StructureKind.Quarry
                   or StructureKind.Mine
-                  or StructureKind.Farm        => ReadExtractor(br, new Extractor(kind, at) { OwnerId = ownerId }),
+                  or StructureKind.Farm
+                  or StructureKind.Smelter     => ReadExtractor(br, new Extractor(kind, at) { OwnerId = ownerId }),
+                StructureKind.Workshop         => ReadStorage(br, new Workshop(at) { OwnerId = ownerId }),
+                StructureKind.Smithy           => ReadStorage(br, new Smithy(at) { OwnerId = ownerId }),
                 StructureKind.ConstructionSite => ReadConstruction(br, at, ownerId),
                 StructureKind.Tower            => new Tower(at) { OwnerId = ownerId },
                 StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
@@ -705,6 +724,9 @@ public static class Snapshot
         // M15: claimed tiles — list is maintained in canonical (y, x)
         // order by every writer, so we serialize verbatim.
         WriteClaimTiles(bw, e.ClaimTiles);
+        // v31: refiner input store. SortedDictionary → enum-ordinal order.
+        bw.Write(e.Inputs.Count);
+        foreach (var (r, amt) in e.Inputs) { bw.Write((byte)r); bw.Write(amt); }
     }
 
     private static Extractor ReadExtractor(BinaryReader br, Extractor e)
@@ -716,6 +738,12 @@ public static class Snapshot
         e.TickArmed = br.ReadBoolean();
         e.NextProductionTickSeq = ReadNullableLong(br);
         ReadClaimTiles(br, e.ClaimTiles);
+        var inputs = br.ReadInt32();
+        for (var i = 0; i < inputs; i++)
+        {
+            var r = (Resource)br.ReadByte();
+            e.Inputs[r] = br.ReadInt32();
+        }
         return e;
     }
 
@@ -1316,7 +1344,7 @@ public static class Snapshot
 
     private static void WriteOrders(BinaryWriter bw, GameWorld world)
     {
-        // NextOrderId lives here now � it moved out of the deleted M18
+        // NextOrderId lives here now � it moved out of the deleted M18
         // standing-order block, which used to own the counter.
         bw.Write(world.NextOrderId);
         bw.Write(world.Orders.Count);

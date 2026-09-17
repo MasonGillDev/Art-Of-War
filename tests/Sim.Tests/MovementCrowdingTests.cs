@@ -145,7 +145,7 @@ public class MovementCrowdingTests
         // No vision sources → visible set empty.
         var visible = new HashSet<TileCoord>();
 
-        var cost = MovementCost.PlanCost(sim.World, new TileCoord(5, 5), playerId: 0, visible, sim.Now);
+        var cost = MovementCost.PlanCost(sim.World, new TileCoord(4, 5), new TileCoord(5, 5), playerId: 0, visible, sim.Now);
         Assert.Equal(G + MovementConstants.SmallBand, cost);  // grassland + 4-7 band
     }
 
@@ -161,7 +161,7 @@ public class MovementCrowdingTests
         // Player 0 has no vision sources covering (5,5).
         var visible = new HashSet<TileCoord>();
 
-        var cost = MovementCost.PlanCost(sim.World, new TileCoord(5, 5), playerId: 0, visible, sim.Now);
+        var cost = MovementCost.PlanCost(sim.World, new TileCoord(4, 5), new TileCoord(5, 5), playerId: 0, visible, sim.Now);
         Assert.Equal(G, cost);  // pure terrain, fog hid the crowd
 
         // Ground truth disagrees: ExecutionCost sees all 5 enemies.
@@ -180,7 +180,7 @@ public class MovementCrowdingTests
             sim.World.AddUnit(new Unit(i, new TileCoord(5, 5)) { OwnerId = 1 });
         var visible = new HashSet<TileCoord> { new(5, 5) };
 
-        var cost = MovementCost.PlanCost(sim.World, new TileCoord(5, 5), playerId: 0, visible, sim.Now);
+        var cost = MovementCost.PlanCost(sim.World, new TileCoord(4, 5), new TileCoord(5, 5), playerId: 0, visible, sim.Now);
         Assert.Equal(G + MovementConstants.SmallBand, cost);
     }
 
@@ -194,7 +194,7 @@ public class MovementCrowdingTests
             sim.World.AddUnit(new Unit(i, new TileCoord(3, 3)) { OwnerId = 0 });
         var visible = new HashSet<TileCoord> { new(3, 3) };
 
-        var cost = MovementCost.PlanCost(sim.World, new TileCoord(3, 3), playerId: 0, visible, sim.Now);
+        var cost = MovementCost.PlanCost(sim.World, new TileCoord(2, 3), new TileCoord(3, 3), playerId: 0, visible, sim.Now);
         Assert.Equal(Sim.Core.World.Biomes.Impassable, cost);
     }
 
@@ -224,7 +224,7 @@ public class MovementCrowdingTests
         Assert.Contains(new TileCoord(4, 4), visible);   // sanity: cluster IS visible
 
         var path = Pathfinding.FindPath(world.Grid, hero.Position, new TileCoord(7, 4),
-            tile => MovementCost.PlanCost(world, tile, hero.OwnerId, visible, sim.Now));
+            MovementCost.Planner(world, hero.OwnerId, visible, sim.Now));
         Assert.NotNull(path);
         Assert.DoesNotContain(new TileCoord(4, 4), path!);   // detours around the crowd
     }
@@ -247,7 +247,7 @@ public class MovementCrowdingTests
         Assert.DoesNotContain(new TileCoord(4, 4), visible);   // sanity: fog'd
 
         var path = Pathfinding.FindPath(world.Grid, hero.Position, new TileCoord(7, 4),
-            tile => MovementCost.PlanCost(world, tile, hero.OwnerId, visible, sim.Now));
+            MovementCost.Planner(world, hero.OwnerId, visible, sim.Now));
         Assert.NotNull(path);
         Assert.Contains(new TileCoord(4, 4), path!);   // walks straight into the hidden army
     }

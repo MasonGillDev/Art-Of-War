@@ -106,7 +106,7 @@ public sealed class MoveIntent : Intent
             world.Grid,
             unit.Position,
             finalDest,
-            tile => MovementCost.PlanCost(world, tile, unit.OwnerId, visibleTiles, now, trav));
+            MovementCost.Planner(world, unit.OwnerId, visibleTiles, now, trav));
         if (path is null || path.Count < 2)
         {
             unit.PathRemaining = null;

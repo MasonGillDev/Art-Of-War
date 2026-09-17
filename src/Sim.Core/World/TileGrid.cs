@@ -9,6 +9,12 @@ public sealed class TileGrid
     // resource an extractor on this tile produces both derive from it.
     private readonly Biome[] _biome;
 
+    // Which edges of each tile carry a river (docs/rivers.md). Dense rather
+    // than sparse: one byte per tile is 63 KB on a 252² map, and the read
+    // sits inside A*'s inner loop. Set at genesis (and by Snapshot restore),
+    // never by the sim — rivers are terrain, like the biome grid itself.
+    private readonly byte[] _river;
+
     public TileGrid(int width, int height, Biome defaultBiome = Biome.Grassland)
     {
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException();
@@ -16,6 +22,7 @@ public sealed class TileGrid
         Height = height;
         _biome = new Biome[width * height];
         Array.Fill(_biome, defaultBiome);
+        _river = new byte[width * height];
     }
 
     public bool InBounds(TileCoord c) =>
@@ -25,6 +32,9 @@ public sealed class TileGrid
 
     public Biome BiomeAt(TileCoord c) => _biome[Idx(c)];
     public void SetBiome(TileCoord c, Biome b) => _biome[Idx(c)] = b;
+
+    public RiverEdge RiverEdgesAt(TileCoord c) => (RiverEdge)_river[Idx(c)];
+    public void SetRiverEdges(TileCoord c, RiverEdge edges) => _river[Idx(c)] = (byte)edges;
 
     // Derived from biome — there is no per-tile cost override (yet).
     public int TerrainCost(TileCoord c) => Biomes.MoveCost(_biome[Idx(c)]);

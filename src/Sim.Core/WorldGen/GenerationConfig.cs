@@ -95,4 +95,27 @@ public sealed record GenerationConfig
     // Also shapes geography the right way round: coastal lowlands, interior
     // ranges. 0 = off.
     public double ContinentDome { get; init; } = 0.15;
+
+    // ---- Rivers — see RiverCarver / docs/rivers.md ----
+    // How many sources to seed. Rivers merge on the way down, so the number of
+    // distinct rivers reaching the coast is usually lower. 0 = no rivers.
+    public int RiverCount { get; init; } = 8;
+
+    // Sources start on corners inside this elevation band (normalized [0,1])
+    // and never on a corner that touches a Mountain tile. The band is the
+    // FOOTHILLS: rivers rise where the hills meet the plain and run from
+    // there, rather than streaking straight down a mountain face from its
+    // summit (the first cut sourced on the peaks and looked exactly like
+    // that). Raise Min for fewer, longer rivers; keep Max under MountainMin.
+    public double RiverSourceMinElevation { get; init; } = 0.50;
+    public double RiverSourceMaxElevation { get; init; } = 0.72;
+
+    // Minimum Chebyshev distance (in tiles) between two sources, so the
+    // RiverCount highest corners don't all sit on the same peak.
+    public int RiverSourceSpacing { get; init; } = 6;
+
+    // Safety cap on a single river's length in corner steps. The parent
+    // chain always terminates at a sink, so this only matters if a config
+    // ever produces a pathological flood; Width + Height is generous.
+    public int RiverMaxLength { get; init; } = 1024;
 }

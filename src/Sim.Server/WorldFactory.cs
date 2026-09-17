@@ -27,6 +27,10 @@ public static class WorldFactory
             WaterMax = 0.30,          // proportion of water
             // Scale the start search with the map so a valid start still exists on big maps.
             StartSearchRadius = Math.Max(28, Math.Max(opts.MapWidth, opts.MapHeight) / 4),
+            // Rivers scale with the coastline-to-interior distance: a bigger
+            // continent drains through more of them (docs/rivers.md).
+            RiverCount = Math.Max(8, (opts.MapWidth + opts.MapHeight) / 20),
+            RiverMaxLength = opts.MapWidth + opts.MapHeight,
         };
         var map = MapGenerator.Build(cfg);
         // Regenerate the CONTINUOUS elevation field the classifier used — the SHAPED
@@ -195,6 +199,7 @@ public static class WorldFactory
             Width = map.Width,
             Height = map.Height,
             Biomes = MapGenerator.ToBiomeOverrides(map),
+            Rivers = MapGenerator.ToRiverOverrides(map),
             FactionStarts = factions,
             // M23 — scatter loot caches into the fog (never on a tile any
             // faction's starting vision has revealed). docs/loot-caches.md.
@@ -202,7 +207,8 @@ public static class WorldFactory
         };
 
         Console.WriteLine($"Generated {map.Width}x{map.Height} continent (seed {map.Seed}); " +
-            $"castle start at ({start.X},{start.Y}); factions: {factions.Count}; caches: {cacheCount}.");
+            $"castle start at ({start.X},{start.Y}); factions: {factions.Count}; caches: {cacheCount}; " +
+            $"river tiles: {spec.Rivers.Count}.");
         return spec;
     }
 

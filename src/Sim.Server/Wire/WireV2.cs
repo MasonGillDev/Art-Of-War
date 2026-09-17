@@ -30,6 +30,10 @@ public sealed class WorldDto
     // Row-major (index = y * Width + x), full map, fog-free.
     public int[] Elevation { get; set; } = []; // raw quantized heights, [0, 1000]
     public int[] Biome { get; set; } = [];     // GENESIS biome per tile; live drift arrives as view overrides
+    // Rivers: a RiverEdge bit mask per tile (1 N, 2 E, 4 S, 8 W) saying which of the
+    // tile's edges a river runs along. Terrain, so it is public and static like
+    // Elevation; the client draws it as a ribbon along tile boundaries. docs/rivers.md.
+    public int[] River { get; set; } = [];
 
     // C2 — what the player may build, straight off StructureCatalog.
     //

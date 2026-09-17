@@ -69,18 +69,28 @@ public static class MovementCost
 
     // M12 — pick the terrain-cost table based on the moving unit's
     // movement domain. Foot reads Road.EffectiveCost (biome + road
-    // condition); Water reads BoatMovementCost (water cheap, land
-    // Impassable). Roads do not apply on water.
-    public static int TerrainCostFor(GameWorld world, TileCoord tile, long now, Traversal trav) =>
+    // condition) plus the river surcharge for the hop from → to
+    // (docs/rivers.md); Water reads BoatMovementCost (water cheap, land
+    // Impassable). Roads and rivers do not apply on water.
+    public static int TerrainCostFor(GameWorld world, TileCoord from, TileCoord to, long now, Traversal trav) =>
         trav switch
         {
-            Traversal.Water => BoatMovementCost.CostFor(world.Grid.BiomeAt(tile)),
-            _ => Road.EffectiveCost(world, tile, now),
+            Traversal.Water => BoatMovementCost.CostFor(world.Grid.BiomeAt(to)),
+            _ => Road.EffectiveCost(world, to, now)
+                 + Sim.Core.Rivers.River.CrossingCostFor(world.Grid, from, to),
         };
+
+    // The A* cost delegate MoveIntent / MoveGroupIntent hand to
+    // Pathfinding.FindPath — one place, so a new per-hop term (rivers today,
+    // bridges tomorrow) lands once. Captures pure reads only.
+    public static Func<TileCoord, TileCoord, int> Planner(
+        GameWorld world, int playerId, HashSet<TileCoord> visibleTiles, long now,
+        Traversal trav = Traversal.Foot) =>
+        (from, to) => PlanCost(world, from, to, playerId, visibleTiles, now, trav);
 
     // ---- A* plan cost (player-perspective, destination-side) -----------
 
-    // Cost of ENTERING `tile` from the planning player's perspective.
+    // Cost of the hop `from` → `to` from the planning player's perspective.
     // Terrain (including road condition for Foot; BoatMovementCost for
     // Water) + banded crowding from the units the player can see on the
     // tile.
@@ -94,10 +104,11 @@ public static class MovementCost
     // M12: `trav` selects the terrain table. Defaults to Foot so call
     // sites that don't know about traversal yet keep their behaviour.
     public static int PlanCost(
-        GameWorld world, TileCoord tile,
+        GameWorld world, TileCoord from, TileCoord to,
         int playerId, HashSet<TileCoord> visibleTiles, long now,
         Traversal trav = Traversal.Foot)
     {
+        var tile = to;
         // M26 — fortifications. A blocking structure the planner KNOWS about
         // (own, or on a currently-visible tile) is a hard no-go; an unseen
         // one stays invisible to A* — the mover learns about it by bonking
@@ -108,7 +119,7 @@ public static class MovementCost
         var visibleCount = CountVisibleUnitsOnTile(world, tile, playerId, visibleTiles);
         if (visibleCount >= MovementConstants.MaxUnitsPerTile)
             return Sim.Core.World.Biomes.Impassable;
-        var terrain = TerrainCostFor(world, tile, now, trav);
+        var terrain = TerrainCostFor(world, from, tile, now, trav);
         // Short-circuit: an Impassable terrain (e.g. land tile for a
         // Water-traversal unit) stays Impassable — adding crowding would
         // wrap into nonsense.
@@ -133,7 +144,7 @@ public static class MovementCost
         GameWorld world, TileCoord from, TileCoord to, long now,
         Traversal trav = Traversal.Foot)
     {
-        var terrain = TerrainCostFor(world, to, now, trav);
+        var terrain = TerrainCostFor(world, from, to, now, trav);
         if (terrain == Sim.Core.World.Biomes.Impassable) return terrain;
         var fromCrowd = MovementConstants.BandedCrowdingCost(CountUnitsOnTile(world, from));
         var toCrowd = MovementConstants.BandedCrowdingCost(CountUnitsOnTile(world, to));

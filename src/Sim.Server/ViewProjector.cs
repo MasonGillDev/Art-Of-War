@@ -82,12 +82,14 @@ public sealed class ViewProjector
         var h = _map.Height;
         var elev = new int[w * h];
         var biome = new int[w * h];
+        var river = new int[w * h];
         for (var y = 0; y < h; y++)
             for (var x = 0; x < w; x++)
             {
                 var i = y * w + x;
                 elev[i] = _elevation[x, y];
                 biome[i] = (int)_map.Grid[x, y];
+                river[i] = (int)_map.Rivers[x, y];
             }
         return new WorldDto
         {
@@ -98,6 +100,7 @@ public sealed class ViewProjector
             TicksPerDay = Sim.Core.Time.Day,
             Elevation = elev,
             Biome = biome,
+            River = river,
             Buildable = BuildCatalog(),
             Population = new PopulationRulesDto
             {

@@ -105,7 +105,7 @@ public class BoatsPhaseATests
         var world = new GameWorld(grid);
         var visible = new HashSet<TileCoord>();
         var cost = MovementCost.PlanCost(
-            world, new TileCoord(1, 1), playerId: 0, visible, now: 0);
+            world, new TileCoord(0, 1), new TileCoord(1, 1), playerId: 0, visible, now: 0);
         Assert.Equal(Biomes.MoveCost(Biome.Grassland), cost);
     }
 
@@ -116,7 +116,7 @@ public class BoatsPhaseATests
         var world = new GameWorld(grid);
         var visible = new HashSet<TileCoord>();
         var cost = MovementCost.PlanCost(
-            world, new TileCoord(1, 1), playerId: 0, visible, now: 0, trav: Traversal.Water);
+            world, new TileCoord(0, 1), new TileCoord(1, 1), playerId: 0, visible, now: 0, trav: Traversal.Water);
         Assert.Equal(BoatMovementCost.WaterCost, cost);
     }
 
@@ -127,7 +127,7 @@ public class BoatsPhaseATests
         var world = new GameWorld(grid);
         var visible = new HashSet<TileCoord>();
         var cost = MovementCost.PlanCost(
-            world, new TileCoord(1, 1), playerId: 0, visible, now: 0, trav: Traversal.Water);
+            world, new TileCoord(0, 1), new TileCoord(1, 1), playerId: 0, visible, now: 0, trav: Traversal.Water);
         Assert.Equal(Biomes.Impassable, cost);
     }
 

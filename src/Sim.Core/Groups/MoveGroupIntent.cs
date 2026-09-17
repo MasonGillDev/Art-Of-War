@@ -57,7 +57,7 @@ public sealed class MoveGroupIntent : Intent
             world.Grid,
             group.Position,
             Destination,
-            tile => MovementCost.PlanCost(world, tile, group.OwnerId, visibleTiles, now));
+            MovementCost.Planner(world, group.OwnerId, visibleTiles, now));
         if (path is null || path.Count < 2)
             return IntentOutcome.Reject(
                 $"no path for group {GroupId} from {group.Position.X},{group.Position.Y} " +
@@ -92,7 +92,7 @@ public sealed class MoveGroupIntent : Intent
             world.Grid,
             group.Position,
             dest,
-            tile => MovementCost.PlanCost(world, tile, group.OwnerId, visibleTiles, now));
+            MovementCost.Planner(world, group.OwnerId, visibleTiles, now));
         if (path is null || path.Count < 2)
         {
             ClearMovementAnchors(group);

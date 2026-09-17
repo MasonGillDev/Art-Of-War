@@ -1101,3 +1101,83 @@ schedules a `PlayerDefeatedEvent` at `sim.Now` when the owner's
 idempotency-fenced against the castle-razing path. All three are
 functions of world state already in the replay stream; `ScavengeTests`
 pins the rules and the 921-test suite (884 + 37 persistence) is green.
+
+## Rivers addendum (2026-09-17) — an edge cost, and a second terrain grid
+
+`docs/rivers.md`. Zero new sim mutation points and zero new scheduled
+events. The river mask (`TileGrid.RiverEdgesAt`) is written by exactly two
+sites — `Genesis.Build` (from `GenesisSpec.Rivers`, symmetry-validated) and
+`Snapshot.ReadGrid` (restore) — and is never touched afterwards: rivers are
+terrain, like the biome grid, and the sim cannot carve or dam one.
+
+### River reads are pure
+
+| Reader | Reads | Writes? |
+|---|---|---|
+| `River.EdgeBetween / Opposite` | nothing (pure geometry) | No |
+| `River.Crosses / CrossingCostFor` | `grid.RiverEdgesAt` | No |
+| `MovementCost.TerrainCostFor` (Foot) | `Road.EffectiveCost` + `River.CrossingCostFor` | No |
+| `MovementCost.PlanCost / ExecutionCost / Planner` | as above | No |
+| `Pathfinding.FindPath` (via the edge `costFn`) | as above | No |
+| `ViewProjector.FillHop` (client hop animation) | `ExecutionCost` | No |
+
+Pinned by `RiversTests.RiverReads_ArePureReads_NoMutation` (100× hash
+check across `Crosses`, `CrossingCostFor`, `PlanCost` and a full A* query).
+
+### The cost delegate is now an edge cost
+
+`Pathfinding.FindPath` takes `Func<TileCoord, TileCoord, int>`; the
+tile-cost overload wraps it. `MovementCost.Planner(...)` is the single
+factory the three movement intents use, so the audit surface for "what
+does A* read" is one function. Costs only ever increase with the river
+term, so the Manhattan heuristic stays admissible and path determinism
+is unchanged (twin-run on a generated world with rivers:
+`RiversTests.GeneratedWorld_TwinRun_HashesEqual`).
+
+### Snapshot v30
+
+One byte per tile after the biome grid, same `(y, x)` order, hashed.
+Round-trip pinned by `RiversTests.Snapshot_RoundTripsTheMask_AndHashesIt`,
+which also proves two worlds differing only in rivers hash differently.
+
+### Generation is off the replay path
+
+`RiverCarver` runs inside `MapGenerator.Build` — float math, once, frozen
+to a `RiverEdge[,]` before the sim sees it, exactly like `NoiseField` and
+`ContinentShaper`. Ties in the priority flood and the source pick are
+broken by `(y, x)`, so same config ⇒ same rivers
+(`RiversTests.Generated_SameConfig_SameRivers`).
+
+## Update 2026-09-17 — refining structures (docs/refining-structures.md)
+
+### New mutation surface: `Extractor.Inputs`
+
+The refiner input store on `Extractor` (only ever non-empty for
+`Spec.IsRefiner` kinds — today the Smelter) has exactly two writers:
+
+| Site | Mutation | Trigger |
+|---|---|---|
+| `Extractor.DepositInput` | adds an input | `CargoTransfer.DepositInto` (haul deposit / manual unload), same shared primitive every other deposit uses |
+| `Extractor.ConsumeBatches` | pays `batches × InputCost` | `ProductionTickEvent.Apply`, refiner branch, after the dormancy guards |
+
+`SiegeDamage.RazeStructure` reads it to spill (then the structure is gone).
+`Snapshot` reads and restores it (v31, enum-ordinal order from the
+`SortedDictionary`). `ViewProjector` reads it into the structure DTO's
+holdings. No other site touches it.
+
+### Re-arm: one more caller of `Extractor.ArmIfDormant`
+
+`CargoTransfer.DepositInto` now calls `ArmIfDormant` after a successful
+refiner deposit — the deposit-side twin of the haul-pickup re-arm. It is
+the same idempotent entry point; the gate is the new `Extractor.CanProduce`
+(workers, buffer room, and for refiners ≥ 1 affordable batch), which
+`ArmIfDormant`, the tick's reschedule decision, and `AssignWorkersIntent`
+all read. An empty smelter with workers therefore never arms a tick that
+would only fire to go dormant.
+
+### Snapshot v31
+
+Extractor payload: input count + `(byte resource, int amount)` pairs after
+the claim list. Pinned by `RefiningTests.Snapshot_RoundTrips_ArmedAndDormantSmelters`
+(hash equality before and after one production period on both sides).
+Twin-run: `RefiningTests.TwinRun_SmelterChain_HashesEqual`.

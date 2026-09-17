@@ -609,6 +609,7 @@ static class GeneratedDemo
             Width = map.Width,
             Height = map.Height,
             Biomes = MapGenerator.ToBiomeOverrides(map),
+            Rivers = MapGenerator.ToRiverOverrides(map),
             FactionStarts = new[]
             {
                 new FactionStartSpec
@@ -658,6 +659,9 @@ static class GeneratedDemo
             for (var x = 0; x < map.Width; x++)
             {
                 if (x == map.Start.X && y == map.Start.Y) sb.Append('@');
+                // A river tile shows as '=' — the river runs along one of its
+                // edges (docs/rivers.md); the biome underneath is still land.
+                else if (map.Rivers[x, y] != RiverEdge.None) sb.Append('=');
                 else sb.Append(glyphs.GetValueOrDefault(map.Grid[x, y], '?'));
             }
             sb.AppendLine();

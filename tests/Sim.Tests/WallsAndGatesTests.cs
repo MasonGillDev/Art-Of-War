@@ -71,7 +71,7 @@ public class WallsAndGatesTests
     {
         var visible = View.VisibleTiles(sim.World, playerId);
         return Pathfinding.FindPath(sim.World.Grid, from, to,
-            t => MovementCost.PlanCost(sim.World, t, playerId, visible, sim.Now));
+            MovementCost.Planner(sim.World, playerId, visible, sim.Now));
     }
 
     // ====================================================================
@@ -506,7 +506,7 @@ public class WallsAndGatesTests
             Fortification.BlocksMover(sim.World, new TileCoord(4, 4), 0);
             Fortification.BlocksMover(sim.World, new TileCoord(4, 5), 0);
             Fortification.BlocksPlan(sim.World, new TileCoord(4, 4), 0, visible);
-            MovementCost.PlanCost(sim.World, new TileCoord(4, 4), 0, visible, sim.Now);
+            MovementCost.PlanCost(sim.World, new TileCoord(3, 4), new TileCoord(4, 4), 0, visible, sim.Now);
         }
         Assert.Equal(before, Snapshot.Hash(sim));
     }

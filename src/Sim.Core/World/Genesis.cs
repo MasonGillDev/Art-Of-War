@@ -19,6 +19,14 @@ public sealed record GenesisSpec
     public IReadOnlyDictionary<TileCoord, Biome> Biomes { get; init; } =
         new Dictionary<TileCoord, Biome>();
 
+    // Rivers: which edges of each tile carry one (docs/rivers.md). Sparse —
+    // only river tiles need an entry. Build validates the symmetry invariant
+    // (a river on my North edge is a river on my northern neighbour's South
+    // edge) and throws on a mismatch: an asymmetric mask would make the
+    // crossing fee depend on which way you walked.
+    public IReadOnlyDictionary<TileCoord, RiverEdge> Rivers { get; init; } =
+        new Dictionary<TileCoord, RiverEdge>();
+
     // M6: per-faction starts. Each entry registers a Player and seeds that
     // faction's castle + holdings + units. OwnerIds must be unique within the
     // list. Iterated in OwnerId order at Build time for deterministic placement.
@@ -127,6 +135,13 @@ public static class Genesis
         var grid = new TileGrid(spec.Width, spec.Height, spec.DefaultBiome);
         foreach (var (coord, biome) in spec.Biomes)
             grid.SetBiome(coord, biome);
+        foreach (var (coord, edges) in spec.Rivers)
+        {
+            if (!grid.InBounds(coord))
+                throw new InvalidOperationException($"GenesisSpec.Rivers: {coord.X},{coord.Y} is out of bounds.");
+            grid.SetRiverEdges(coord, edges);
+        }
+        ValidateRiverSymmetry(grid);
 
         var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population, spec.BiomeDegradation);
         world.RestoreRoyaltyConfig(spec.Royalty);   // M31 — genesis-set, then immutable
@@ -195,5 +210,35 @@ public static class Genesis
         world.NextUnitId = world.Units.Count == 0 ? 1 : world.Units.Keys.Max() + 1;
 
         return world;
+    }
+
+    // Every river edge must be seen from both sides (docs/rivers.md). A
+    // one-sided mask is a spec bug, not a world: fail loudly here rather
+    // than let River.Crosses answer differently for A→B and B→A.
+    private static void ValidateRiverSymmetry(TileGrid grid)
+    {
+        for (var y = 0; y < grid.Height; y++)
+        for (var x = 0; x < grid.Width; x++)
+        {
+            var tile = new TileCoord(x, y);
+            var mask = grid.RiverEdgesAt(tile);
+            if (mask == RiverEdge.None) continue;
+            foreach (var n in grid.Neighbors(tile))
+            {
+                var edge = Sim.Core.Rivers.River.EdgeBetween(tile, n);
+                var mine = (mask & edge) != 0;
+                var theirs = (grid.RiverEdgesAt(n) & Sim.Core.Rivers.River.Opposite(edge)) != 0;
+                if (mine != theirs)
+                    throw new InvalidOperationException(
+                        $"GenesisSpec.Rivers is asymmetric between {x},{y} and {n.X},{n.Y} ({edge}).");
+            }
+            // A river on a map-edge side has no neighbour to agree with it.
+            if (((mask & RiverEdge.North) != 0 && y == 0) ||
+                ((mask & RiverEdge.West)  != 0 && x == 0) ||
+                ((mask & RiverEdge.South) != 0 && y == grid.Height - 1) ||
+                ((mask & RiverEdge.East)  != 0 && x == grid.Width - 1))
+                throw new InvalidOperationException(
+                    $"GenesisSpec.Rivers: {x},{y} carries a river on the map border.");
+        }
     }
 }

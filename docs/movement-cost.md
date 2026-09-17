@@ -291,3 +291,19 @@ the bands didn't).
 **Tests** now derive every movement expectation from
 `Biomes.MoveCost` / `RoadConstants` / the band constants — the next
 retune of any of these numbers is a one-file change.
+
+## Update 2026-09-17 — the cost delegate became an edge cost (rivers)
+
+Rivers (`docs/rivers.md`) charge a hop for *crossing* a tile boundary and
+nothing for walking beside it — a property of the pair `(from, to)`, which
+the per-tile `Func<TileCoord,int>` delegate this doc describes could not
+express. `Pathfinding.FindPath` now takes `Func<TileCoord, TileCoord, int>`
+and pays `costFn(current, neighbour)`; `MovementCost.PlanCost` takes
+`(world, from, to, …)`; `MovementCost.TerrainCostFor` takes `(from, to)`
+and adds `River.CrossingCostFor` on the Foot table. `ExecutionCost` already
+had both tiles. The three planning lambdas in `MoveIntent` /
+`MoveGroupIntent` collapsed into `MovementCost.Planner(...)`. The tile-cost
+`FindPath` overload survives for reachability checks and tests. Everything
+above about fog semantics, banding, the hard cap and plan-vs-execute is
+unchanged; the river term is terrain, visible to the planner everywhere
+like biome and road cost.
