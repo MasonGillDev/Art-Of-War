@@ -38,6 +38,17 @@ public sealed record StructureSpec
     public int RoleBonusNumerator { get; init; } = 1;
     public int RoleBonusDenominator { get; init; } = 1;
 
+    // Refining (docs/refining-structures.md). A REFINER is an Extractor
+    // whose production tick EATS from its own input store before it deposits
+    // output: InputCost is what one batch (one unit of OutputResource)
+    // consumes, InputCap bounds the total inputs it will accept from haulers.
+    // Empty InputCost = ordinary extractor. A refiner has no RequiredBiome —
+    // WHERE it sits is the player's siting decision — and no claim.
+    public IReadOnlyDictionary<Resource, int> InputCost { get; init; } =
+        new SortedDictionary<Resource, int>();
+    public int InputCap { get; init; }
+    public bool IsRefiner => InputCost.Count > 0;
+
     // Build requirements. Empty BuildCost + zero RequiredBuilderCount means
     // not buildable (paired with IsPlayerBuildable = false).
     public IReadOnlyDictionary<Resource, int> BuildCost { get; init; } =

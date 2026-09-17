@@ -39,27 +39,31 @@ public sealed record EquipmentSpec
 public static class EquipmentCatalog
 {
     // Balance knobs — each weapon sits on a different supply chain
-    // (Sword: Ore, Bow: Wood, Shield: Stone) so military pressure pulls
-    // on every extractor type.
+    // (Sword: Ore→Iron, Bow: Wood, Shield: Stone) so military pressure pulls
+    // on every extractor type. Since docs/refining-structures.md the
+    // weapons are forged at the SMITHY and the Cart at the WORKSHOP; the
+    // Barracks trains and holds gear but forges nothing.
     private static readonly Dictionary<Resource, EquipmentSpec> Specs = new()
     {
         [Resource.Sword] = new EquipmentSpec
         {
             Item = Resource.Sword,
-            CraftedAt = StructureKind.Barracks,
+            CraftedAt = StructureKind.Smithy,
             BuffKind = "sword",
             PowerModifier = 3,
             AllowedRoles = new HashSet<UnitRole> { UnitRole.Soldier },
+            // The two-hop chain: Ore + fuel → Iron at the Smelter, then
+            // Iron + haft here. Ore itself is no longer a craft input.
             CraftCost = new SortedDictionary<Resource, int>
             {
-                [Resource.Wood] = 5,
-                [Resource.Ore] = 5,
+                [Resource.Wood] = 2,
+                [Resource.Iron] = 3,
             },
         },
         [Resource.Bow] = new EquipmentSpec
         {
             Item = Resource.Bow,
-            CraftedAt = StructureKind.Barracks,
+            CraftedAt = StructureKind.Smithy,
             BuffKind = "bow",
             PowerModifier = 4,
             AllowedRoles = new HashSet<UnitRole> { UnitRole.Archer },
@@ -71,7 +75,7 @@ public static class EquipmentCatalog
         [Resource.Shield] = new EquipmentSpec
         {
             Item = Resource.Shield,
-            CraftedAt = StructureKind.Barracks,
+            CraftedAt = StructureKind.Smithy,
             BuffKind = "shield",
             HealthModifier = 10,
             AllowedRoles = new HashSet<UnitRole> { UnitRole.Soldier, UnitRole.Archer },
@@ -90,11 +94,9 @@ public static class EquipmentCatalog
         [Resource.Cart] = new EquipmentSpec
         {
             Item = Resource.Cart,
-            // Still the Barracks today — moving it is a one-line change now
-            // rather than a refactor, and moving it is a BALANCE decision
-            // (a cart at a workshop unbinds haulage from military build-out),
-            // so it waits for that call rather than riding this one.
-            CraftedAt = StructureKind.Barracks,
+            // The balance call was made in docs/refining-structures.md: a
+            // cart at a workshop unbinds haulage from military build-out.
+            CraftedAt = StructureKind.Workshop,
             BuffKind = "cart",
             CargoModifier = 25,
             MoveCostPercent = 50,

@@ -356,6 +356,70 @@ public static class StructureCatalog
             BlocksMovement = true,
             AlliedPassage = true,
         },
+
+        // Refining (docs/refining-structures.md) — the second hop.
+        //
+        // Smelter: the only refiner. No RequiredBiome — WHERE it sits (near
+        // the hills, near the forest, near the smithy) is the player's call,
+        // which is the whole point. Ore + Wood (fuel) → Iron. Fuel is what
+        // makes it a standing appetite rather than a renamed mine. Input
+        // cap holds a few days of feed so one supply line per input keeps it
+        // fed; output buffer is the extractor-standard 20.
+        [StructureKind.Smelter] = new StructureSpec
+        {
+            Kind = StructureKind.Smelter,
+            IsPlayerBuildable = true,
+            OutputResource = Resource.Iron,
+            InputCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Ore] = 2,
+                [Resource.Wood] = 1,
+            },
+            InputCap = 60,
+            BaseRatePerWorker = 1,
+            ProductionPeriodTicks = 1 * Time.Day,
+            WorkerCap = 2,
+            BufferCap = 20,
+            PreferredRole = UnitRole.Miner,
+            RoleBonusNumerator = 2,
+            RoleBonusDenominator = 1,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 40,
+                [Resource.Stone] = 30,
+            },
+            BuildDurationTicks = 60 * Time.Minute,
+            RequiredBuilderCount = 1,
+            BaseHealth = 150,
+        },
+        // Workshop: civil crafting storage. The Cart is forged here, so
+        // haulage no longer depends on a military build-out.
+        [StructureKind.Workshop] = new StructureSpec
+        {
+            Kind = StructureKind.Workshop,
+            IsPlayerBuildable = true,
+            StorageCapacity = 200,
+            BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 60 },
+            BuildDurationTicks = 60 * Time.Minute,
+            RequiredBuilderCount = 1,
+            BaseHealth = 150,
+        },
+        // Smithy: weapons crafting storage (Sword / Bow / Shield). Costs no
+        // Iron on purpose — it must be buildable before the first ingot.
+        [StructureKind.Smithy] = new StructureSpec
+        {
+            Kind = StructureKind.Smithy,
+            IsPlayerBuildable = true,
+            StorageCapacity = 200,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 60,
+                [Resource.Stone] = 20,
+            },
+            BuildDurationTicks = 80 * Time.Minute,
+            RequiredBuilderCount = 1,
+            BaseHealth = 200,
+        },
     };
 
     public static StructureSpec Spec(StructureKind kind) =>

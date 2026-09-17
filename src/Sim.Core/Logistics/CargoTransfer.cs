@@ -51,8 +51,17 @@ public static class CargoTransfer
         {
             StorageStructure ss => ss.Deposit(resource, amount),
             ConstructionSite c  => c.Deposit(resource, amount),
+            // Refining (docs/refining-structures.md): a refiner takes only
+            // the inputs its recipe names; anything else stays on the hauler.
+            Extractor ex when ex.IsRefiner => ex.DepositInput(resource, amount),
             _ => 0,
         };
+
+        // The delivery that completes a batch wakes a starved refiner — the
+        // deposit-side twin of the haul-pickup re-arm (buffer space freed).
+        // ArmIfDormant is idempotent and checks the full CanProduce gate.
+        if (dest is Extractor refiner && refiner.IsRefiner && deposited > 0)
+            refiner.ArmIfDormant(sim);
 
         if (foodHome is not null)
             Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodHome, sim);

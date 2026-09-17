@@ -235,6 +235,13 @@ public sealed class BuildOptionDto
     /// How many may call it home (0 = not a home, or uncapped as with the Castle).
     public int ResidentCap { get; set; }
 
+    /// Refiners only (docs/refining-structures.md): what ONE unit of OutputResource
+    /// consumes from the building's input store, and how much input it will hold.
+    /// Empty / 0 for everything else. This is what lets the build menu say
+    /// "2 Ore + 1 Wood → 1 Iron" without a recipe table of its own.
+    public ResAmtDto[] Inputs { get; set; } = [];
+    public int InputCap { get; set; }
+
     /// Roles a unit STANDING ON THIS BUILDING can be trained into — the School's
     /// civilian trades, the Barracks' Soldier and Archer, empty for everything else.
     /// Inverted from RoleTrainerCatalog so the client never has to know which

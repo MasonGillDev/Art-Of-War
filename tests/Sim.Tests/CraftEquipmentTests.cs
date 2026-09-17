@@ -6,8 +6,10 @@ using Sim.Core.World;
 namespace Sim.Tests;
 
 // CraftEquipmentIntent — instant conversion of raw resources to an
-// equipment item inside a Barracks' own holdings
-// (docs/equipment-model.md). Costs derive from EquipmentCatalog.
+// equipment item inside the crafting building's own holdings
+// (docs/equipment-model.md). Costs and the crafting building derive from
+// EquipmentCatalog; since docs/refining-structures.md the weapons are
+// forged at the SMITHY and the Barracks forges nothing.
 public class CraftEquipmentTests
 {
     private static Simulation MakeSim(int w = 8, int h = 8)
@@ -17,13 +19,40 @@ public class CraftEquipmentTests
         return new Simulation(world, seed: 1);
     }
 
-    private static Barracks AddBarracks(Simulation sim, TileCoord at, int owner = 0) =>
-        (Barracks)sim.World.AddStructure(new Barracks(at) { OwnerId = owner });
+    private static Smithy AddSmithy(Simulation sim, TileCoord at, int owner = 0) =>
+        (Smithy)sim.World.AddStructure(new Smithy(at) { OwnerId = owner });
 
-    private static void StockExactCost(Barracks barracks, Resource item)
+    private static void StockExactCost(StorageStructure store, Resource item)
     {
         foreach (var (r, n) in EquipmentCatalog.Spec(item).CraftCost)
-            barracks.Deposit(r, n);
+            store.Deposit(r, n);
+    }
+
+    [Fact]
+    public void Craft_AtBarracks_Rejected_ForgingMovedToSmithy()
+    {
+        // docs/refining-structures.md: the Barracks trains and holds gear
+        // but forges nothing. Materials in a Barracks stay materials.
+        var sim = MakeSim();
+        var barracks = sim.World.AddStructure(new Barracks(new TileCoord(2, 2)) { OwnerId = 0 });
+        StockExactCost(barracks, Resource.Sword);
+
+        var outcome = new CraftEquipmentIntent(barracks.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
+
+        Assert.False(outcome.IsApplied);
+        Assert.Equal(0, barracks.AmountOf(Resource.Sword));
+        foreach (var (r, n) in EquipmentCatalog.Spec(Resource.Sword).CraftCost)
+            Assert.Equal(n, barracks.AmountOf(r));
+    }
+
+    [Fact]
+    public void Sword_CostsIron_NotOre()
+    {
+        // The two-hop chain: Ore is a Smelter input, never a Sword input.
+        var cost = EquipmentCatalog.Spec(Resource.Sword).CraftCost;
+        Assert.True(cost.ContainsKey(Resource.Iron));
+        Assert.False(cost.ContainsKey(Resource.Ore));
+        Assert.Equal(StructureKind.Smithy, EquipmentCatalog.Spec(Resource.Sword).CraftedAt);
     }
 
     [Theory]
@@ -33,7 +62,7 @@ public class CraftEquipmentTests
     public void Craft_ConsumesInputs_DepositsItem(Resource item)
     {
         var sim = MakeSim();
-        var barracks = AddBarracks(sim, new TileCoord(2, 2));
+        var barracks = AddSmithy(sim, new TileCoord(2, 2));
         StockExactCost(barracks, item);
 
         var outcome = new CraftEquipmentIntent(barracks.At, item) { PlayerId = 0 }.Resolve(sim);
@@ -50,7 +79,7 @@ public class CraftEquipmentTests
         // Stock one unit short of ONE input — the reject must leave every
         // holding untouched (fail-clean: no partial withdrawal).
         var sim = MakeSim();
-        var barracks = AddBarracks(sim, new TileCoord(2, 2));
+        var barracks = AddSmithy(sim, new TileCoord(2, 2));
         var cost = EquipmentCatalog.Spec(Resource.Sword).CraftCost;
         var before = new Dictionary<Resource, int>();
         var first = true;
@@ -89,7 +118,7 @@ public class CraftEquipmentTests
     public void Craft_OnEnemyBarracks_Rejected()
     {
         var sim = MakeSim();
-        var barracks = AddBarracks(sim, new TileCoord(2, 2), owner: 1);
+        var barracks = AddSmithy(sim, new TileCoord(2, 2), owner: 1);
         StockExactCost(barracks, Resource.Sword);
 
         var outcome = new CraftEquipmentIntent(barracks.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
@@ -102,7 +131,7 @@ public class CraftEquipmentTests
     public void Craft_NonEquipmentResource_Rejected()
     {
         var sim = MakeSim();
-        var barracks = AddBarracks(sim, new TileCoord(2, 2));
+        var barracks = AddSmithy(sim, new TileCoord(2, 2));
         barracks.Deposit(Resource.Wood, 100);
 
         var outcome = new CraftEquipmentIntent(barracks.At, Resource.Food) { PlayerId = 0 }.Resolve(sim);
@@ -119,7 +148,7 @@ public class CraftEquipmentTests
         for (var swap = 0; swap < 2; swap++)
         {
             var sim = MakeSim();
-            var barracks = AddBarracks(sim, new TileCoord(2, 2));
+            var barracks = AddSmithy(sim, new TileCoord(2, 2));
             StockExactCost(barracks, Resource.Sword);
 
             var a = new CraftEquipmentIntent(barracks.At, Resource.Sword);
@@ -144,9 +173,9 @@ public class CraftEquipmentTests
     public void CraftedSword_HaulableToStockpile()
     {
         // Equipment rides the existing logistics with zero special cases:
-        // craft at the Barracks, haul the finished sword to a stockpile.
+        // craft at the Smithy, haul the finished sword to a stockpile.
         var sim = MakeSim();
-        var barracks = AddBarracks(sim, new TileCoord(0, 0));
+        var barracks = AddSmithy(sim, new TileCoord(0, 0));
         var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(3, 0)));
         StockExactCost(barracks, Resource.Sword);
         sim.World.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Hauler });

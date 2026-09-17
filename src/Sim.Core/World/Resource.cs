@@ -16,4 +16,8 @@ public enum Resource : byte
     // M-cart — a hauler's cart: equipment that trades move speed for carry
     // capacity. Same fungible-item machinery as the weapons. See docs/cart.md.
     Cart = 8,
+    // Refining (docs/refining-structures.md) — the first INTERMEDIATE good:
+    // smelted from Ore + Wood at a Smelter, consumed by the Smithy's Sword.
+    // Fungible and stateless like every other Resource.
+    Iron = 9,
 }

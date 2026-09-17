@@ -57,6 +57,9 @@ public static class SiegeDamage
                 break;
             case Extractor ex:
                 Spill(world, at, ex.Spec.OutputResource, ex.Buffer);
+                // Refining: the input store spills too — the ore and fuel a
+                // razed smelter was fed are loot like everything else.
+                foreach (var (r, amt) in ex.Inputs) Spill(world, at, r, amt);
                 break;
             case ConstructionSite cs:
                 foreach (var (r, amt) in cs.Delivered) Spill(world, at, r, amt);

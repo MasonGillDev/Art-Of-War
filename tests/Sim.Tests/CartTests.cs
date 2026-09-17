@@ -57,11 +57,13 @@ public class CartTests
     // ---- craft + equip via the existing equipment machinery ----
 
     [Fact]
-    public void Cart_CraftedAtBarracks_FromWoodAndStone()
+    public void Cart_CraftedAtWorkshop_FromWoodAndStone()
     {
+        // docs/refining-structures.md: the cart is a hauler's tool, forged
+        // at the Workshop so haulage never waits on a military build-out.
         var sim = MakeSim();
         var at = new TileCoord(2, 2);
-        var barracks = sim.World.AddStructure(new Barracks(at) { OwnerId = 0 });
+        var barracks = sim.World.AddStructure(new Workshop(at) { OwnerId = 0 });
         barracks.Deposit(Resource.Wood, 20);
         barracks.Deposit(Resource.Stone, 10);
 

@@ -13,6 +13,10 @@ namespace Sim.Core.Logistics;
 //      Extractor.ArmIfDormant called from a future haul-pickup (Phase E).
 //   4. Otherwise compute the discrete extract amount for this period, bump
 //      the buffer, and reschedule the next tick.
+//   5. Refiners (Spec.IsRefiner — docs/refining-structures.md): the same
+//      shape with one more dormancy guard (no whole batch of inputs) and
+//      one more mutation (the batch is paid from Extractor.Inputs before
+//      the output lands). Re-arm on the deposit that restocks an input.
 //
 // Each tick is a discrete event producing a discrete integer amount of work.
 // No "integrate rate over the interval since last fire" math — that path
@@ -97,6 +101,18 @@ public sealed class ProductionTickEvent : ScheduledEvent
             return;
         }
 
+        // Refining (docs/refining-structures.md): a refiner with workers and
+        // room but no whole batch of inputs goes dormant like an empty-
+        // handed extractor. Re-arm comes from the haul deposit that brings
+        // the missing input (CargoTransfer.DepositInto → ArmIfDormant).
+        if (extractor.IsRefiner && extractor.AffordableBatches() == 0)
+        {
+            extractor.TickArmed = false;
+            extractor.NextProductionTickSeq = null;
+            Outcome = IntentOutcome.Reject("inputs exhausted");
+            return;
+        }
+
         var spec = extractor.Spec;
         long rate = 0;
         foreach (var workerId in extractor.Workers)
@@ -124,10 +140,18 @@ public sealed class ProductionTickEvent : ScheduledEvent
         }
 
         var extract = (int)Math.Min(rate, extractor.FreeBuffer());
+        // Refining: every unit of output is one BATCH of inputs, paid in
+        // full from the input store before the output lands. Integer,
+        // all-or-nothing per batch; the guard above promised ≥ 1.
+        if (extractor.IsRefiner)
+        {
+            extract = Math.Min(extract, extractor.AffordableBatches());
+            extractor.ConsumeBatches(extract);
+        }
         extractor.Buffer += extract;
         extractor.LastProductionTick = sim.Now;
 
-        if (extractor.Workers.Count > 0 && !extractor.BufferFull())
+        if (extractor.CanProduce())
         {
             extractor.NextProductionTickSeq = sim.Schedule(
                 sim.Now + spec.ProductionPeriodTicks,

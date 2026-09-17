@@ -2,6 +2,7 @@ using Sim.Core.Combat;
 using Sim.Core.Diplomacy;
 using Sim.Core.Engine;
 using Sim.Core.Equipment;
+using Sim.Core.Logistics;
 using Sim.Core.Movement;
 using Sim.Core.Population;
 using Sim.Core.Vision;
@@ -50,24 +51,30 @@ public class MilitaryDeterminismTests
     public void Twin_CraftTrainEquipBattle_IdenticalHash()
     {
         // The whole new pipeline as submitted intents: craft a sword at
-        // the Barracks, train the citizen to Soldier, equip, march onto
-        // the enemy — the arrival trigger starts combat, the sworded
-        // Soldier wins. Two identical runs must hash identically.
+        // the Smithy (docs/refining-structures.md — the Barracks forges
+        // nothing), haul it to the Barracks, train the citizen to Soldier,
+        // equip, march onto the enemy — the arrival trigger starts combat,
+        // the sworded Soldier wins. Two identical runs must hash identically.
         Simulation Run()
         {
             var sim = MakeWarSim(seed: 0xD0D);
             var barracks = (Barracks)sim.World.AddStructure(
                 new Barracks(new TileCoord(2, 2)) { OwnerId = 0 });
+            var smithy = sim.World.AddStructure(new Smithy(new TileCoord(2, 3)) { OwnerId = 0 });
             foreach (var (r, n) in EquipmentCatalog.Spec(Resource.Sword).CraftCost)
-                barracks.Deposit(r, n);
+                smithy.Deposit(r, n);
             // Enemy victim a few tiles away.
             sim.World.AddUnit(new Unit(50, new TileCoord(5, 2)) { Role = UnitRole.Builder, OwnerId = 1 });
+            // A hauler carries the finished sword next door to the Barracks.
+            sim.World.AddUnit(new Unit(60, smithy.At) { Role = UnitRole.Hauler, OwnerId = 0 });
 
-            sim.SubmitIntent(0, new CraftEquipmentIntent(barracks.At, Resource.Sword));
+            sim.SubmitIntent(0, new CraftEquipmentIntent(smithy.At, Resource.Sword));
+            sim.SubmitIntent(1, new HaulIntent(60, smithy.At, barracks.At, Resource.Sword));
             sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Soldier));
-            sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword));
-            sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(5, 2)));
-            sim.Run(until: 5000);
+            // Equip and march once the one-tile haul has had time to land.
+            sim.SubmitIntent(2500, new EquipUnitIntent(1, Resource.Sword));
+            sim.SubmitIntent(3000, new MoveIntent(1, new TileCoord(5, 2)));
+            sim.Run(until: 10000);
             return sim;
         }
 

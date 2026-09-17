@@ -217,6 +217,10 @@ public sealed class BuildCompleteEvent : ScheduledEvent
         StructureKind.School     => new School(at) { OwnerId = ownerId },
         StructureKind.Barracks   => new Barracks(at) { OwnerId = ownerId },
         StructureKind.Lodge      => new Lodge(at) { OwnerId = ownerId },
+        // Refining (docs/refining-structures.md).
+        StructureKind.Smelter    => new Extractor(StructureKind.Smelter, at) { OwnerId = ownerId },
+        StructureKind.Workshop   => new Workshop(at) { OwnerId = ownerId },
+        StructureKind.Smithy     => new Smithy(at) { OwnerId = ownerId },
         // M26 — fortifications. Blocking starts NOW (entry-only): a builder
         // still standing here can walk off, but nobody re-enters while the
         // wall stands. docs/walls-and-gates.md.

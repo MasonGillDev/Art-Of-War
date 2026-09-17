@@ -136,6 +136,23 @@ public sealed class Barracks : StorageStructure
     public Barracks(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Barracks).StorageCapacity) { }
 }
 
+// Refining (docs/refining-structures.md) — the two crafting storehouses that
+// took forging off the Barracks. Each is a plain StorageStructure: haulers
+// feed it, CraftEquipmentIntent converts holdings in place (which building
+// forges what is EquipmentCatalog's CraftedAt), and EquipRules.OnStoreSupplied
+// arms a waiting soldier the moment the item lands, exactly as at a Barracks.
+public sealed class Workshop : StorageStructure
+{
+    public override StructureKind Kind => StructureKind.Workshop;
+    public Workshop(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Workshop).StorageCapacity) { }
+}
+
+public sealed class Smithy : StorageStructure
+{
+    public override StructureKind Kind => StructureKind.Smithy;
+    public Smithy(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.Smithy).StorageCapacity) { }
+}
+
 // M23 — a loot cache: an UNOWNED StorageStructure holding a scattered bundle
 // of resources / gear, discovered in the fog and looted with LootCacheIntent
 // (cargo-capped; removed when empty). Genesis scatters them
@@ -188,16 +205,84 @@ public sealed class Extractor : Structure
     // BuildCompleteEvent transfer-copy, ArmIfDormant lazy fill, restore).
     public List<TileCoord> ClaimTiles { get; } = new();
 
+    // Refining (docs/refining-structures.md) — a REFINER's input store. Only
+    // a refiner (Spec.IsRefiner) ever holds anything here; ordinary
+    // extractors keep it empty. Haulers feed it through
+    // CargoTransfer.DepositInto → DepositInput (accepts only InputCost
+    // resources, capped by Spec.InputCap); the production tick is the sole
+    // consumer (ConsumeBatches); razing spills it. Sorted by enum ordinal so
+    // the snapshot walks it canonically.
+    public SortedDictionary<Resource, int> Inputs { get; } = new();
+
+    public bool IsRefiner => Spec.IsRefiner;
+
     public Extractor(StructureKind kind, TileCoord at) : base(at)
     {
         _kind = kind;
         Spec = StructureCatalog.Spec(kind);
-        if (Spec.RequiredBiome == Biome.None)
+        if (Spec.RequiredBiome == Biome.None && !Spec.IsRefiner)
             throw new InvalidOperationException($"{kind} is not an extractor kind.");
     }
 
     public int FreeBuffer() => Math.Max(0, Spec.BufferCap - Buffer);
     public bool BufferFull() => Buffer >= Spec.BufferCap;
+
+    // ---- refiner input accounting (no-ops / zero for ordinary extractors) ----
+
+    public int InputOf(Resource r) => Inputs.TryGetValue(r, out var v) ? v : 0;
+
+    public int InputTotal()
+    {
+        var total = 0;
+        foreach (var v in Inputs.Values) total += v;
+        return total;
+    }
+
+    public int FreeInputSpace() => Math.Max(0, Spec.InputCap - InputTotal());
+
+    // Accepts only resources this refiner's recipe names, up to InputCap.
+    // Returns what was accepted; the caller keeps the remainder (the same
+    // contract as StorageStructure.Deposit).
+    public int DepositInput(Resource r, int amount)
+    {
+        if (amount <= 0 || !Spec.InputCost.ContainsKey(r)) return 0;
+        var accepted = Math.Min(amount, FreeInputSpace());
+        if (accepted == 0) return 0;
+        Inputs.TryGetValue(r, out var current);
+        Inputs[r] = current + accepted;
+        return accepted;
+    }
+
+    // How many whole batches the input store can pay for right now. Integer
+    // floor per input, min across inputs — all-or-nothing per batch.
+    public int AffordableBatches()
+    {
+        if (!IsRefiner) return 0;
+        var batches = int.MaxValue;
+        foreach (var (r, cost) in Spec.InputCost)
+            batches = Math.Min(batches, InputOf(r) / cost);
+        return batches;
+    }
+
+    // The tick's one consumption point. Caller guarantees
+    // batches <= AffordableBatches().
+    internal void ConsumeBatches(int batches)
+    {
+        foreach (var (r, cost) in Spec.InputCost)
+        {
+            var remaining = InputOf(r) - cost * batches;
+            if (remaining < 0)
+                throw new InvalidOperationException(
+                    $"{Kind} at {At.X},{At.Y} consumed more {r} than it held.");
+            if (remaining == 0) Inputs.Remove(r);
+            else Inputs[r] = remaining;
+        }
+    }
+
+    // Everything a production tick needs to do work: workers, room for
+    // output, and (refiners) at least one batch of inputs.
+    public bool CanProduce() =>
+        Workers.Count > 0 && !BufferFull() && (!IsRefiner || AffordableBatches() > 0);
 
     // Centralizes the production re-arm rule so it lives in one place. Called
     // by AssignWorkersIntent (worker count crossed 0→1+) and, in Phase E, by
@@ -209,8 +294,7 @@ public sealed class Extractor : Structure
     internal void ArmIfDormant(Simulation sim)
     {
         if (TickArmed) return;
-        if (Workers.Count == 0) return;
-        if (BufferFull()) return;
+        if (!CanProduce()) return;
         if (Spec.ClaimCount > 0)
         {
             // M15 lazy auto-claim: hand-built extractors (test fixtures,

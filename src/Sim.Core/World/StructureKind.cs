@@ -21,4 +21,8 @@ public enum StructureKind : byte
     Rubble = 16, // M24 — destroyed-structure remains; blocks placement, owner-sentinel -3 (docs/sieges-and-conquest.md)
     Wall = 17, // M26 — blocks movement for everyone; placed as a line via PlaceWallIntent (docs/walls-and-gates.md)
     Gate = 18, // M26 — blocks movement except owner + allies (docs/walls-and-gates.md)
+    // Refining (docs/refining-structures.md) — the second hop of the supply chain.
+    Smelter = 19,  // refiner: Ore + Wood (fuel) → Iron; the only Extractor with inputs
+    Workshop = 20, // civil crafting storage: the Cart is forged here, not at the Barracks
+    Smithy = 21,   // weapons crafting storage: Sword / Bow / Shield; the Barracks now only trains
 }

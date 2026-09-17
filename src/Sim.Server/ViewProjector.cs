@@ -196,6 +196,11 @@ public sealed class ViewProjector
                 StorageCapacity = spec.StorageCapacity,
                 ResidentCap = spec.ResidentCap,
                 TrainsRoles = TrainableAt(kind),
+                Inputs = spec.InputCost
+                    .OrderBy(kv => (int)kv.Key)
+                    .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+                    .ToArray(),
+                InputCap = spec.InputCap,
             });
         }
         return options.ToArray();
@@ -870,8 +875,17 @@ public sealed class ViewProjector
                 dto.Capacity = ex.Spec.BufferCap;
                 dto.Workers = ex.Workers.Count;
                 dto.WorkerCap = ex.Spec.WorkerCap;
-                if (ex.Buffer > 0 && ex.Spec.OutputResource != Resource.None)
-                    dto.Holdings = new[] { new ResAmtDto { Resource = (int)ex.Spec.OutputResource, Amount = ex.Buffer } };
+                {
+                    // Output buffer first, then (refiners) the input store —
+                    // the smelter's ore and fuel on hand. Empty for ordinary
+                    // extractors, so their payload is unchanged.
+                    var held = new List<ResAmtDto>();
+                    if (ex.Buffer > 0 && ex.Spec.OutputResource != Resource.None)
+                        held.Add(new ResAmtDto { Resource = (int)ex.Spec.OutputResource, Amount = ex.Buffer });
+                    foreach (var (r, amt) in ex.Inputs)
+                        held.Add(new ResAmtDto { Resource = (int)r, Amount = amt });
+                    if (held.Count > 0) dto.Holdings = held.ToArray();
+                }
                 // Soil visibility (own-only): live fertility per claim
                 // tile, parallel to the ClaimX/ClaimY arrays FillClaims
                 // emits (same source list, same order). Pure read.
