@@ -167,8 +167,13 @@ public class RefiningTests
 
         var accepted = smelter.DepositInput(Resource.Ore, SmelterSpec.InputCap + 7);
         Assert.Equal(SmelterSpec.InputCap, accepted);
-        Assert.Equal(0, smelter.FreeInputSpace());
-        Assert.Equal(0, smelter.DepositInput(Resource.Wood, 1));
+        Assert.Equal(0, smelter.FreeInputSpace(Resource.Ore));
+        // The cap is PER INPUT: a store full of ore still has room for fuel,
+        // so the fuel leg can never be starved out by the ore leg (or vice
+        // versa — the first host smoke wedged exactly that way).
+        Assert.Equal(SmelterSpec.InputCap, smelter.FreeInputSpace(Resource.Wood));
+        Assert.Equal(1, smelter.DepositInput(Resource.Wood, 1));
+        Assert.Equal(0, smelter.FreeInputSpace(Resource.Stone));
     }
 
     [Fact]

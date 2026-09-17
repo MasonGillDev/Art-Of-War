@@ -41,7 +41,8 @@ public sealed record StructureSpec
     // Refining (docs/refining-structures.md). A REFINER is an Extractor
     // whose production tick EATS from its own input store before it deposits
     // output: InputCost is what one batch (one unit of OutputResource)
-    // consumes, InputCap bounds the total inputs it will accept from haulers.
+    // consumes, InputCap bounds how much of EACH input it will accept from
+    // haulers (per recipe line, so one supply line can never crowd out another).
     // Empty InputCost = ordinary extractor. A refiner has no RequiredBiome —
     // WHERE it sits is the player's siting decision — and no claim.
     public IReadOnlyDictionary<Resource, int> InputCost { get; init; } =

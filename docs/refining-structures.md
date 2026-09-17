@@ -232,8 +232,17 @@ working unchanged: haulers pick Iron out of the buffer exactly as they pick
 Ore out of a mine, `AssignWorkersIntent` staffs it, the goal engine walks
 workers to it, the view shows it, razing spills it. The only new plumbing is
 the deposit case in `CargoTransfer.DepositInto` and the refiner branch in
-`ProductionTickEvent`. `InputCap` bounds the input store (the output buffer
-keeps `BufferCap`); `StorageCapacity` stays zero for refiners.
+`ProductionTickEvent`. `InputCap` bounds the input store **per recipe line**
+(the output buffer keeps `BufferCap`); `StorageCapacity` stays zero for
+refiners.
+
+**Per-input cap, found by the host smoke.** The first cut had one shared
+cap across all inputs. The `--refining` demo wedged on day 3: the fuel
+hauler filled all 60 slots with wood, the ore hauler found no room, and the
+smelter sat starved while full. A shared pool lets whichever supply line
+runs faster crowd the others out, which is exactly the failure a player
+cannot see from the outside. The cap is now per input, so every recipe line
+always has its own room.
 
 Everything else landed as written: `Resource.Iron = 9`;
 `StructureKind.Smelter = 19`, `Workshop = 20`, `Smithy = 21`;

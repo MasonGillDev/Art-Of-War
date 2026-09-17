@@ -181,6 +181,7 @@ var cachesDemo = args.Length > 0 && args[0] == "--caches";
 var automationDemo = args.Length > 0 && args[0] == "--automation";
 var scoutingDemo = args.Length > 0 && args[0] == "--scouting";
 var siegeDemo = args.Length > 0 && args[0] == "--siege";
+var refiningDemo = args.Length > 0 && args[0] == "--refining";
 var dataDirIdx = Array.IndexOf(args, "--data-dir");
 var persistentDemo = dataDirIdx >= 0 && dataDirIdx + 1 < args.Length;
 
@@ -215,6 +216,10 @@ else if (scoutingDemo)
 else if (siegeDemo)
 {
     SiegeDemo.Run();
+}
+else if (refiningDemo)
+{
+    RefiningDemo.Run();
 }
 else if (!generate)
 {
@@ -1247,5 +1252,114 @@ static class SiegeDemo
 
         Console.WriteLine();
         Console.WriteLine("OK: twin run identical; post-game snapshot round-trips.");
+    }
+}
+
+// Refining smoke (docs/refining-structures.md): the two-hop chain end to end.
+//
+//   Mine (Hills) --ore-->  Smelter  --iron-->  Smithy  --craft-->  Sword
+//   Stockpile   --wood-->  Smelter (fuel)
+//
+// Four haulers each run one leg every day; the smelter burns fuel per iron;
+// the smithy forges the moment it holds a sword's worth. Prints a day-by-day
+// ledger so a human can watch ore turn into a blade, then proves twin-run
+// determinism and a post-game snapshot round-trip.
+static class RefiningDemo
+{
+    static Simulation Build()
+    {
+        var grid = new TileGrid(12, 8, Biome.Grassland);
+        grid.SetBiome(new TileCoord(2, 2), Biome.Hills);
+        var world = new GameWorld(grid);
+        world.Players[0] = new Player(0);
+        world.AddStructure(new Castle(new TileCoord(0, 0)) { OwnerId = 0 });
+
+        var mine = world.AddStructure(new Extractor(StructureKind.Mine, new TileCoord(2, 2)) { OwnerId = 0 });
+        var smelter = world.AddStructure(new Extractor(StructureKind.Smelter, new TileCoord(4, 2)) { OwnerId = 0 });
+        var woodpile = world.AddStructure(new Stockpile(new TileCoord(4, 3)) { OwnerId = 0 });
+        var smithy = world.AddStructure(new Smithy(new TileCoord(6, 2)) { OwnerId = 0 });
+        woodpile.Deposit(Resource.Wood, 200);
+
+        world.AddUnit(new Unit(1, mine.At) { Role = UnitRole.Miner, OwnerId = 0 });
+        world.AddUnit(new Unit(2, mine.At) { Role = UnitRole.Miner, OwnerId = 0 });
+        world.AddUnit(new Unit(3, smelter.At) { Role = UnitRole.Miner, OwnerId = 0 });
+        world.AddUnit(new Unit(10, mine.At) { Role = UnitRole.Hauler, OwnerId = 0 });      // ore leg
+        world.AddUnit(new Unit(11, woodpile.At) { Role = UnitRole.Hauler, OwnerId = 0 });  // fuel leg
+        world.AddUnit(new Unit(12, smelter.At) { Role = UnitRole.Hauler, OwnerId = 0 });   // iron leg
+        world.AddUnit(new Unit(13, smithy.At) { Role = UnitRole.Hauler, OwnerId = 0 });    // smithy wood leg
+
+        var sim = new Simulation(world, seed: 0x1F0A);
+        sim.SubmitIntent(0, new AssignWorkersIntent(mine.At, new[] { 1, 2 }) { PlayerId = 0 });
+        sim.SubmitIntent(0, new AssignWorkersIntent(smelter.At, new[] { 3 }) { PlayerId = 0 });
+        return sim;
+    }
+
+    // One round trip per hauler per day, submitted as ordinary intents. A
+    // standing supply-line order would do this for real; the demo keeps the
+    // wiring visible.
+    static void Legs(Simulation sim, long at)
+    {
+        var mine = new TileCoord(2, 2); var smelter = new TileCoord(4, 2);
+        var woodpile = new TileCoord(4, 3); var smithy = new TileCoord(6, 2);
+        sim.SubmitIntent(at, new HaulIntent(10, mine, smelter, Resource.Ore) { PlayerId = 0 });
+        sim.SubmitIntent(at, new HaulIntent(11, woodpile, smelter, Resource.Wood) { PlayerId = 0 });
+        sim.SubmitIntent(at, new HaulIntent(12, smelter, smithy, Resource.Iron) { PlayerId = 0 });
+        sim.SubmitIntent(at, new HaulIntent(13, woodpile, smithy, Resource.Wood) { PlayerId = 0 });
+        sim.SubmitIntent(at + 1, new Sim.Core.Equipment.CraftEquipmentIntent(smithy, Resource.Sword) { PlayerId = 0 });
+    }
+
+    static Simulation Play(int days, Action<string>? log)
+    {
+        var sim = Build();
+        var mine = (Extractor)sim.World.Structures[new TileCoord(2, 2)];
+        var smelter = (Extractor)sim.World.Structures[new TileCoord(4, 2)];
+        var smithy = (Smithy)sim.World.Structures[new TileCoord(6, 2)];
+        log?.Invoke($"{"day",3} | {"mine ore",8} | {"smelter ore/wood",16} | {"iron",4} | {"smithy iron",11} | {"swords",6}");
+        for (var d = 1; d <= days; d++)
+        {
+            Legs(sim, sim.Now);
+            sim.Run(until: (long)d * Sim.Core.Time.Day);
+            log?.Invoke($"{d,3} | {mine.Buffer,8} | {smelter.InputOf(Resource.Ore),7}/{smelter.InputOf(Resource.Wood),-8} | " +
+                        $"{smelter.Buffer,4} | {smithy.AmountOf(Resource.Iron),11} | {smithy.AmountOf(Resource.Sword),6}");
+        }
+        return sim;
+    }
+
+    public static void Run()
+    {
+        var spec = StructureCatalog.Spec(StructureKind.Smelter);
+        var recipe = string.Join(" + ", spec.InputCost.Select(kv => $"{kv.Value} {kv.Key}"));
+        var sword = Sim.Core.Equipment.EquipmentCatalog.Spec(Resource.Sword);
+        Console.WriteLine("--- Refining Demo (docs/refining-structures.md) ---");
+        Console.WriteLine($"Smelter: {recipe} -> 1 {spec.OutputResource} per worker per day (Miner x2), feed store {spec.InputCap}.");
+        Console.WriteLine($"Sword at the {sword.CraftedAt}: {string.Join(" + ", sword.CraftCost.Select(kv => $"{kv.Value} {kv.Key}"))}.");
+        Console.WriteLine("Mine (2 miners) -> ore leg -> Smelter <- fuel leg <- woodpile; iron leg -> Smithy.");
+        Console.WriteLine();
+
+        var first = Play(days: 14, log: Console.WriteLine);
+        var smithy = (Smithy)first.World.Structures[new TileCoord(6, 2)];
+        var castle = (Castle)first.World.Structures[new TileCoord(0, 0)];
+        Console.WriteLine();
+        if (smithy.AmountOf(Resource.Sword) == 0)
+        {
+            Console.Error.WriteLine("SMOKE FAILURE: no sword forged in 14 days.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine($"Forged {smithy.AmountOf(Resource.Sword)} sword(s) from ore that never touched the Smithy as ore.");
+        Console.WriteLine($"Castle ore: {castle.AmountOf(Resource.Ore)} (nothing bypassed the smelter).");
+
+        var second = Play(days: 14, log: null);
+        if (Snapshot.Hash(first) != Snapshot.Hash(second))
+        {
+            Console.Error.WriteLine("DETERMINISM FAILURE: twin refining runs diverged.");
+            Environment.Exit(1);
+        }
+        var restored = Snapshot.Restore(Snapshot.Serialize(first), seed: 0x1F0A);
+        if (Snapshot.Hash(first) != Snapshot.Hash(restored))
+        {
+            Console.Error.WriteLine("ROUND-TRIP FAILURE: refining snapshot did not restore identically.");
+            Environment.Exit(1);
+        }
+        Console.WriteLine("OK: twin run identical; snapshot with a mid-chain smelter round-trips.");
     }
 }

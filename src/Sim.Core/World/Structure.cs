@@ -238,15 +238,20 @@ public sealed class Extractor : Structure
         return total;
     }
 
-    public int FreeInputSpace() => Math.Max(0, Spec.InputCap - InputTotal());
+    // PER INPUT, not a shared pool. The first host smoke proved the pool
+    // wrong in one afternoon: the fuel leg filled all 60 slots with wood and
+    // the ore leg could never deliver, so the smelter starved while full.
+    // With a cap per recipe line, no supply line can crowd another out.
+    public int FreeInputSpace(Resource r) =>
+        Spec.InputCost.ContainsKey(r) ? Math.Max(0, Spec.InputCap - InputOf(r)) : 0;
 
-    // Accepts only resources this refiner's recipe names, up to InputCap.
-    // Returns what was accepted; the caller keeps the remainder (the same
-    // contract as StorageStructure.Deposit).
+    // Accepts only resources this refiner's recipe names, up to InputCap of
+    // EACH. Returns what was accepted; the caller keeps the remainder (the
+    // same contract as StorageStructure.Deposit).
     public int DepositInput(Resource r, int amount)
     {
         if (amount <= 0 || !Spec.InputCost.ContainsKey(r)) return 0;
-        var accepted = Math.Min(amount, FreeInputSpace());
+        var accepted = Math.Min(amount, FreeInputSpace(r));
         if (accepted == 0) return 0;
         Inputs.TryGetValue(r, out var current);
         Inputs[r] = current + accepted;
