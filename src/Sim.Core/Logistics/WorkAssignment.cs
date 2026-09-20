@@ -76,11 +76,12 @@ public static class WorkAssignment
     // M19 — auto-assignment trigger 2 (home follows work): the worker re-homes
     // to the nearest house with a free bed near the workplace; none in radius
     // → home stays. Their CURRENT home qualifies even when full (they already
-    // hold one of its beds).
+    // hold one of its beds). A starving house never qualifies: the worker
+    // keeps their old home rather than joining a famine.
     private static void ReHomeNearWork(Simulation sim, Unit unit, TileCoord workplace)
     {
         if (Sim.Core.Population.Population.NearestHouseWithBed(sim.World, unit.OwnerId, workplace,
-                Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, unit.Home)
+                Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, sim.Now, unit.Home)
             is { } bed)
             Sim.Core.Population.Population.SetHome(sim, unit, bed.At);
     }

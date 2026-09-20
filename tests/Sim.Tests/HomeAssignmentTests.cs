@@ -142,6 +142,78 @@ public class HomeAssignmentTests
         Assert.Equal(Cap, nextDoor.ResidentCount);
     }
 
+    // ---- a starving house has no free beds (2026-09-19) ----------------------
+
+    // Put a house into food debt without elapsing time (a consumption period
+    // is 36 years at this fixture's TicksPerYear — the parents would age out).
+    // FoodDebt is the very field CatchUp accrues, so writing it is the same
+    // state the world reaches; CurrentLevel is the reading the bed search and
+    // the HUD share.
+    private static void Starve(Simulation sim, House house, int residents, int firstUnitId, int debt)
+    {
+        house.Withdraw(Resource.Food, house.AmountOf(Resource.Food));
+        FillBeds(sim, house, residents, firstUnitId);
+        house.FoodDebt = debt;
+        Assert.True(FoodConsumption.CurrentLevel(house, sim.World, sim.Now) < 0,
+            "fixture: the house must be in food debt");
+    }
+
+    [Fact]
+    public void Birth_SkipsAStarvingHouse_ThenCastle()
+    {
+        var tile = new TileCoord(5, 5);
+        // Both houses keep free beds (residents < Cap) so ONLY the famine rule
+        // can turn the child away. The birth house's debt outweighs the
+        // BirthFood we deposit to conceive, so it stays red through the birth.
+        var spawns = new List<UnitSpawn> { new(1, tile, UnitRole.Builder), new(2, tile, UnitRole.Builder) };
+        for (var i = 0; i < 2; i++) spawns.Add(new UnitSpawn(10 + i, new TileCoord(1, 1)));
+        var sim = MakeWorld(spawns.ToArray());
+
+        var birthHouse = AddHouse(sim, tile);
+        var nextDoor = AddHouse(sim, new TileCoord(5 + 2, 5), food: 0);
+        Starve(sim, nextDoor, residents: 1, firstUnitId: 10, debt: 1);
+        Starve(sim, birthHouse, residents: 1, firstUnitId: 11, debt: BirthFood + 1);
+
+        // Raw deposit: enough on the shelf to conceive, not enough to clear the
+        // debt, so the house stays red through the birth.
+        birthHouse.Deposit(Resource.Food, BirthFood);
+        Assert.True(FoodConsumption.CurrentLevel(birthHouse, sim.World, sim.Now) < 0);
+        var t = sim.Now;
+        sim.SubmitIntent(t, new BeginBreedingIntent(tile, 1, 2));
+        sim.Run(until: t + Gestation + 1);
+
+        var child = sim.World.Units.Values.Single(u => u.BornTick == t + Gestation);
+        Assert.Null(child.Home);
+        Assert.Equal(1, birthHouse.ResidentCount);
+        Assert.Equal(1, nextDoor.ResidentCount);
+    }
+
+    [Fact]
+    public void AssignWorkers_SkipsAStarvingHouse_KeepsTheOldHome()
+    {
+        var post = new TileCoord(20, 20);
+        var sim = MakeWorld(new UnitSpawn(1, post), new UnitSpawn(10, new TileCoord(1, 1)));
+        sim.World.AddStructure(new Extractor(StructureKind.LumberCamp, post) { OwnerId = 0 });
+        var red = AddHouse(sim, new TileCoord(21, 20), food: 0);
+        Starve(sim, red, residents: 1, firstUnitId: 10, debt: 1);
+
+        var t = sim.Now;
+        sim.SubmitIntent(t, new AssignWorkersIntent(post, new[] { 1 }));
+        sim.Run(until: t + 1);
+
+        Assert.Null(sim.World.Units[1].Home);   // the red house next to the post is not a bed
+        Assert.Equal(1, red.ResidentCount);
+
+        // Fed again → it reopens with no further bookkeeping.
+        red.Deposit(Resource.Food, 50);
+        Assert.True(FoodConsumption.CurrentLevel(red, sim.World, sim.Now) >= 0);
+        sim.SubmitIntent(sim.Now, new UnassignWorkersIntent(post, new[] { 1 }));
+        sim.Run(until: sim.Now + 1);
+        sim.SubmitIntent(sim.Now, new AssignWorkersIntent(post, new[] { 1 }));
+        sim.Run(until: sim.Now + 1);
+        Assert.Equal(red.At, sim.World.Units[1].Home);
+    }
+
     // ---- trigger 2: home follows work -----------------------------------------
 
     [Fact]

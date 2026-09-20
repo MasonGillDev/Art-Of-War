@@ -65,9 +65,11 @@ public sealed class BirthEvent : ScheduledEvent
         // house if a bed is free, else the nearest house with one, else
         // the castle (Home stays null). Capacity never blocks the birth
         // itself — a housing shortage makes feeding expensive, it never
-        // freezes the population (docs/m19-per-house-food-spec.md).
+        // freezes the population (docs/m19-per-house-food-spec.md). A
+        // starving house is not a bed either: a child born into a red
+        // household is a castle mouth until it works near a fed house.
         var bed = Population.NearestHouseWithBed(world, house.OwnerId, HouseTile,
-            Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius);
+            Sim.Core.Food.FoodConsumptionConstants.HomeAssignRadius, sim.Now);
         if (bed is not null)
             Population.SetHome(sim, child, bed.At);
 

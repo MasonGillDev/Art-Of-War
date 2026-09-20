@@ -242,8 +242,25 @@ public static class Population
     // search every auto-assignment trigger shares. `bedAlreadyAt` lets a
     // unit's CURRENT home qualify even when full (the unit occupies one
     // of those beds), so "nearest" can resolve to a no-op re-home.
+    //
+    // A STARVING house has no free beds (user decision, 2026-09-19). Nobody
+    // moves into a household in food debt: a birth or a work assignment
+    // that would have landed there falls through to the next healthy house,
+    // else the castle. Without this a red house re-filled as fast as it
+    // starved — every child born there and every worker posted nearby took
+    // a freed bed at an empty pantry, and the famine ran forever. The
+    // residents already there still die (the harsh doctrine); they simply
+    // stop being joined. The unit's CURRENT home is exempt so a re-home to
+    // where they already live stays a no-op rather than an eviction.
+    //
+    // "Red" is the same reading the HUD paints: the period-quantised
+    // effective level is negative (FoodConsumption.CurrentLevel — a pure
+    // read, so this never depends on whether the lazy catch-up has run).
+    // The house-completion trigger does NOT use this search: a brand-new
+    // house is empty, and moving workers in is what puts its pantry on the
+    // clock in the first place.
     public static House? NearestHouseWithBed(GameWorld world, int ownerId,
-        TileCoord origin, int radius, TileCoord? bedAlreadyAt = null)
+        TileCoord origin, int radius, long now, TileCoord? bedAlreadyAt = null)
     {
         var cap = StructureCatalog.Spec(StructureKind.House).ResidentCap;
         for (var r = 0; r <= radius; r++)
@@ -254,7 +271,9 @@ public static class Population
             var t = new TileCoord(origin.X + dx, origin.Y + dy);
             if (!world.Structures.TryGetValue(t, out var s) || s is not House house) continue;
             if (house.OwnerId != ownerId) continue;
-            if (house.At != bedAlreadyAt && cap > 0 && house.ResidentCount >= cap) continue;
+            if (house.At == bedAlreadyAt) return house;
+            if (cap > 0 && house.ResidentCount >= cap) continue;
+            if (Sim.Core.Food.FoodConsumption.CurrentLevel(house, world, now) < 0) continue;
             return house;
         }
         return null;

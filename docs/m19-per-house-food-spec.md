@@ -235,3 +235,31 @@ the settlement/second-castle milestone this unlocks.
   per-home; §3 rule 7 — `ResidentCount` single mutation point.
 - `docs/automation-engine.md` (M18) — standing orders are the
   ergonomic answer to stocking many houses.
+
+## Update 2026-09-19 — a starving house has no free beds
+
+User decision after the first real play session: a house in food debt kept
+refilling as fast as it starved. Every child born there and every worker
+posted within `HomeAssignRadius` took a freed bed at an empty pantry, so a
+house the player never stocked ran a permanent famine loop.
+
+`Population.NearestHouseWithBed` now skips any house whose
+`FoodConsumption.CurrentLevel` is negative — the same reading the HUD paints
+red — so births and work assignments fall through to the next healthy house,
+else the castle. The unit's CURRENT home is exempt (a re-home to where they
+already live stays a no-op, never an eviction). The house-completion trigger
+is untouched: a new house is empty and moving workers in is what starts its
+clock; the three-day grace before the first death is the window to stock it.
+
+What did NOT change, deliberately: residents already in a red house still
+die (the harsh doctrine), and they do not auto-evacuate — the refugee
+re-homing idea stays deferred. The escape remains the player's: assign a
+starving resident to work near a fed house and they move. A recovered house
+(debt paid) reopens for beds the same instant with no bookkeeping. Pinned by
+`HomeAssignmentTests.Birth_SkipsAStarvingHouse_ThenCastle` and
+`AssignWorkers_SkipsAStarvingHouse_KeepsTheOldHome`.
+
+Two client follow-ups this exposed, not yet built: a famine-onset alert with
+the countdown the moment a house's debt starts, and a "N moved in from the
+castle" notice on house completion so the pantry demand is legible before it
+is a crisis.
