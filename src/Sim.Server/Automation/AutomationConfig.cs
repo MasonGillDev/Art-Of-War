@@ -29,4 +29,14 @@ public sealed class AutomationConfig
     // genuinely broken line — crew killed on the border — is reported
     // within a day rather than churning silently for a season.
     public int RetryBudget { get; init; } = 24;
+
+    // How many bodies one PULL haul line may have in flight at once. A line
+    // borrows another hand only while every hand it holds is mid-trip and it
+    // is still short — so throughput scales with distance (a long haul earns
+    // more hands) but never past this. It holds no IDLE hands beyond the one
+    // it is dispatching this think: idle surplus is returned to the pool so
+    // the next order in the pass can borrow it. Found in play: a castle line
+    // holding four haulers while the house line beside it read "no free
+    // hauler in reach" with two of them standing idle, claimed.
+    public int MaxPulledHands { get; init; } = 3;
 }

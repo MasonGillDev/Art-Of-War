@@ -186,6 +186,22 @@ public sealed class SubstrateDriver
         }
     }
 
+    // Return every held hand that is idle and empty EXCEPT `keep` (the one
+    // being dispatched this think). A pull line never benches bodies: what
+    // it holds is what is walking for it.
+    private static void ReleaseIdleSurplus(Simulation sim, Order order, long now, Unit? keep)
+    {
+        var world = sim.World;
+        foreach (var unitId in ClaimLedger.UnitsOf(world, order.OrderId))
+        {
+            if (keep is not null && unitId == keep.Id) continue;
+            if (ClaimLedger.ClaimOf(world, unitId) is not { Purpose: ClaimPurpose.InFlight }) continue;
+            if (!world.Units.TryGetValue(unitId, out var u) || u.OwnerId != order.OwnerId) continue;
+            if (IsFreeForWork(u) && u.CargoAmount == 0)
+                sim.SubmitIntent(now, ClaimUnitIntent.Release(unitId, order.OrderId, order.OwnerId));
+        }
+    }
+
     // A hand this order already holds and that is ready for another errand.
     // Checked BEFORE pulling from the pool so a working line reuses its own
     // borrowed hauler trip after trip.
@@ -241,6 +257,11 @@ public sealed class SubstrateDriver
             // link upstream), where Waiting means "all is well, nothing to
             // do". It still never burns retry budget: a farm buffer cycling
             // empty is ordinary and recovers on its own.
+            // A line that cannot send anyone must not keep anyone: hands
+            // standing idle at a dry source are hoarded from every other
+            // order. Those still walking home laden stay on the books.
+            if (order.CrewMode == CrewMode.Pull)
+                ReleasePulledHands(sim, order, now, releaseIdle: true);
             _journal.Add(now, order, JournalOutcome.Blocked,
                 $"source {order.SourceTile.X},{order.SourceTile.Y} has no {order.Resource}");
             return;
@@ -269,8 +290,26 @@ public sealed class SubstrateDriver
         }
         else
         {
-            hand = HeldAndFree(world, order)
-                ?? SelectorResolver.First(world, order, order.Selector, now, _pendingUnits);
+            // HOLD ONLY WHAT IS WORKING. A pull line's held set is the bodies
+            // in flight plus the one it dispatches this think — never a bench.
+            // The first cut fell through to the pool whenever its hauler was
+            // mid-trip and released nothing while its trigger stayed met, so a
+            // single line borrowed a fresh body every think and hoarded every
+            // hauler in reach: a castle line held four while the house line
+            // beside it read "no free hauler in reach" with two of them
+            // standing idle, claimed, invisible to every other selector.
+            //
+            // So: reuse a held free hand; any OTHER held hand that is idle and
+            // empty goes back to the pool this think (it is re-borrowable
+            // next think, by this order or a hungrier one). Reach into the
+            // pool only when every held hand is mid-trip AND the line is
+            // under its in-flight cap — throughput still scales with trip
+            // length, which the keystone lab depends on, but bounded.
+            hand = HeldAndFree(world, order);
+            ReleaseIdleSurplus(sim, order, now, keep: hand);
+            if (hand is null
+                && ClaimLedger.HeldBy(world, order.OrderId, ClaimPurpose.InFlight) < _cfg.MaxPulledHands)
+                hand = SelectorResolver.First(world, order, order.Selector, now, _pendingUnits);
         }
 
         if (hand is null)

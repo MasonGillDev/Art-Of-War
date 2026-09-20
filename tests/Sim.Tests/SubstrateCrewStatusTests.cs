@@ -109,6 +109,77 @@ public class SubstrateCrewStatusTests
     }
 
     [Fact]
+    public void PullLine_HoldsOnlyHandsInFlight_NeverBenchesThePool()
+    {
+        // A pull line's held set is the bodies walking for it, capped by
+        // MaxPulledHands, and never a bench of idle claimed haulers. The
+        // first cut borrowed a fresh body every think its hauler was mid-trip
+        // and released none while the trigger held, so one castle line ended
+        // up holding four haulers while the house line beside it reported
+        // "no free hauler in reach" with two of them standing idle — claimed,
+        // so invisible to every other selector.
+        var sim = BuildWorld(haulers: 6);
+        var cap = 2;
+        sim.SubmitIntent(0, new SetOrderIntent(SupplyLine(CrewMode.Pull)) { PlayerId = 0 });
+        sim.Run(0);
+        var order = Assert.Single(sim.World.Orders.Values);
+        var journal = new OrderJournal();
+        var driver = new SubstrateDriver(new AutomationConfig { ThinkPeriodTicks = 60, MaxPulledHands = cap }, journal);
+
+        var fired = false;
+        for (long t = 0; t <= 600; t += 60)
+        {
+            sim.Run(t);
+            driver.Think(sim, t);
+            sim.Run(t);   // let this think's claims and releases resolve before we read
+            fired |= journal.Last(order.OrderId)?.Outcome == JournalOutcome.Fired;
+
+            var held = ClaimLedger.UnitsOf(sim.World, order.OrderId);
+            Assert.True(held.Count <= cap, $"tick {t}: held {held.Count} hands, cap {cap}");
+            // Every held hand is walking for the line, except the one just sent
+            // (which is dispatched this tick and reads free until its haul resolves).
+            var idleHeld = held.Count(id => sim.World.Units.TryGetValue(id, out var u)
+                                            && u.PathRemaining is null && u.CargoAmount == 0);
+            Assert.True(idleHeld <= 1, $"tick {t}: {idleHeld} idle hands benched");
+        }
+        Assert.True(fired, "the line never fired");
+        Assert.True(sim.World.Units.Values.Count(u => ClaimLedger.IsDormant(sim.World, u)) >= 6 - cap,
+            "the rest of the pool must stay free for other orders");
+    }
+
+    [Fact]
+    public void PullLine_ReturnsIdleHands_WhenTheSourceRunsDry()
+    {
+        // Blocked (trigger met, source bare) must not hoard: an idle claimed
+        // hauler at a dry farm is a hauler no other line can borrow.
+        var sim = BuildWorld(haulers: 2);
+        sim.SubmitIntent(0, new SetOrderIntent(SupplyLine(CrewMode.Pull)) { PlayerId = 0 });
+        sim.Run(0);
+        var order = Assert.Single(sim.World.Orders.Values);
+        var journal = new OrderJournal();
+        var driver = new SubstrateDriver(new AutomationConfig { ThinkPeriodTicks = 60 }, journal);
+
+        driver.Think(sim, 0);            // borrows one and sends it
+        sim.Run(0);
+        Assert.Single(ClaimLedger.UnitsOf(sim.World, order.OrderId));
+
+        // The farm empties while the hauler is out; let the trip finish.
+        var farm = (Extractor)sim.World.Structures[Farm];
+        farm.Buffer = 0;
+        long t = 60;
+        for (; t <= 2000; t += 60)
+        {
+            sim.Run(t);
+            driver.Think(sim, t);
+            sim.Run(t);
+            if (journal.Last(order.OrderId)?.Outcome == JournalOutcome.Blocked
+                && sim.World.Units.Values.All(u => u.PathRemaining is null)) break;
+        }
+        Assert.Equal(JournalOutcome.Blocked, journal.Last(order.OrderId)!.Value.Outcome);
+        Assert.Empty(ClaimLedger.UnitsOf(sim.World, order.OrderId));
+    }
+
+    [Fact]
     public void PullLineWithAnEmptyPool_StillReportsShortOfHands()
     {
         // The alarm must still fire when it is TRUE: a line that wants to

@@ -436,3 +436,76 @@ backbone is now on the wire), and the tactical war layer.
 - `docs/m18-automation-engine-spec.md` — the outgoing model (historical).
 - `docs/persistence-model.md`, `docs/architecture.md` §2.4/§3.3 — the
   determinism and recovery contracts every layer above obeys.
+
+## Update 2026-09-17 — the production client speaks the substrate
+
+The v2 production client (`Art Of War(prod)`) gained the whole automation
+surface in one pass; the user's brief was "I can't play without the full set of
+automations", so this is form-first, with the "do it once, then keep doing
+this" offers deferred until progression exists server-side (the user: gating
+"is not a client thing").
+
+**Wire.** `Aow.Wire/OrderDto.cs` mirrors the server's projection field-for-
+field (camelCase; `trigger` is the clause array, `selector` an object) and
+`OrderVocabulary` carries the append-only enums, the caps, and the role→trainer
+table. `Aow.Wire/OrderPayloads.cs` mirrors the Core record PascalCase.
+`Aow.Net/OrderIntents.cs` derives each recipe's trigger from its sentence
+(Supply line, Staff, Train, Breed, Circuit/Patrol) plus `FromDto` for
+re-issuing an existing order at a new priority. Live-verified against a
+scratch server: install + claim (named circuit with posture), install of a
+pull supply line, a structural rejection surfacing as a notice ("Builder trains
+at a School, not a Castle"), and Clear.
+
+**Surfaces.** One dock page, *Machine* (K): the list worst-first (Stopped,
+Short of hands, Blocked, Starting, Working, Resting) with priority arrows,
+Change, Clear, Go and a per-order map toggle; and the form on the same page —
+five tabs, one sentence each, every blank defaulted so a castle food line is
+two clicks (`Hud/OrderForm.cs`). Buildings come from a nearest-first list of
+your own or a borrowed map click (`PlayerController.TilePick`), numbers are
+steppers, there is no free text and no predicate editor. Change = Clear + Set,
+labelled as a "re-forming". The machine is drawn on the land
+(`Automation/OrderOverlay.cs`, created at runtime, no scene wiring) and on both
+maps (`MapPainter` threads), tinted by STATE not identity. A building's context
+card lists the orders that touch it — the warehouse is the interface.
+
+**Rules carried over from the debug client, still contract:** state strictly
+1:1 with `lastOutcome` (never inferred from the detail string); a detail-
+bearing InFlight reads as "En route"; form mirrors structural validity only;
+priority is a primary verb.
+
+Deferred: the in-place offer after a manual haul/train/assign, blueprints, the
+Reinforce recipe (blocked on a sim verb), conscription, DNF authoring.
+
+## Update 2026-09-19 — a pull line holds only what is walking for it
+
+Found in play: a pulled castle supply line was holding four haulers while
+the house line beside it reported "no free hauler in reach" with two of
+those haulers standing idle. The driver borrowed a fresh body every think
+its held hauler was mid-trip, and released nothing while the trigger stayed
+met (a Blocked line at a dry source released nothing either). One line
+quietly benched the whole pool, and every other selector saw an empty
+world — claimed is not dormant.
+
+The tempting fix — one borrowed hand per line — failed the keystone lab
+outright: the fat colony could no longer out-breed the lean one, because a
+long haul genuinely needs several bodies in flight to keep a larder above
+its floor. Throughput scaling with trip length is load-bearing.
+
+The rule now: **a pull line's held set is the bodies in flight plus the one
+it dispatches this think.** Every other held hand that is idle and empty is
+returned to the pool that think, a Blocked line returns all its idle hands,
+and a line borrows from the pool only when every hand it holds is mid-trip
+AND it is under `AutomationConfig.MaxPulledHands` (default 3, a driver knob,
+not sim state). Returned hands are re-borrowable next think, by this order
+or by a hungrier one earlier in the pass — which is exactly the contention
+the priority ladder is for. Pinned by `SubstrateCrewStatusTests`
+(`PullLine_HoldsOnlyHandsInFlight_NeverBenchesThePool`,
+`PullLine_ReturnsIdleHands_WhenTheSourceRunsDry`).
+
+Two things this leaves open: `MaxPulledHands` is a global knob where a
+per-order "up to N haulers" field would let the player size a line (an
+`Order` field, so a snapshot and wire change — deferred with the in-place
+edit item); and the borrow-and-return doc above still describes the old
+"keeps its hand while it has work" policy for the single-hand case, which
+remains true — the change is only that a line never keeps a *second* idle
+hand.
