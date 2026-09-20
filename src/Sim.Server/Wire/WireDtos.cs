@@ -322,6 +322,9 @@ public sealed class UnitDto
     public int CargoResource { get; set; } // carried cargo resource (own units; 0/None if empty/not own)
     public int CargoAmount { get; set; }   // carried cargo amount (own units)
     public int Power { get; set; } = -1;   // effective combat power (own units; -1 = hidden)
+    // Housing (docs/housing-buffs.md): homed at a fed own House, so the
+    // settled work/power bonus applies. Own units only, like Power.
+    public bool Settled { get; set; }
     public string[] Buffs { get; set; } = []; // active buff kinds (own units only — loadout is private)
     // Movement destination (own units in transit; -1/-1 = none/hidden).
     // Solo moves read Unit.PathFinalDest; grouped units fall back to their
@@ -398,10 +401,13 @@ public sealed class UnitDto
     public int HopTotalTicks { get; set; } = -1;
 }
 
+// A road ARC (docs/roads-on-edges.md): the lane between the owner tile
+// (X, Y) and its east (Axis 0) or south (Axis 1) neighbour.
 public sealed class RoadDto
 {
     public int X { get; set; }
     public int Y { get; set; }
+    public int Axis { get; set; }
     public int Condition { get; set; }
 }
 

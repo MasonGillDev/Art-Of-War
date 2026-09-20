@@ -48,8 +48,14 @@ public static class CombatRules
     //
     // Cost is O(1) per unit: the crown is a stored id, so this is one lookup
     // and one integer distance test, not a scan for royalty.
+    //
+    // Housing (docs/housing-buffs.md) rides the same seam for the same
+    // reason: "settled" is a fact about the unit's HOME and its pantry, both
+    // world state, so it is a pure read here rather than a stored buff.
     public static int EffectivePower(GameWorld world, Unit u, long now) =>
-        EffectivePower(u, now) + KingAuraBonus(world, u, now);
+        EffectivePower(u, now)
+        + KingAuraBonus(world, u, now)
+        + Sim.Core.Population.Housing.SettledPowerBonus(world, u, now);
 
     // The aura itself. Zero unless a LIVING, NON-MINOR, NON-EMBARKED king of
     // the unit's OWN owner is within AuraRadius — the three ways a realm can

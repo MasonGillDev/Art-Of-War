@@ -38,5 +38,11 @@ public sealed class AutomationConfig
     // the next order in the pass can borrow it. Found in play: a castle line
     // holding four haulers while the house line beside it read "no free
     // hauler in reach" with two of them standing idle, claimed.
-    public int MaxPulledHands { get; init; } = 3;
+    //
+    // Sized by the keystone lab: at 3 the fat colony's granary artery could
+    // not keep up (5 births, worse than the unstaffed colony); at 6 it
+    // carries the load (15 births, colony alive at day 160). A per-order
+    // "up to N haulers" field is the proper home for this; until then it is
+    // a global ceiling, and the idle-surplus release above is the real fix.
+    public int MaxPulledHands { get; init; } = 6;
 }

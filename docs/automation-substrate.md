@@ -495,8 +495,8 @@ The rule now: **a pull line's held set is the bodies in flight plus the one
 it dispatches this think.** Every other held hand that is idle and empty is
 returned to the pool that think, a Blocked line returns all its idle hands,
 and a line borrows from the pool only when every hand it holds is mid-trip
-AND it is under `AutomationConfig.MaxPulledHands` (default 3, a driver knob,
-not sim state). Returned hands are re-borrowable next think, by this order
+AND it is under `AutomationConfig.MaxPulledHands` (default 6, a driver knob,
+not sim state — 3 starved the keystone lab's granary artery; 6 carries it). Returned hands are re-borrowable next think, by this order
 or by a hungrier one earlier in the pass — which is exactly the contention
 the priority ladder is for. Pinned by `SubstrateCrewStatusTests`
 (`PullLine_HoldsOnlyHandsInFlight_NeverBenchesThePool`,
@@ -509,3 +509,12 @@ edit item); and the borrow-and-return doc above still describes the old
 "keeps its hand while it has work" policy for the single-hand case, which
 remains true — the change is only that a line never keeps a *second* idle
 hand.
+
+A finding from sizing the cap, recorded so nobody re-derives it: **the
+keystone lab colony was already extinct before this change.** On a clean
+checkout of the prior commit the "fat" colony ends day 160 with 45
+starvation deaths and no one alive; the lab asserts only `births > 0` and
+`fat > lean`, so it has been passing on a dying colony for some time. With
+this change at cap 6 the same colony ends alive (15 births, 29 starved,
+population 15). Re-pinning the lab to its original zero-starvation claim is
+open work, and the numbers above are the baseline to beat.

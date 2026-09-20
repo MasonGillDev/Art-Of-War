@@ -123,6 +123,10 @@ public sealed class ProductionTickEvent : ScheduledEvent
             rate += worker.Role == spec.PreferredRole
                 ? (long)spec.BaseRatePerWorker * spec.RoleBonusNumerator / spec.RoleBonusDenominator
                 : spec.BaseRatePerWorker;
+            // Housing (docs/housing-buffs.md): a settled worker — homed at a
+            // fed own House — adds a flat bonus per period. Pure read of the
+            // worker's home; a castle mouth or a starving household adds 0.
+            rate += Sim.Core.Population.Housing.SettledWorkBonus(world, worker, At);
         }
 
         // M15 production taper: output scales with the live claim —

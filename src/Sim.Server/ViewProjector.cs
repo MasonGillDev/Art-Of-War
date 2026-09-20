@@ -273,14 +273,14 @@ public sealed class ViewProjector
         if (run > 0) { runState.Add(cur); runLen.Add(run); }
 
         // Roads are terrain memory (design 8.6): they persist through re-fog, so any
-        // EXPLORED road tile ships with its live decayed condition. Iterating the sparse
-        // Roads dict keeps this bounded by road count, not map size.
+        // road ARC with an explored endpoint ships with its live decayed condition.
+        // Iterating the sparse Roads dict keeps this bounded by road count, not map size.
         var roads = new List<RoadDto>();
-        foreach (var tile in world.Roads.Keys)
+        foreach (var arc in world.Roads.Keys)
         {
-            if (!reveal && !view.Explored.Contains(tile)) continue;
-            var cond = Road.ConditionAt(world, tile, now);
-            if (cond > 0) roads.Add(new RoadDto { X = tile.X, Y = tile.Y, Condition = cond });
+            if (!reveal && !view.Explored.Contains(arc.A) && !view.Explored.Contains(arc.B)) continue;
+            var cond = Road.ConditionAt(world, arc, now);
+            if (cond > 0) roads.Add(RoadDtoFor(arc, cond));
         }
 
         var dto = new ViewV2Dto
@@ -556,10 +556,10 @@ public sealed class ViewProjector
             }
 
         var roads = new List<RoadDto>();
-        foreach (var tile in world.Roads.Keys)
+        foreach (var arc in world.Roads.Keys)
         {
-            var cond = Road.ConditionAt(world, tile, now);
-            if (cond > 0) roads.Add(new RoadDto { X = tile.X, Y = tile.Y, Condition = cond });
+            var cond = Road.ConditionAt(world, arc, now);
+            if (cond > 0) roads.Add(RoadDtoFor(arc, cond));
         }
 
         return new ViewDto
@@ -584,15 +584,16 @@ public sealed class ViewProjector
         var view = View.BuildPlayerView(world, playerId, now);
 
         // Roads are terrain memory (design §8.6): they persist through re-fog, so we
-        // include any EXPLORED road tile (not just currently visible) with its live
-        // decayed condition via the pure-read ConditionAt. Iterating the sparse Roads
-        // dict keeps this bounded by road count, not map size.
+        // include any road ARC with an explored endpoint (not just currently visible)
+        // with its live decayed condition via the pure-read ConditionAt. Iterating the
+        // sparse Roads dict keeps this bounded by road count, not map size.
         var roads = new List<RoadDto>();
-        foreach (var tile in world.Roads.Keys)
+        foreach (var arc in world.Roads.Keys)
         {
-            if (!view.Explored.Contains(tile)) continue;
-            var cond = Road.ConditionAt(world, tile, now);
-            if (cond > 0) roads.Add(new RoadDto { X = tile.X, Y = tile.Y, Condition = cond });
+            // An arc is known when EITHER tile is explored (docs/roads-on-edges.md).
+            if (!view.Explored.Contains(arc.A) && !view.Explored.Contains(arc.B)) continue;
+            var cond = Road.ConditionAt(world, arc, now);
+            if (cond > 0) roads.Add(RoadDtoFor(arc, cond));
         }
 
         return new ViewDto
@@ -641,6 +642,7 @@ public sealed class ViewProjector
             GroupState = mine ? GroupStateOf(u, world) : 0,
             // M31 — crown / heir tag. Derived, own units only.
             Royal = mine ? RoyalTagOf(u, world) : 0,
+            Settled = mine && Sim.Core.Population.Housing.IsSettled(world, u, now),
             // M30 — the pending-goal tag. Own units only, same rule as Activity.
             GoalKind = mine ? (int)(u.Goal?.Kind ?? 0) : 0,
             GoalState = mine ? GoalStateOf(u, world) : "",
@@ -748,6 +750,7 @@ public sealed class ViewProjector
         var goalKind = 0; var goalState = ""; var goalX = -1; var goalY = -1;
         var groupState = 0;
         var royal = 0;
+        var settled = false;
         // The hop is public, so the real unit is looked up for EVERY visible unit,
         // not only the viewer's own. The own-only enrichment stays inside the branch.
         world.Units.TryGetValue(uv.Id, out var live);
@@ -756,6 +759,7 @@ public sealed class ViewProjector
             groupId = real.GroupId ?? -1;
             groupState = GroupStateOf(real, world);
             royal = RoyalTagOf(real, world);
+            settled = Sim.Core.Population.Housing.IsSettled(world, real, now);
             goalKind = (int)(real.Goal?.Kind ?? 0);
             goalState = GoalStateOf(real, world);
             goalX = real.Goal?.TargetTile.X ?? -1;
@@ -786,6 +790,7 @@ public sealed class ViewProjector
             GroupId = groupId,
             GroupState = groupState,
             Royal = royal,
+            Settled = settled,
             GoalKind = goalKind,
             GoalState = goalState,
             GoalX = goalX,
@@ -934,4 +939,7 @@ public sealed class ViewProjector
                 break;
         }
     }
+
+    private static RoadDto RoadDtoFor(TileEdge arc, int condition) =>
+        new() { X = arc.A.X, Y = arc.A.Y, Axis = (int)arc.Direction, Condition = condition };
 }
