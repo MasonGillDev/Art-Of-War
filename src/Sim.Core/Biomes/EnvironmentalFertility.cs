@@ -80,6 +80,18 @@ public static class EnvironmentalFertility
         return (int)v;
     }
 
+    // The highest baseline any tile of `band` can have under this config: the
+    // band baseline plus the largest offset the knobs can produce (full water
+    // bonus on a bank, plus every depth ring for Forest), clamped like any
+    // other. The ceiling a placement UI measures a site against. PURE.
+    public static int MaxBaseline(Biome band, BiomeDegradationConfig config)
+    {
+        var offset = Math.Max(0, config.WaterFertilityBonus);
+        if (band == Biome.Forest)
+            offset += Math.Max(0, config.ForestDepthRings) * Math.Max(0, config.ForestDepthBonusPerRing);
+        return BaselineFor(band, offset, config);
+    }
+
     // Convenience: the tile's own baseline (its worldgen band + clamped offset).
     public static int Baseline(GameWorld world, TileCoord tile, BiomeDegradationConfig config) =>
         BaselineFor(world.Grid.BiomeAt(tile), RawOffset(world, tile, config), config);

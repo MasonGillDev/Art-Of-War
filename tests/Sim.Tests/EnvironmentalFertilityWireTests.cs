@@ -56,6 +56,24 @@ public class EnvironmentalFertilityWireTests
         Assert.Equal(cfg.ForestBaseline, world.Fertility.ForestBaseline);
         Assert.True(world.Fertility.GrasslandBaseline > world.Fertility.DesertThreshold);
         Assert.True(world.Fertility.ForestBaseline > world.Fertility.ForestThreshold);
+        // The ceilings: the best a tile of each band can be under this gradient —
+        // a riverbank grassland (+1500, clamped under the forest edge) and a
+        // riverbank forest heart (+1500 + 3 rings × 400).
+        Assert.Equal(EnvironmentalFertility.MaxBaseline(Biome.Grassland, cfg), world.Fertility.GrasslandMaxBaseline);
+        Assert.Equal(EnvironmentalFertility.MaxBaseline(Biome.Forest, cfg), world.Fertility.ForestMaxBaseline);
+        Assert.Equal(6500, world.Fertility.GrasslandMaxBaseline);
+        Assert.Equal(12700, world.Fertility.ForestMaxBaseline);
+        // No tile on the map exceeds its band's ceiling.
+        for (var i = 0; i < world.Baseline.Length; i++)
+        {
+            var b = (Biome)world.Biome[i];
+            if (b == Biome.Grassland) Assert.True(world.Baseline[i] <= world.Fertility.GrasslandMaxBaseline);
+            if (b == Biome.Forest) Assert.True(world.Baseline[i] <= world.Fertility.ForestMaxBaseline);
+        }
+        // Flat world: the ceiling IS the band baseline.
+        var flatRules = projector.BuildWorldDto().Fertility;
+        Assert.Equal(flatRules.GrasslandBaseline, flatRules.GrasslandMaxBaseline);
+        Assert.Equal(flatRules.ForestBaseline, flatRules.ForestMaxBaseline);
 
         // The parameterless overload ships the defaults' (flat) baselines, not zeros.
         var flat = projector.BuildWorldDto();

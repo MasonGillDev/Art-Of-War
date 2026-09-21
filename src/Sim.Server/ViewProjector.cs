@@ -168,6 +168,8 @@ public sealed class ViewProjector
                 DesertThreshold = fert.DesertThreshold,
                 GrasslandBaseline = fert.GrasslandBaseline,
                 ForestBaseline = fert.ForestBaseline,
+                GrasslandMaxBaseline = Sim.Core.Biomes.EnvironmentalFertility.MaxBaseline(Biome.Grassland, fert),
+                ForestMaxBaseline = Sim.Core.Biomes.EnvironmentalFertility.MaxBaseline(Biome.Forest, fert),
             },
         };
     }

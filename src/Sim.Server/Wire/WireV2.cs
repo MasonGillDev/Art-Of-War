@@ -133,6 +133,11 @@ public sealed class FertilityRulesDto
     /// forest. docs/environmental-fertility.md.
     public int GrasslandBaseline { get; set; }
     public int ForestBaseline { get; set; }
+    /// The HIGHEST baseline a tile of each band can reach under this world's
+    /// gradient (EnvironmentalFertility.MaxBaseline): the ceiling a placement
+    /// UI fills its "land" bar against. Equals the band baseline on a flat world.
+    public int GrasslandMaxBaseline { get; set; }
+    public int ForestMaxBaseline { get; set; }
 }
 
 /// How long a day of light lasts, and where tick 0 falls in it.

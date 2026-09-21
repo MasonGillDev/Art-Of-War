@@ -210,3 +210,21 @@ board's glow for typical land for that band, toward green above it, toward
 amber below, never red (no unbuilt land is "gone"). It reads
 `KnownWorld.BelievedBaseline`, so on a pre-M35 server it degrades to the
 plain outline. Compile-checked, not yet seen in Play.
+
+## Update 2026-09-20 - the land bar
+
+**Decision (user):** the placement card shows a bar that fills with green for
+the summed baseline of the predicted claim, full = the most fertile land this
+kind could possibly work on this world.
+
+The ceiling is a server fact: `FertilityRulesDto.GrasslandMaxBaseline /
+ForestMaxBaseline` = `EnvironmentalFertility.MaxBaseline(band, config)`, the
+band baseline plus the largest offset the knobs can produce (full water bonus,
+every depth ring for Forest), clamped like any baseline. On a flat world it
+equals the band baseline, so the bar is always full there. Client:
+`BuildPlacement.PredictClaim` (the Claims.AutoSelect mirror, now shared by the
+outline and the bar), `SoilGrade.SiteFill`, `ContextPanel.LandBar`; the card
+rebuilds when the ground tile under the cursor changes. A cramped pocket reads
+low on purpose: tiles the claim cannot fill count as nothing. Preview outline
+contrast is gained x3 (`SoilGrade.SiteContrast`) because the mild gradient is a
+fraction of a band-span.
