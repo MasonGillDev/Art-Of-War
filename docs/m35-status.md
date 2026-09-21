@@ -35,6 +35,7 @@ asked.
 
 - Full suite 2026-09-20 before any code change: 1124 passed, 0 failed, 3m26s.
 - Full suite after Phases A–E (lab sweep included): see Verified.
+- Full suite 2026-09-20 after the --fertility launch switch (b0e46d3): 1155 passed, 0 failed, 4m13s.
 
 ## Verified
 
