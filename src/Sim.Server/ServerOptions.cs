@@ -23,14 +23,19 @@ public sealed record ServerOptions
     // C3 — ticks per day of LIGHT (--light-cycle N). Presentation-only: the sky's
     // clock, not the sim's. Default one Time.Week, ~42 real minutes at 4 tps.
     public long LightCycleTicks { get; init; } = Sim.Core.Time.Week;
+    // M35 — the environmental fertility gradient played on this server:
+    // "flat" (off, the identity), "mild" or "strong" — the rungs of the
+    // docs/m35-status.md sweep (--fertility NAME). Applied by WorldFactory.
+    public string FertilityGradient { get; init; } = "flat";
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 299501, mapWidth = 252, mapHeight = 252;
+        int port = 8080, mapSeed = 21, mapWidth = 252, mapHeight = 252;
         var tps = 4.0;
         var bandits = 1;
         long lightCycle = Sim.Core.Time.Week;
-        int ai = 8, rivals = 0, aiTrace = 0, caches = 30, banditGrace = 7;
+        int ai = 15, rivals = 0, aiTrace = 0, caches = 30, banditGrace = 7;
+        var fertility = "flat";
         for (var i = 0; i + 1 < args.Length; i++)
         {
             switch (args[i])
@@ -47,6 +52,7 @@ public sealed record ServerOptions
                 case "--ai-trace": int.TryParse(args[i + 1], out aiTrace); break;
                 case "--caches":  int.TryParse(args[i + 1], out caches); break;
                 case "--light-cycle": long.TryParse(args[i + 1], out lightCycle); break;
+                case "--fertility": fertility = args[i + 1]; break;
             }
         }
         return new ServerOptions
@@ -64,6 +70,7 @@ public sealed record ServerOptions
             AiTrace = aiTrace != 0,
             CacheCount = Math.Max(0, caches),
             LightCycleTicks = lightCycle > 0 ? lightCycle : Sim.Core.Time.Week,
+            FertilityGradient = fertility,
         };
     }
 }

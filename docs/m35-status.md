@@ -52,3 +52,7 @@ Faction 0 (human slot, map centre) landed on DRY grassland; faction 1 sits by a 
 | strong | +2500 / -500 / +600 | 37, 3922, 7, 5926 | 43, 4755, 4, 6937 |
 
 Reading: the brain sites by the gradient (f1's farms average 5750–6937 vs the 5000 band); dry-land f0 still grows and, by d60+, finds better pockets (baseline climbs as it spreads). Strong is not lethal on this seed. Defaults remain at strength 0; **the rung is the user's call.**
+
+## 2026-09-20 — the gradient is a launch switch, not a default
+
+Setting the "mild" rung as the config default failed 11 tests: nine exact-output pins on hand-built default-config worlds (Production, Canals, ClaimsHelper, HousingBuff) and, more importantly, BOTH 160-day labs — the riverside faction ends in famine (BalanceLab debt 78; CropRotation faction 1). The 100-day sweep did not see it. Reading: the live-fertility taper (decision 2) plus the dry-edge penalty is a real food-curve change and needs its own balance pass (candidates: drop DryEdgePenalty to 0, lower ResumeSoilWornWithin, or weight the taper by baseline rather than live fertility). Until then the config default stays the identity and the played gradient is `--fertility mild|strong` (`ServerOptions.FertilityGradient` → `WorldFactory.FertilityFor`). Open item.

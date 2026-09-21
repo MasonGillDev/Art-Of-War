@@ -37,11 +37,22 @@ public static class WorldFactory
         // field (ocean-border mask included), not the raw noise — so the client builds
         // a heightmap whose waterline and slopes line up with the biome grid.
         var elevation = QuantizeElevation(ContinentShaper.BuildElevation(cfg));
-        var spec = BuildSpec(map, opts.AiPlayers, opts.CacheCount);
+        var spec = BuildSpec(map, opts.AiPlayers, opts.CacheCount, FertilityFor(opts.FertilityGradient));
         return new WorldBuild(spec, map, elevation, cfg);
     }
 
-    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers, int cacheCount)
+    // M35 — the played fertility gradient by rung name (docs/environmental-
+    // fertility.md; sweep in docs/m35-status.md). "flat" is the config's own
+    // identity default; unknown names fail loudly rather than silently flat.
+    public static Sim.Core.Biomes.BiomeDegradationConfig FertilityFor(string gradient) => gradient switch
+    {
+        "flat"   => new Sim.Core.Biomes.BiomeDegradationConfig(),
+        "mild"   => new Sim.Core.Biomes.BiomeDegradationConfig() with { WaterFertilityBonus = 1000, DryEdgePenalty = 250, ForestDepthBonusPerRing = 300 },
+        "strong" => new Sim.Core.Biomes.BiomeDegradationConfig() with { WaterFertilityBonus = 2500, DryEdgePenalty = 500, ForestDepthBonusPerRing = 600 },
+        _ => throw new ArgumentException($"unknown fertility gradient '{gradient}' (flat | mild | strong)", nameof(gradient)),
+    };
+
+    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers, int cacheCount, Sim.Core.Biomes.BiomeDegradationConfig fertility)
     {
         var start = map.Start;
         var nextId = 1;
@@ -204,6 +215,7 @@ public static class WorldFactory
             // M23 — scatter loot caches into the fog (never on a tile any
             // faction's starting vision has revealed). docs/loot-caches.md.
             Caches = new Sim.Core.Caches.CacheConfig(Count: cacheCount),
+            BiomeDegradation = fertility,
         };
 
         Console.WriteLine($"Generated {map.Width}x{map.Height} continent (seed {map.Seed}); " +

@@ -135,8 +135,14 @@ public readonly record struct BiomeDegradationConfig(
         // real farm investment rather than latch insurance.
         WaterRecoveryAmount: 4,
         // M35 — environmental baseline knobs. Radii are the scan bounds;
-        // strengths start at 0 (no gradient) until the Phase F lab sweep
-        // picks the temptation zone. See docs/environmental-fertility.md.
+        // strengths are 0 here ON PURPOSE: this constructor is the identity
+        // every hand-built test world and the M9/M21/M27 pins rely on. The
+        // played gradient is chosen at launch (`--fertility mild|strong`,
+        // ServerOptions.FertilityGradient → WorldFactory.FertilityFor), and
+        // the 2026-09-20 sweep found "mild" as a GLOBAL default puts the
+        // riverside lab faction into famine by day 160 — the live-fertility
+        // taper plus the dry-edge penalty is a real food-curve change, still
+        // being balanced. See docs/environmental-fertility.md.
         WaterFertilityRadius:     3,
         WaterFertilityBonus:      0,
         DryEdgePenalty:           0,
