@@ -140,3 +140,26 @@ is an integer mask the sim cannot tell from a hand-authored one.
   green. Deferred until the look asks for it.
 - **Navigable rivers.** Out of scope; needs a tile-chain model and a third
   traversal table.
+
+## Update 2026-09-18 — one edge vocabulary with roads
+
+Roads move from tiles to arcs between tiles (`docs/roads-on-edges.md`). The
+river mask, the crossing surcharge and the bridge plan are untouched, but
+`EdgeBetween` and `Opposite` move onto a shared `TileEdge` value type in
+`Sim.Core.World` that rivers, bridges and roads all address boundaries
+through. Two conventions now coexist on purpose: **bits** (river, bridged)
+stay on both tiles with the symmetry invariant; **payloads** (road condition)
+live once on the canonical arc. A road arc and a river edge on the same
+boundary is a bank road; a road arc across a river edge is a ford in use and
+still pays the full surcharge. Both are presentation-only concerns on the
+client (bank offset, crossing S-bend to the bridge's midpoint).
+
+## Update 2026-09-20 - river irrigation lands with M35
+
+The "river irrigation" slice above ships inside
+`docs/environmental-fertility.md`: `WaterProximity` becomes
+`DistanceToWater`, and a tile carrying any river edge is at distance 0. That
+feeds three things at once: the M21 latch lift, the M27 boosted recovery,
+and the new environmental baseline. Riverbanks are renewable AND richer.
+"River moisture" (valleys green at worldgen) remains deferred; the baseline
+offset is a sim fact, not a classifier change.

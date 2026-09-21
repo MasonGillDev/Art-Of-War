@@ -42,9 +42,20 @@ public sealed class EatRung : IRung
         // so the boundary can't oscillate.
         int Soil(StructDto f) =>
             f.ClaimFertility is { Length: > 0 } cf ? cf.Min() : int.MaxValue;
+        // M35 — the resume bar adapts to what this land CAN be (see
+        // AiConfig.ResumeSoilWornWithin): a dry-edge farm re-enters within
+        // 500 of its own worst baseline instead of waiting for a 4500 it
+        // can never reach; a riverside farm still waits for the absolute
+        // bar. Empty ClaimBaseline (pre-M35 server) = the absolute rule.
+        int ResumeAt(StructDto f)
+        {
+            if (f.ClaimBaseline is not { Length: > 0 } cb) return ctx.Cfg.ResumeSoilAbove;
+            var relative = cb.Min() - ctx.Cfg.ResumeSoilWornWithin;
+            return Math.Max(ctx.Cfg.RestSoilBelow, Math.Min(ctx.Cfg.ResumeSoilAbove, relative));
+        }
         bool InService(StructDto f) => !ctx.Cfg.RotateFarms
             || (f.Workers > 0 ? Soil(f) >= ctx.Cfg.RestSoilBelow
-                              : Soil(f) >= ctx.Cfg.ResumeSoilAbove);
+                              : Soil(f) >= ResumeAt(f));
         if (ctx.Cfg.RotateFarms)
             foreach (var farm in liveFarms)
             {

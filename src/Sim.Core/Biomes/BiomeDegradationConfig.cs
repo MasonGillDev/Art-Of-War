@@ -55,7 +55,28 @@ public readonly record struct BiomeDegradationConfig(
     // rate-invariance argument as the latch lift: water proximity only
     // changes at canal completion, which runs the OnWaterProximityChanged
     // catch-up. See docs/canals.md update.
-    int WaterRecoveryAmount = 4)
+    int WaterRecoveryAmount = 4,
+    // M35 - ENVIRONMENTAL BASELINE (docs/environmental-fertility.md). A
+    // ladder tile's baseline is BandBaseline + EnvOffset(tile), the offset a
+    // pure box-bounded read of distance-to-water and forest depth, clamped
+    // so a tile at deviation 0 never leaves its worldgen band. ALL FIVE
+    // DEFAULT TO STRENGTH 0: bonus/penalty knobs at 0 make the offset 0
+    // everywhere and skip the scans, reproducing M9/M21/M27 byte-for-byte.
+    // The gradient is dialled in from the Phase F lab sweep, never here.
+    //
+    // Water: a tile at Chebyshev distance d <= WaterFertilityRadius from
+    // water (lake/sea/canal/river bank) gets
+    //   WaterFertilityBonus * (Radius + 1 - d) / (Radius + 1)
+    // (full bonus on the bank, tapering to 1/(R+1) at the radius). Beyond
+    // the radius the tile is "dry" and takes -DryEdgePenalty instead.
+    int WaterFertilityRadius = 3,
+    int WaterFertilityBonus = 0,
+    int DryEdgePenalty = 0,
+    // Forest depth (Forest worldgen tiles only): ForestDepth.At(tile,
+    // ForestDepthRings) * ForestDepthBonusPerRing. The forest heart has
+    // more fertility to burn than its edge.
+    int ForestDepthRings = 3,
+    int ForestDepthBonusPerRing = 0)
 {
     // SCALE NOTE: the fertility space is ×100 the original M9 scale
     // (10000/5000/1000 instead of 100/50/10). The point space is fine-
@@ -112,6 +133,14 @@ public readonly record struct BiomeDegradationConfig(
         // M27 — irrigated recovery at DOUBLE the rainfall rate: canal-side
         // fields rest in half the time, which is what makes digging one a
         // real farm investment rather than latch insurance.
-        WaterRecoveryAmount: 4)
+        WaterRecoveryAmount: 4,
+        // M35 — environmental baseline knobs. Radii are the scan bounds;
+        // strengths start at 0 (no gradient) until the Phase F lab sweep
+        // picks the temptation zone. See docs/environmental-fertility.md.
+        WaterFertilityRadius:     3,
+        WaterFertilityBonus:      0,
+        DryEdgePenalty:           0,
+        ForestDepthRings:         3,
+        ForestDepthBonusPerRing:  0)
     { }
 }

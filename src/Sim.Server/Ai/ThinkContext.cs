@@ -35,6 +35,9 @@ public sealed class ThinkContext
     // Defend rung clears threat memory for tiles it can re-observe.
     public readonly HashSet<(int X, int Y)> VisibleTiles = new();
     private readonly Dictionary<(int X, int Y), int> _biome = new();
+    // M35 — the environmental fertility baseline per known tile
+    // (TileDto.Baseline): what makes one pocket better land than another.
+    private readonly Dictionary<(int X, int Y), int> _baseline = new();
     private readonly HashSet<(int X, int Y)> _blocked = new();   // structures + claims + blacklist
 
     // Per-think unit reservation, shared by EVERY selector (carriers,
@@ -77,9 +80,14 @@ public sealed class ThinkContext
         foreach (var t in view.Visible)
         {
             d._biome[(t.X, t.Y)] = t.Biome;
+            d._baseline[(t.X, t.Y)] = t.Baseline;
             d.VisibleTiles.Add((t.X, t.Y));
         }
-        foreach (var t in view.Remembered) d._biome.TryAdd((t.X, t.Y), t.Biome);
+        foreach (var t in view.Remembered)
+        {
+            d._biome.TryAdd((t.X, t.Y), t.Biome);
+            d._baseline.TryAdd((t.X, t.Y), t.Baseline);
+        }
         foreach (var b in mem.BlacklistedTiles) d._blocked.Add(b);
         foreach (var s in view.Structures)
         {
@@ -172,10 +180,18 @@ public sealed class ThinkContext
         return false;
     }
 
-    // Nearest known tile that the brain BELIEVES can host the spec:
-    // right biome, free, and a valid claim pocket around it.
+    // The BEST known pocket the brain BELIEVES can host the spec: right
+    // biome, free, a valid claim pocket around it — scored by the summed
+    // environmental baseline of the claim the server would auto-select
+    // there (M35, docs/environmental-fertility.md: riverside fields and the
+    // forest heart are better land). Ties break by distance, then (y, x),
+    // which is the scan order — so at strength 0, when every baseline is
+    // the band's, this returns exactly the nearest pocket it always did.
+    // The name is kept: callers ask for "the pocket to build on".
     public TileCoord? NearestPocketTile(Biome biome, int range, int claimCount, int claimRange)
     {
+        TileCoord? best = null;
+        long bestScore = long.MinValue;
         for (var r = 1; r <= range; r++)
         for (var dy = -r; dy <= r; dy++)
         for (var dx = -r; dx <= r; dx++)
@@ -184,10 +200,37 @@ public sealed class ThinkContext
             var key = (CastleTile.X + dx, CastleTile.Y + dy);
             if (!_biome.TryGetValue(key, out var b) || b != (int)biome) continue;
             if (_blocked.Contains(key)) continue;
-            if (!IsPocket(key, biome, claimCount, claimRange)) continue;
-            return new TileCoord(key.Item1, key.Item2);
+            var score = PocketScore(key, biome, claimCount, claimRange);
+            if (score is null) continue;
+            if (score.Value > bestScore)
+            {
+                bestScore = score.Value;
+                best = new TileCoord(key.Item1, key.Item2);
+            }
         }
-        return null;
+        return best;
+    }
+
+    // Sum of baselines over the claim the server's Claims.AutoSelect would
+    // pick at `key` (rings out to claimRange in (d, y, x) order, first
+    // claimCount free same-biome tiles), or null when the pocket can't
+    // host a full claim. Mirrors IsPocket's rule over REMEMBERED tiles.
+    private long? PocketScore((int X, int Y) key, Biome biome, int claimCount, int claimRange)
+    {
+        long score = 0;
+        var found = 0;
+        for (var d = 1; d <= claimRange && found < claimCount; d++)
+        for (var dy = -d; dy <= d && found < claimCount; dy++)
+        for (var dx = -d; dx <= d && found < claimCount; dx++)
+        {
+            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != d) continue;
+            var q = (key.X + dx, key.Y + dy);
+            if (!_biome.TryGetValue(q, out var b) || b != (int)biome) continue;
+            if (_blocked.Contains(q)) continue;
+            score += _baseline.TryGetValue(q, out var bl) ? bl : 0;
+            found++;
+        }
+        return found >= claimCount ? score : null;
     }
 
     // Pocket-aware land inventory — the bank should count BUILDABLE
@@ -276,6 +319,18 @@ public sealed class ThinkContext
         foreach (var s in OwnSites())
             if (s.BuildersRequired > need) need = s.BuildersRequired;
         return need;
+    }
+
+    // The hauler demand (2026-09-19): the configured floor, raised to one
+    // Hauler per ExtractorsPerHauler own extractors. A belt of ten far
+    // farms served by 5-capacity citizens was the food wall — every
+    // think a food haul, every idler a mule (docs/ai-players.md).
+    public int HaulerDemand()
+    {
+        var extractors = Own.Count(s => (StructureKind)s.Kind is StructureKind.Farm
+            or StructureKind.LumberCamp or StructureKind.Quarry or StructureKind.Mine
+            or StructureKind.Smelter);
+        return Math.Max(Cfg.HaulerFloor, extractors / Math.Max(1, Cfg.ExtractorsPerHauler));
     }
 
     public static int AmountOf(ResAmtDto[] holdings, Resource r) =>
@@ -432,7 +487,15 @@ public sealed class ThinkContext
     // may MARCH early (a walk is re-targetable; arrival leaves them
     // idle-still and free), but they only swing hammers once every
     // material is on site — sites that can't start don't hoard hands.
-    public List<Intent> EnsureBuilders(StructDto site)
+    //
+    // marchEarly:false (2026-09-19, the Forge ping-pong): a builder standing
+    // idle on an UNPROVISIONED site is "free" to every other site's early
+    // march, so two long-waiting sites (a 60-wood smithy and a mine, weeks
+    // behind the delivery queue) bounced one builder between them for 36
+    // lab days — walking, never hammering, while the houses waited. Rungs
+    // whose sites wait long for materials march only once provisioned;
+    // the hour of walk latency is nothing against the month of thrash.
+    public List<Intent> EnsureBuilders(StructDto site, bool marchEarly = true)
     {
         var intents = new List<Intent>();
         if (site.BuildersPresent >= site.BuildersRequired) return intents;
@@ -442,6 +505,7 @@ public sealed class ThinkContext
         if (Cfg.RecallCiviliansUnderRaid && UnderThreat(siteTile)) return intents;
         var provisioned = site.Needed.All(n =>
             AmountOf(site.Holdings, (Resource)n.Resource) >= n.Amount);
+        if (!provisioned && !marchEarly) return intents;
         var builders = OwnUnits.Where(u =>
                 (UnitRole)u.Role == UnitRole.Builder && IsIdleStill(u) && IsFree(u)
                 && u.CargoAmount == 0 && u.Age >= Cfg.MinAdultAgeYears)

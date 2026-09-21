@@ -302,6 +302,10 @@ public sealed class TileDto
     public int Y { get; set; }
     public int Biome { get; set; }
     public int Elevation { get; set; }
+    // M35 — the tile's environmental fertility baseline (docs/environmental-
+    // fertility.md): band baseline + water/forest-depth offset. What the AI
+    // brains site farms and camps by. 0 on the graves-only visibility list.
+    public int Baseline { get; set; }
 }
 
 public sealed class UnitDto
@@ -458,4 +462,17 @@ public sealed class StructDto
     // cliff: the permanent desert latch sits at the catalog's
     // DesertThreshold, and now you can see a field approaching it.
     public int[] ClaimFertility { get; set; } = [];
+    // M35 — each claim tile's environmental BASELINE, parallel to
+    // ClaimFertility and own-only like it. "How worn is this field" is
+    // (ClaimBaseline - ClaimFertility); a riverside field starts above the
+    // flat band baseline, a dry-edge one below (docs/environmental-fertility.md).
+    public int[] ClaimBaseline { get; set; } = [];
+    // P2 — structure health. OWN structures always; ANY visible fortification
+    // (Wall/Gate/Tower/Castle) too, because a besieger has to see what they
+    // are breaching (docs/siege-visibility.md: exact, not banded). Every other
+    // enemy kind stays private at -1/-1. Kinds whose catalog BaseHealth is 0
+    // (Cache/Canal/Rubble) are indestructible and send 0/0 — there is nothing
+    // to hide about a thing that cannot be hurt.
+    public int Health { get; set; } = -1;
+    public int MaxHealth { get; set; } = -1;
 }

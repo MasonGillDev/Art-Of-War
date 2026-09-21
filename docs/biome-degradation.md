@@ -456,3 +456,18 @@ block is 13 fields now). See `docs/canals.md` and the M21 determinism-audit
 addendum. The lazy catch-up math, snap penalty, implicit latch, carry/anchor
 discipline, and off-ladder rules are all unchanged — M21 only changes *when*
 the latch is allowed to release.
+
+## Update 2026-09-20 - the baseline becomes environmental (M35)
+
+**Decision:** `BaselineFertility` gains a tile-aware overload:
+`BandBaseline(worldgenBiome) + EnvOffset(tile)`, where the offset is a pure,
+box-bounded function of distance-to-water (lakes, seas, canals AND river
+edges) and forest depth, clamped so a tile at deviation 0 never leaves its
+worldgen band. The step-penalty snap targets carry the same offset
+(`BandBaseline(nextBand) + EnvOffset(tile)`), so a rich riverside forest
+degrades to a rich riverside grassland. Storage, catch-up, the implicit
+latch and the anchor discipline are unchanged; they run against an uneven
+floor. Forest depth reads the WORLDGEN grid, not `BiomeAt`, because the lazy
+field only admits event-driven baseline changes (canal completion is the
+one event). Knobs default to strength 0 = byte-identical M9/M21/M27
+behaviour. Full rationale and losing options: `docs/environmental-fertility.md`.

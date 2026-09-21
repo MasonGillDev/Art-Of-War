@@ -1181,3 +1181,46 @@ Extractor payload: input count + `(byte resource, int amount)` pairs after
 the claim list. Pinned by `RefiningTests.Snapshot_RoundTrips_ArmedAndDormantSmelters`
 (hash equality before and after one production period on both sides).
 Twin-run: `RefiningTests.TwinRun_SmelterChain_HashesEqual`.
+
+## Update 2026-09-18 — M34 roads on edges (docs/roads-on-edges.md)
+
+Road condition moved from a tile key to an ARC key (`TileEdge`, the lane
+between two adjacent tiles). The three M2 properties above hold unchanged
+with the key swapped; re-verified by grep after the port:
+
+- **No global iteration.** `world.Roads` is still touched only by
+  `Roads/Road.cs` (targeted reads and writes by arc), `Snapshot.cs`
+  (canonical order is now `(A.y, A.x, axis)`), `ViewProjector` (three view
+  builders iterate the sparse set, bounded by road count, pure reads via
+  `ConditionAt`), `Sim.Host/Program.cs` (smoke print) and one new bounded
+  caller: `BuildCompleteEvent.CompleteCanal` removes the four arcs
+  incident to each flooded tile (`TileEdge.Around`), inside an event.
+- **One mutation point, now two call sites of the same event family.**
+  `Road.CreditTraffic(world, from, to, now)` is called from
+  `MoveArrivalEvent.Apply` and `GroupArrivalEvent.Apply`, both after the
+  position update, both with the tile left and the tile entered. The
+  group site existed before (it credited `To`); it now credits the arc
+  each member walked. A non-adjacent pair credits nothing.
+- **Pure-read wall.** `Road.EffectiveCost(world, from, to, now)` and
+  `Road.ConditionAt(world, edge, now)` write nothing; `from == to` returns
+  plain terrain without touching the map. `FormGroupIntent`'s reachability
+  check no longer prices roads at all (plain `Grid.TerrainCost`).
+  Pinned by `RoadsOnEdgesTests.Reads_ArePure_100x` alongside the existing
+  `Pathfinding_IsPureRead_NoRoadMutation`.
+
+No new anchors, no new scheduled events. Snapshot **v32** (road block
+gains an axis byte per arc); v31 streams are rejected by the existing
+version check. `RoadConstants` untouched: a route of N hops credits N arcs
+as it credited N tiles, so gain and decay tuning carry over.
+
+## M35 addendum (2026-09-20) - environmental fertility
+
+`EnvironmentalFertility.Offset`, `WaterProximity.DistanceToWater` and
+`ForestDepth` are PURE reads over `TileGrid` (biome + river mask); pinned by
+the 100x-no-mutation pattern. No new stored state: the per-tile baseline is
+derived, so snapshot round-trip is unchanged apart from the config block
+(FormatVersion 33 carries the knobs). The canal branch of
+`BuildCompleteEvent` remains the ONE event that changes water proximity and
+forest depth; its affected set widens to the union of the recovery and
+fertility radii. `world.Fertility` still has exactly two production write
+sites. Filled in per phase in `docs/m35-status.md`.

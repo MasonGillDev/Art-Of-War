@@ -34,6 +34,12 @@ public sealed class WorldDto
     // tile's edges a river runs along. Terrain, so it is public and static like
     // Elevation; the client draws it as a ribbon along tile boundaries. docs/rivers.md.
     public int[] River { get; set; } = [];
+    // M35 — the environmental fertility BASELINE per tile at genesis
+    // (docs/environmental-fertility.md): band baseline + water-proximity and
+    // forest-depth offset, a pure function of Biome + River above under the
+    // world's fertility config. Public like the terrain it derives from. A
+    // canal moves it; the live view sends those tiles as BaselineOverrides.
+    public int[] Baseline { get; set; } = [];
 
     // C2 — what the player may build, straight off StructureCatalog.
     //
@@ -99,6 +105,28 @@ public sealed class WorldDto
     /// from these rather than inventing a clock of its own — and each view carries
     /// LightPhase so it can check that it did.
     public LightCycleDto LightCycle { get; set; } = new();
+
+    /// P1/T10 — the fertility band edges, straight off the world's
+    /// BiomeDegradationConfig.
+    ///
+    /// The view already carries ClaimFertility per extractor tile, but a raw number
+    /// is not a grade: without the thresholds the client cannot say "this farm is
+    /// two weeks from turning to desert", and the alternative is hard-coding 7500 /
+    /// 2500 in the client — a copy that lies the first time the ladder is retuned.
+    /// Same argument as every rules block above.
+    ///
+    /// Static and public: where the bands fall is common knowledge, not intelligence.
+    public FertilityRulesDto Fertility { get; set; } = new();
+}
+
+/// The fertility ladder's band edges (docs/biome-degradation.md):
+///   fertility >= ForestThreshold                        → Forest
+///   DesertThreshold <= fertility < ForestThreshold       → Grassland
+///   fertility <  DesertThreshold                        → Desert (latched, permanent)
+public sealed class FertilityRulesDto
+{
+    public int ForestThreshold { get; set; }
+    public int DesertThreshold { get; set; }
 }
 
 /// How long a day of light lasts, and where tick 0 falls in it.
@@ -199,6 +227,15 @@ public sealed class BuildOptionDto
     public int ClaimCount { get; set; }
     public int ClaimRange { get; set; }
 
+    // P2 — what a fortification IS, straight off StructureSpec. A wall the menu
+    // cannot say "nobody walks through this" about is a wall the player builds
+    // across their own supply line; a gate whose "allies pass" is unstated is a
+    // wall with a worse price. BaseHealth is the "500 HP" on the card and the
+    // MaxHealth every StructDto of this kind will report.
+    public bool BlocksMovement { get; set; }
+    public bool AlliedPassage { get; set; }
+    public int BaseHealth { get; set; }
+
     /// HOW this kind is placed — the gesture the client must run, decided by the
     /// server because the server is where the rejections live.
     ///
@@ -275,6 +312,18 @@ public sealed class BiomeOverrideDto
     public int Biome { get; set; }
 }
 
+// M35 — a LIVE tile whose environmental fertility baseline differs from the
+// genesis WorldDto.Baseline: a canal has lifted it (docs/environmental-
+// fertility.md decision 4). Visible tiles only; the client falls back to the
+// genesis value elsewhere, so a lift shows while you can see it. Empty for
+// most of a game.
+public sealed class BaselineOverrideDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Baseline { get; set; }
+}
+
 // An active combat on a tile the viewer can currently SEE (fog still applies —
 // fighting on a remembered-but-unseen tile stays hidden). Surfaced on v2 because
 // the client needs it for smoke/fire/battle presentation; v1 never carried it
@@ -285,6 +334,17 @@ public sealed class CombatDto
     public int Y { get; set; }
     public int RoundNumber { get; set; }
     public long NextRoundTick { get; set; }
+
+    // P2 — siege state. CombatState keeps nothing about the last round, so these
+    // are a PURE READ of what the next round will do, using the same rule as
+    // FortSiege.TryResolveFortRound: every non-bandit unit hostile to the fort's
+    // owner standing on the fort tile or a 4-neighbour deals its EffectivePower.
+    // FortKind is the standing fortification's StructureKind, or 0 when this
+    // combat is an ordinary field battle — then Besiegers and SiegePower are 0.
+    // Same for both sides: the fight is on a visible tile by construction.
+    public int FortKind { get; set; }
+    public int Besiegers { get; set; }
+    public int SiegePower { get; set; }
 }
 
 // GET /v2/view/{playerId} — the per-tick payload.
@@ -304,6 +364,7 @@ public sealed class ViewV2Dto : ViewDto
     public int[] FogRunLength { get; set; } = [];
 
     public BiomeOverrideDto[] BiomeOverrides { get; set; } = [];
+    public BaselineOverrideDto[] BaselineOverrides { get; set; } = [];   // M35
     public CombatDto[] Combats { get; set; } = [];
 
     /// The world's time of day at Tick, in [0, 1) — the server's own evaluation of

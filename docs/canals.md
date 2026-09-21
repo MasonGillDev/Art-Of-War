@@ -239,3 +239,17 @@ growth lever stable colonies use, without denting survival. War-torn
 factions still (correctly) prioritize walls and army over earthworks.
 Canal cost is a per-tile catalog knob; `CanalsTests` derive their cost
 assertions from the spec, so they track the number.
+
+## Update 2026-09-20 - canals lift the fertility baseline (M35)
+
+`docs/environmental-fertility.md` makes water proximity a BASELINE input as
+well as a recovery gate: land near water starts more fertile. Canal
+completion is therefore a baseline-changing event too, handled by the same
+`OnWaterProximityChanged` discipline (old-rate catch-up, anchor, then mutate)
+over the UNION of `WaterRecoveryRadius` and the fertility radii (water and
+forest-edge, since a canal through woods moves the edge). **The lift is
+instant by decision:** stored deviation is left untouched, so every tile in
+range reads its fertility higher by the baseline delta on the tick the water
+lands. The "ceiling raise, recover to it" alternative was rejected because
+canals already cost time, resources and tiles. "Greening raw desert" stays
+deferred: the in-band clamp on the offset is the guard.

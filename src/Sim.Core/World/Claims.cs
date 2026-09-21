@@ -113,6 +113,37 @@ public static class Claims
         return count;
     }
 
+    // M35 — the production-taper numerator (docs/environmental-fertility.md
+    // decision 2): the SUM of live fertility over the extractor's in-band
+    // claim tiles, counting at most `cap` tiles in canonical claim order.
+    // The cap is the M15 drift clamp moved from the count to the sum: a
+    // serialized claim list larger than a retuned ClaimCount can't amplify
+    // output, while a claim whose tiles sit ABOVE the band baseline (a
+    // riverside farm) legitimately produces more than the flat rate. At
+    // uniform baseline fertility this is inBand * BandBaseline, so the
+    // taper reproduces M15 exactly. PURE READ.
+    public static long InBandClaimFertilitySum(GameWorld world, Extractor extractor, long now, int cap)
+    {
+        long sum = 0;
+        var counted = 0;
+        foreach (var t in extractor.ClaimTiles)
+        {
+            if (counted >= cap) break;
+            // Same in-band test as InBandClaimCount (BiomeAt's logic, inlined
+            // so the fertility read happens once per tile).
+            var worldgen = world.Grid.BiomeAt(t);
+            var fert = Sim.Core.Biomes.BiomeDegradation.FertilityAt(
+                world, t, now, world.BiomeDegradationConfig);
+            var biome = Sim.Core.Biomes.BiomeDegradation.IsOnLadder(worldgen)
+                ? Sim.Core.Biomes.BiomeDegradation.Band(fert, world.BiomeDegradationConfig)
+                : worldgen;
+            if (biome != extractor.Spec.RequiredBiome) continue;
+            sum += fert;
+            counted++;
+        }
+        return sum;
+    }
+
     private static string? ValidateOne(
         GameWorld world, TileCoord siteTile, StructureSpec spec, TileCoord t, long now)
     {

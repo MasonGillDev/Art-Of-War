@@ -51,6 +51,24 @@ public static class BiomeDegradation
         _ => throw new ArgumentOutOfRangeException(nameof(b), b, null),
     };
 
+    // M35 — the TILE-AWARE baseline: the band baseline for the tile's
+    // WORLDGEN biome plus its clamped environmental offset (water proximity,
+    // forest depth — docs/environmental-fertility.md). This is THE baseline
+    // for every ladder read and write in this class; the biome-only overload
+    // above stays for off-ladder callers and band-relative arithmetic. PURE.
+    public static int BaselineFertility(GameWorld world, TileCoord tile, BiomeDegradationConfig config) =>
+        EnvironmentalFertility.Baseline(world, tile, config);
+
+    // (baseline, rawOffset) for a ladder tile. The raw offset is threaded into
+    // ApplyMath so the step-penalty snap targets carry it too: a rich
+    // riverside forest degrades to a rich riverside grassland.
+    private static (int baseline, int offset) TileBaseline(
+        GameWorld world, TileCoord tile, Biome worldgen, BiomeDegradationConfig config)
+    {
+        var offset = EnvironmentalFertility.RawOffset(world, tile, config);
+        return (EnvironmentalFertility.BaselineFor(worldgen, offset, config), offset);
+    }
+
     // F/G/D participate in the fertility ladder; H/M/W don't.
     public static bool IsOnLadder(Biome b) =>
         b == Biome.Forest || b == Biome.Grassland || b == Biome.Desert;
@@ -76,11 +94,11 @@ public static class BiomeDegradation
     public static int FertilityAt(GameWorld world, TileCoord tile, long now, BiomeDegradationConfig config)
     {
         var worldgen = world.Grid.BiomeAt(tile);
-        var baseline = BaselineFertility(worldgen, config);
-        if (!IsOnLadder(worldgen)) return baseline;
+        if (!IsOnLadder(worldgen)) return BaselineFertility(worldgen, config);
+        var (baseline, offset) = TileBaseline(world, tile, worldgen, config);
         var (storedDev, lastUpdate) = ReadStored(world, tile);
         var (rateAmount, ratePeriod) = DeriveRate(storedDev, baseline, world, tile, now, config);
-        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline, config);
+        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline, offset, config);
         return baseline + newDev;
     }
 
@@ -115,10 +133,10 @@ public static class BiomeDegradation
     {
         var worldgen = world.Grid.BiomeAt(tile);
         if (!IsOnLadder(worldgen)) return;
-        var baseline = BaselineFertility(worldgen, config);
+        var (baseline, offset) = TileBaseline(world, tile, worldgen, config);
         var (storedDev, lastUpdate) = ReadStored(world, tile);
         var (rateAmount, ratePeriod) = DeriveRate(storedDev, baseline, world, tile, now, config);
-        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline, config);
+        var (newDev, _) = ApplyMath(storedDev, lastUpdate, now, rateAmount, ratePeriod, baseline, offset, config);
         // Anchor: drop carry, set lastUpdateTick = now. Always write.
         if (world.Fertility.TryGetValue(tile, out var existing))
         {
@@ -141,9 +159,9 @@ public static class BiomeDegradation
     {
         var worldgen = world.Grid.BiomeAt(tile);
         if (!IsOnLadder(worldgen)) return;
-        var baseline = BaselineFertility(worldgen, config);
+        var (baseline, offset) = TileBaseline(world, tile, worldgen, config);
         var (storedDev, lastUpdate) = ReadStored(world, tile);
-        WriteCaughtUp(world, tile, baseline, storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, config);
+        WriteCaughtUp(world, tile, baseline, offset, storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, config);
     }
 
     // ---- internals -------------------------------------------------------
@@ -275,7 +293,22 @@ public static class BiomeDegradation
     internal static void OnWaterProximityChanged(
         GameWorld world, IReadOnlyList<TileCoord> newWaterTiles, long now, BiomeDegradationConfig config)
     {
+        // M35 — the flood also moves the environmental BASELINE (docs/
+        // environmental-fertility.md): water distance for tiles within
+        // WaterFertilityRadius, and forest depth for tiles within
+        // ForestDepthRings when the canal cuts through woods. The affected
+        // set is the UNION of the radii — but a fertility radius joins only
+        // when its strength knob is non-zero. Catch-up drops the carry
+        // remainder, so anchoring a tile whose rate and baseline are NOT
+        // changing would shift its recovery clock; at strength 0 the set is
+        // exactly M21's. Decision 4 (instant lift): stored deviation is left
+        // untouched, so after the caller mutates the grid every tile in
+        // range reads its fertility higher by the baseline delta at once.
         var r = config.WaterRecoveryRadius;
+        if (config.WaterFertilityBonus != 0 || config.DryEdgePenalty != 0)
+            r = Math.Max(r, config.WaterFertilityRadius);
+        if (config.ForestDepthBonusPerRing != 0)
+            r = Math.Max(r, config.ForestDepthRings);
         var affected = new HashSet<TileCoord>();
         foreach (var center in newWaterTiles)
             for (var dy = -r; dy <= r; dy++)
@@ -306,6 +339,10 @@ public static class BiomeDegradation
     //     snap to DesertBaseline (10, not 24). Asymmetric to make the
     //     biome flip a real, durable loss rather than a 1-tick blip the
     //     player can sit out — see docs/biome-degradation.md §step-penalty.
+    //     M35: each snap target carries the tile's environmental offset,
+    //     clamped inside the band being entered
+    //     (EnvironmentalFertility.BaselineFor) — at offset 0 these are the
+    //     plain band baselines above.
     //
     // In both regimes:
     //   newLastUpdate = lastUpdate + periods * ratePeriod   (carry the remainder)
@@ -313,7 +350,7 @@ public static class BiomeDegradation
     // within a constant-rate segment.
     private static (int newDev, long newLastUpdate) ApplyMath(
         int storedDev, long lastUpdate, long now,
-        int ratePerPeriod, long ratePeriod, int baseline,
+        int ratePerPeriod, long ratePeriod, int baseline, int envOffset,
         BiomeDegradationConfig config)
     {
         var elapsed = now - lastUpdate;
@@ -348,12 +385,12 @@ public static class BiomeDegradation
             if (currentFert >= config.ForestThreshold)
             {
                 nextThreshold = config.ForestThreshold;
-                snapTargetBaseline = config.GrasslandBaseline;
+                snapTargetBaseline = EnvironmentalFertility.BaselineFor(Biome.Grassland, envOffset, config);
             }
             else if (currentFert >= config.DesertThreshold)
             {
                 nextThreshold = config.DesertThreshold;
-                snapTargetBaseline = config.DesertBaseline;
+                snapTargetBaseline = EnvironmentalFertility.BaselineFor(Biome.Desert, envOffset, config);
             }
             else
             {
@@ -394,11 +431,11 @@ public static class BiomeDegradation
     // Apply the math result back into world.Fertility, maintaining sparsity:
     // when deviation returns to 0, remove the tile from the dict.
     private static void WriteCaughtUp(
-        GameWorld world, TileCoord tile, int baseline,
+        GameWorld world, TileCoord tile, int baseline, int envOffset,
         int storedDev, long lastUpdate, long now,
         int ratePerPeriod, long ratePeriod, BiomeDegradationConfig config)
     {
-        var (newDev, newLastUpdate) = ApplyMath(storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, baseline, config);
+        var (newDev, newLastUpdate) = ApplyMath(storedDev, lastUpdate, now, ratePerPeriod, ratePeriod, baseline, envOffset, config);
         if (newDev == storedDev && newLastUpdate == lastUpdate) return;  // no-op
         if (newDev == 0)
         {

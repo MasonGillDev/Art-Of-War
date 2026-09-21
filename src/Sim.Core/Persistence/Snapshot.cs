@@ -130,7 +130,12 @@ public static class Snapshot
     //       enum-ordinal order) after the claim list; empty for ordinary
     //       extractors. Three new kinds dispatch: Smelter → Extractor,
     //       Workshop / Smithy → StorageStructure.
-    public const int FormatVersion = 31;
+    // v33 — environmental fertility (docs/environmental-fertility.md): the
+    //       BiomeDegradationConfig block gains five knobs (water radius /
+    //       bonus, dry-edge penalty, forest-depth rings / bonus). The per-
+    //       tile baseline itself is DERIVED from the grid, so nothing else
+    //       changes shape; the sparse Fertility dict is untouched.
+    public const int FormatVersion = 33;
 
     public static string Hash(Simulation sim)
     {
@@ -990,7 +995,7 @@ public static class Snapshot
         }
     }
 
-    // ----- roads (sparse, by y,x) ---------------------------------------
+    // ----- roads (sparse arcs, by owner y,x then axis; docs/roads-on-edges.md) ---
 
     private static void WriteRoads(BinaryWriter bw, GameWorld world, long now)
     {
@@ -1002,13 +1007,14 @@ public static class Snapshot
         // Determinism is preserved: ConditionAt is a pure read.
         var list = world.Roads
             .Where(kv => Road.ConditionAt(world, kv.Key, now) > 0)
-            .OrderBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
+            .OrderBy(kv => kv.Key.A.Y).ThenBy(kv => kv.Key.A.X).ThenBy(kv => (byte)kv.Key.Direction)
             .ToList();
         bw.Write(list.Count);
         foreach (var kv in list)
         {
-            bw.Write(kv.Key.X);
-            bw.Write(kv.Key.Y);
+            bw.Write(kv.Key.A.X);
+            bw.Write(kv.Key.A.Y);
+            bw.Write((byte)kv.Key.Direction);
             bw.Write(kv.Value.Condition);
             bw.Write(kv.Value.LastDecayTick);
         }
@@ -1021,9 +1027,10 @@ public static class Snapshot
         {
             var x = br.ReadInt32();
             var y = br.ReadInt32();
+            var axis = (TileEdge.Axis)br.ReadByte();
             var condition = br.ReadInt32();
             var lastDecayTick = br.ReadInt64();
-            world.Roads[new TileCoord(x, y)] = new RoadState(condition, lastDecayTick);
+            world.Roads[TileEdge.FromOwner(new TileCoord(x, y), axis)] = new RoadState(condition, lastDecayTick);
         }
     }
 
@@ -1224,7 +1231,7 @@ public static class Snapshot
 
     private static void WriteBiomeDegradation(BinaryWriter bw, GameWorld world)
     {
-        // Config first — thirteen fields, fixed order matches the record-struct
+        // Config first — nineteen fields, fixed order matches the record-struct
         // positional layout.
         var c = world.BiomeDegradationConfig;
         bw.Write(c.ForestBaseline);
@@ -1241,6 +1248,11 @@ public static class Snapshot
         bw.Write(c.DegradeRadius);
         bw.Write(c.WaterRecoveryRadius); // M21
         bw.Write(c.WaterRecoveryAmount); // M27 (v20)
+        bw.Write(c.WaterFertilityRadius);    // M35 (v33)
+        bw.Write(c.WaterFertilityBonus);     // M35 (v33)
+        bw.Write(c.DryEdgePenalty);          // M35 (v33)
+        bw.Write(c.ForestDepthRings);        // M35 (v33)
+        bw.Write(c.ForestDepthBonusPerRing); // M35 (v33)
 
         // Sparse fertility dict in canonical (y, x) order — serialized
         // FAITHFULLY, including Deviation == 0 entries. Those are the M9
@@ -1324,10 +1336,17 @@ public static class Snapshot
         var degradeRadius = br.ReadInt32();
         var waterRecoveryRadius = br.ReadInt32(); // M21
         var waterRecoveryAmount = br.ReadInt32(); // M27 (v20)
+        var waterFertilityRadius = br.ReadInt32();    // M35 (v33)
+        var waterFertilityBonus = br.ReadInt32();     // M35 (v33)
+        var dryEdgePenalty = br.ReadInt32();          // M35 (v33)
+        var forestDepthRings = br.ReadInt32();        // M35 (v33)
+        var forestDepthBonusPerRing = br.ReadInt32(); // M35 (v33)
         world.RestoreBiomeDegradationConfig(new Sim.Core.Biomes.BiomeDegradationConfig(
             forestBase, grassBase, desertBase, hillsBase, mountainBase, waterBase,
             forestThresh, desertThresh, recoveryAmount, recoveryPeriod, degradePeriod, degradeRadius,
-            waterRecoveryRadius, waterRecoveryAmount));
+            waterRecoveryRadius, waterRecoveryAmount,
+            waterFertilityRadius, waterFertilityBonus, dryEdgePenalty,
+            forestDepthRings, forestDepthBonusPerRing));
 
         var count = br.ReadInt32();
         for (var i = 0; i < count; i++)

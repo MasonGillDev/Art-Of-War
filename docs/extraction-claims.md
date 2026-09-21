@@ -158,3 +158,13 @@ serialize identically.
 - `docs/extraction-model.md` — the structure-gated extraction model.
 - `docs/combat-engagement-pin.md` / `docs/intent-validation.md` — the
   resolution-time validation discipline all claim checks follow.
+
+## Update 2026-09-20 - per-tile yield weighting (M35)
+
+The "per-tile yield weighting" formula swap above is taken by
+`docs/environmental-fertility.md`: the taper becomes
+`ceil(rate * sum_{in-band claims} fert_t / (ClaimCount * BandBaseline))`.
+Output is monotone in live claim fertility and still >= 1 while any claimed
+tile lives (the CEIL argument is unchanged). At strength 0 the sum is
+`inBand * BandBaseline` for untouched land, so fresh claims produce exactly
+what they do today; a tiring field now visibly slows before its band flips.

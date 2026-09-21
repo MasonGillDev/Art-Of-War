@@ -65,6 +65,39 @@ public sealed class ViewProjector
         return new ElevationDto { Width = w, Height = h, WaterLevel = _waterLevel, Elevation = flat };
     }
 
+    // M35 — the environmental fertility baseline of every tile AT GENESIS
+    // (docs/environmental-fertility.md), row-major like Elevation/Biome. A pure
+    // function of the generated grid + rivers under the world's fertility
+    // config, so it is computed from the frozen map, not the live world, and
+    // memoised per config (the config is immutable for a world's lifetime;
+    // the parameterless BuildWorldDto uses the defaults). The live view sends
+    // the tiles whose baseline has since moved (canal lifts) as overrides.
+    private (Sim.Core.Biomes.BiomeDegradationConfig cfg, int[] baseline)? _genesisBaseline;
+
+    private int[] GenesisBaseline(Sim.Core.Biomes.BiomeDegradationConfig cfg)
+    {
+        if (_genesisBaseline is { } cached && cached.cfg == cfg) return cached.baseline;
+        var w = _map.Width;
+        var h = _map.Height;
+        var grid = new TileGrid(w, h);
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var t = new TileCoord(x, y);
+                grid.SetBiome(t, _map.Grid[x, y]);
+                grid.SetRiverEdges(t, _map.Rivers[x, y]);
+            }
+        var genesisWorld = new GameWorld(
+            grid, new Sim.Core.Diplomacy.DiplomacyConfig(), new Sim.Core.Combat.CombatConfig(),
+            new Sim.Core.Population.PopulationConfig(), cfg);
+        var baseline = new int[w * h];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+                baseline[y * w + x] = BiomeDegradation.BaselineFertility(genesisWorld, new TileCoord(x, y), cfg);
+        _genesisBaseline = (cfg, baseline);
+        return baseline;
+    }
+
     // ── v2 wire (Wire/WireV2.cs) ──────────────────────────────────────────────
     // GET /v2/world — the static genesis payload, fetched ONCE per session. Same
     // immutable, lock-free read as BuildElevationDto: terrain and the genesis biome
@@ -76,8 +109,13 @@ public sealed class ViewProjector
     /// overload above uses defaults and exists for tests and tooling with no world in
     /// hand.
     public WorldDto BuildWorldDto(Sim.Core.Population.PopulationConfig population,
-                                  Sim.Core.Royalty.RoyaltyConfig royalty = default)
+                                  Sim.Core.Royalty.RoyaltyConfig royalty = default,
+                                  Sim.Core.Biomes.BiomeDegradationConfig? fertility = null)
     {
+        // Null means "the config defaults" — the parameterless constructor is the
+        // canonical 7500/2500 ladder — so tooling without a world in hand still
+        // ships a truthful block.
+        var fert = fertility ?? new Sim.Core.Biomes.BiomeDegradationConfig();
         var w = _map.Width;
         var h = _map.Height;
         var elev = new int[w * h];
@@ -101,6 +139,7 @@ public sealed class ViewProjector
             Elevation = elev,
             Biome = biome,
             River = river,
+            Baseline = GenesisBaseline(fert),
             Buildable = BuildCatalog(),
             Population = new PopulationRulesDto
             {
@@ -122,6 +161,11 @@ public sealed class ViewProjector
             {
                 TicksPerCycle = LightCycle.TicksPerCycle,
                 PhaseOffsetTicks = LightCycle.PhaseOffsetTicks,
+            },
+            Fertility = new FertilityRulesDto
+            {
+                ForestThreshold = fert.ForestThreshold,
+                DesertThreshold = fert.DesertThreshold,
             },
         };
     }
@@ -179,6 +223,9 @@ public sealed class ViewProjector
                 BuildDurationTicks = spec.BuildDurationTicks,
                 ClaimCount = spec.ClaimCount,
                 ClaimRange = spec.ClaimRange,
+                BlocksMovement = spec.BlocksMovement,
+                AlliedPassage = spec.AlliedPassage,
+                BaseHealth = spec.BaseHealth,
                 // The placement gesture. This must track the by-name rejections at
                 // the top of PlaceSiteIntent.Resolve — Canal and Wall are whole-path
                 // builds with their own intents, Rubble is cleared rather than built
@@ -236,6 +283,11 @@ public sealed class ViewProjector
         var runState = new List<int>();
         var runLen = new List<int>();
         var overrides = new List<BiomeOverrideDto>();
+        // M35 — tiles whose environmental baseline has moved since genesis
+        // (a canal lift). LIVE tiles only: the client falls back to the
+        // genesis array elsewhere, so a lift is shown while you can see it.
+        var baselineOverrides = new List<BaselineOverrideDto>();
+        var genesisBaseline = GenesisBaseline(cfg);
         var cur = -1;
         var run = 0;
         for (var y = 0; y < h; y++)
@@ -247,6 +299,9 @@ public sealed class ViewProjector
                 {
                     state = FogState.Live;
                     believed = (int)BiomeDegradation.BiomeAt(world, tile, now, cfg);
+                    var baseline = BiomeDegradation.BaselineFertility(world, tile, cfg);
+                    if (baseline != genesisBaseline[y * w + x])
+                        baselineOverrides.Add(new BaselineOverrideDto { X = x, Y = y, Baseline = baseline });
                 }
                 else if (view.RememberedTerrain.TryGetValue(tile, out var remembered))
                 {
@@ -294,14 +349,11 @@ public sealed class ViewProjector
             FogRunState = runState.ToArray(),
             FogRunLength = runLen.ToArray(),
             BiomeOverrides = overrides.ToArray(),
+            BaselineOverrides = baselineOverrides.ToArray(),
             // Fog-limited by Sim.Core even under reveal (OngoingCombats is scoped to the
             // viewer's Visible set). Acceptable: reveal is a dev switch, not a play mode.
             Combats = view.OngoingCombats
-                .Select(c => new CombatDto
-                {
-                    X = c.Tile.X, Y = c.Tile.Y,
-                    RoundNumber = c.RoundNumber, NextRoundTick = c.NextRoundTick,
-                })
+                .Select(c => ToCombatDto(c, world, now))
                 .ToArray(),
             Units = reveal
                 ? world.Units.Values.Select(u => ToUnitDto(u, playerId, world, now)).ToArray()
@@ -552,7 +604,13 @@ public sealed class ViewProjector
             for (var x = 0; x < _map.Width; x++)
             {
                 var tile = new TileCoord(x, y);
-                tiles.Add(new TileDto { X = x, Y = y, Biome = (int)BiomeDegradation.BiomeAt(world, tile, now, cfg), Elevation = _elevation[x, y] });
+                tiles.Add(new TileDto
+                {
+                    X = x, Y = y,
+                    Biome = (int)BiomeDegradation.BiomeAt(world, tile, now, cfg),
+                    Elevation = _elevation[x, y],
+                    Baseline = BiomeDegradation.BaselineFertility(world, tile, cfg),
+                });
             }
 
         var roads = new List<RoadDto>();
@@ -602,11 +660,29 @@ public sealed class ViewProjector
             Width = _map.Width,
             Height = _map.Height,
             WaterLevel = _waterLevel,
+            // M35 — Baseline is the tile's environmental fertility baseline
+            // (docs/environmental-fertility.md), the number the brains site
+            // farms and camps by. Emitted LIVE for remembered tiles too: the
+            // genesis terrain it derives from is public on the v2 genesis
+            // payload anyway, so the only thing a remembered tile could leak
+            // is a canal lift the player hasn't seen — accepted, documented.
             Visible = view.Visible
-                .Select(t => new TileDto { X = t.X, Y = t.Y, Biome = (int)BiomeDegradation.BiomeAt(world, t, now, cfg), Elevation = _elevation[t.X, t.Y] })
+                .Select(t => new TileDto
+                {
+                    X = t.X, Y = t.Y,
+                    Biome = (int)BiomeDegradation.BiomeAt(world, t, now, cfg),
+                    Elevation = _elevation[t.X, t.Y],
+                    Baseline = BiomeDegradation.BaselineFertility(world, t, cfg),
+                })
                 .ToArray(),
             Remembered = view.RememberedTerrain
-                .Select(kv => new TileDto { X = kv.Key.X, Y = kv.Key.Y, Biome = (int)kv.Value, Elevation = _elevation[kv.Key.X, kv.Key.Y] })
+                .Select(kv => new TileDto
+                {
+                    X = kv.Key.X, Y = kv.Key.Y,
+                    Biome = (int)kv.Value,
+                    Elevation = _elevation[kv.Key.X, kv.Key.Y],
+                    Baseline = BiomeDegradation.BaselineFertility(world, kv.Key, cfg),
+                })
                 .ToArray(),
             Units = view.VisibleUnits.Select(u => ToUnitDto(u, playerId, world, now)).ToArray(),
             Structures = view.VisibleStructures.Select(s => ToStructDto(s, playerId, world, now)).ToArray(),
@@ -800,6 +876,37 @@ public sealed class ViewProjector
         return dto2;
     }
 
+    // P2 — a combat row with its siege state. A pure read mirroring the damage
+    // rule in FortSiege.TryResolveFortRound (Sim.Core is not touched; the sum is
+    // recomputed here, so a change there must be echoed here — WireV2Tests pins
+    // the equality against CombatRules.EffectivePower). Field battles carry 0/0/0.
+    private static CombatDto ToCombatDto(CombatView c, GameWorld world, long now)
+    {
+        var dto = new CombatDto
+        {
+            X = c.Tile.X, Y = c.Tile.Y,
+            RoundNumber = c.RoundNumber, NextRoundTick = c.NextRoundTick,
+        };
+        if (!world.Structures.TryGetValue(c.Tile, out var fort)
+            || !Sim.Core.Fortifications.Fortification.IsStandingFortification(fort))
+            return dto;
+
+        dto.FortKind = (int)fort.Kind;
+        var diplomacy = world.Diplomacy;
+        foreach (var u in world.Units.Values)
+        {
+            if (u.IsEmbarked) continue;
+            if (u.OwnerId == Sim.Core.Bandits.BanditConstants.OwnerId) continue;
+            if (!diplomacy.AreHostile(u.OwnerId, fort.OwnerId)) continue;
+            var dx = Math.Abs(u.Position.X - c.Tile.X);
+            var dy = Math.Abs(u.Position.Y - c.Tile.Y);
+            if (dx + dy > 1) continue;   // on the tile or a 4-neighbour
+            dto.Besiegers++;
+            dto.SiegePower += Sim.Core.Combat.CombatRules.EffectivePower(world, u, now);
+        }
+        return dto;
+    }
+
     // Reveal path: the real Structure is in hand.
     private static StructDto ToStructDto(Structure s, int viewerPlayerId, GameWorld world, long now)
     {
@@ -807,8 +914,28 @@ public sealed class ViewProjector
         if (s.OwnerId == viewerPlayerId) EnrichOwned(dto, s, world, now);
         FillClaims(dto, s);
         FillCacheLoot(dto, s);
+        FillHealth(dto, s, viewerPlayerId);
         return dto;
     }
+
+    // P2 — health visibility (docs/siege-visibility.md). Own: always exact. Any
+    // visible fortification: exact, whoever owns it — the besieger must see what
+    // they are breaching. Other enemy kinds: private (-1/-1, the DTO default).
+    // Indestructible kinds (catalog BaseHealth 0): 0/0, nothing to hide.
+    private static void FillHealth(StructDto dto, Structure s, int viewerPlayerId)
+    {
+        var max = StructureCatalog.Spec(s.Kind).BaseHealth;
+        if (max <= 0) { dto.Health = 0; dto.MaxHealth = 0; return; }
+        if (s.OwnerId != viewerPlayerId && !IsFortificationKind(s.Kind)) return;
+        dto.Health = s.Health;
+        dto.MaxHealth = max;
+    }
+
+    // The kinds whose health is public. Broader than Fortification.IsStandingFortification
+    // (which is "blocks movement and still stands"): a Tower and a Castle do not
+    // block, but they are what a siege is FOR, so their state is public too.
+    private static bool IsFortificationKind(StructureKind kind) => kind is
+        StructureKind.Wall or StructureKind.Gate or StructureKind.Tower or StructureKind.Castle;
 
     // Fogged path: the player view carries a lightweight StructureView (pos/kind/owner
     // only). For the viewer's OWN structures, look the real Structure back up by tile to
@@ -824,6 +951,7 @@ public sealed class ViewProjector
             // and scoutable; placement rejections reference it anyway.
             FillClaims(dto, real);
             FillCacheLoot(dto, real);
+            FillHealth(dto, real, viewerPlayerId);
         }
         return dto;
     }
@@ -895,10 +1023,20 @@ public sealed class ViewProjector
                 // tile, parallel to the ClaimX/ClaimY arrays FillClaims
                 // emits (same source list, same order). Pure read.
                 if (ex.ClaimTiles.Count > 0)
+                {
                     dto.ClaimFertility = ex.ClaimTiles
                         .Select(t => Sim.Core.Biomes.BiomeDegradation.FertilityAt(
                             world, t, now, world.BiomeDegradationConfig))
                         .ToArray();
+                    // M35 — each claim tile's environmental BASELINE beside
+                    // its live reading, so "how worn is this field" is
+                    // (Baseline - Fertility) rather than a guess against a
+                    // flat 5000 (docs/environmental-fertility.md decision 5).
+                    dto.ClaimBaseline = ex.ClaimTiles
+                        .Select(t => Sim.Core.Biomes.BiomeDegradation.BaselineFertility(
+                            world, t, world.BiomeDegradationConfig))
+                        .ToArray();
+                }
                 break;
 
             // M19 — a house is a FOOD HOME: expose its live SIGNED local

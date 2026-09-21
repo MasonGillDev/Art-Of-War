@@ -183,6 +183,15 @@ public sealed record AiConfig
     public bool RotateFarms { get; init; } = true;
     public int RestSoilBelow { get; init; } = 3200;
     public int ResumeSoilAbove { get; init; } = 4500;
+    // M35 — baselines are no longer a flat 5000 (docs/environmental-
+    // fertility.md): a dry-edge farm whose worst tile CAN'T climb back to
+    // ResumeSoilAbove would rest forever. So a resting farm re-enters at
+    //   max(RestSoilBelow, min(ResumeSoilAbove, worstBaseline - ResumeSoilWornWithin))
+    // i.e. "within 500 of what this land can be", capped by the absolute
+    // bar. At a flat 5000 baseline that is exactly 4500 — the lab-pinned
+    // default — so strength 0 is unchanged. RestSoilBelow stays ABSOLUTE:
+    // it guards the permanent desert latch, which is an absolute line.
+    public int ResumeSoilWornWithin { get; init; } = 500;
 
     // M25 — how many of the AI factions run the Rival (conquest) ladder
     // instead of the Homesteader (docs/m25-rival-spec.md). The host gives
@@ -325,6 +334,64 @@ public sealed record AiConfig
     // (config, not on the wire — the demographic-mirror convention;
     // update if the world knob is retuned). Tracks the world default (4).
     public int IrrigateWaterRadius { get; init; } = 4;
+
+    // ARMING (ForgeRung + ArmRung, 2026-09-19, docs/refining-structures.md
+    // "SmeltRung" deferral cashed in). The colony raises a Smithy and
+    // forges SHIELDS for its garrison from wood + stone alone, then — once
+    // it knows Hills — a Mine and a Smelter, and forges SWORDS from the
+    // iron (Ore + fuel -> Iron -> Sword: the second hop every human can
+    // automate and the AI must be taught). False disables both rungs and
+    // the feed lines — the pre-arming curves, byte for byte.
+    public bool Arm { get; init; } = true;
+    // A camp doesn't run a smithy. Higher than the Fortify floor (25): the
+    // haul-belt lab showed a marginal colony that armed at 25 collapsing
+    // from 57 pop to 7 while its unarmed twin lived — three sites and
+    // two crews are a town's spend, not a village's. Below it both rungs
+    // are entirely inert.
+    public int ArmPopulationFloor { get; init; } = 40;
+    // Workers staffed onto the Mine and the Smelter (WorkerCap 3 and 2).
+    // One hand at each ≈ 1 ore and 1 iron a day (generalists) — a sword
+    // every three days, a garrison of eight armed in a month: an armoury,
+    // not a second economy. The lab priced two-and-two at ~15% of the
+    // population by day 200; the labor ledger's slack gate keeps even
+    // this from bleeding the farms.
+    public int ArmMineWorkers { get; init; } = 1;
+    public int ArmSmelterWorkers { get; init; } = 1;
+    // The Smithy's working stock of wood / stone / iron (each), kept
+    // topped up from the castle (and the Smelter) by the feed lines in
+    // LogisticsLayer. A shield is 5+5, a sword 2 wood + 3 iron: twenty of
+    // each is a few items' worth, not a second warehouse.
+    public int ArmSmithyStockTarget { get; init; } = 20;
+    // Refeed a Smelter input when it drops below this (InputCap is 60).
+    // Twenty ore is ten batches — a couple of days of smelting between
+    // hauls, so the feed line never dominates the carrier pool.
+    public int ArmFeedFloor { get; init; } = 20;
+    // The castle keeps at least this much wood / stone before the feed
+    // lines draw on it: construction and the Barracks bootstrap outrank
+    // fuel and hafts (a smithy that starves the third farm of its 10 wood
+    // is the arbitration #10 wedge in a new coat).
+    public int ArmCastleReserve { get; init; } = 40;
+
+    // THE HAUL BELT (2026-09-19, the food-wall post-mortem): the baseline
+    // lab trained 1 Hauler against 23 Farmers in 170 days, then spent
+    // ~4.5 food hauls per think carrying 5 turnips at a time from ten
+    // far farms — the "food wall" was people on the road, not yield.
+    // The hauler floor now RISES with the belt: one Hauler per this many
+    // own extractors (farms, camps, quarry, mine), never below
+    // HaulerFloor. A carted Hauler moves 50 a trip against a citizen's
+    // 5, so each one retires several field hands from the road.
+    public int ExtractorsPerHauler { get; init; } = 3;
+
+    // CARTS (CartRung, docs/cart.md + docs/refining-structures.md): raise
+    // a Workshop and forge a Cart for every Hauler — +25 carry at +50%
+    // hop time, the logistics multiplier a human buys first. Fires above
+    // the population floor and outside famine; the site waits for the
+    // castle to hold its cost (lesson #10). False disables the rung and
+    // the workshop feed line.
+    public bool Carts { get; init; } = true;
+    // Lower than the Fortify/Arm floor on purpose: the haul belt is what
+    // the colony grows on, and the wall it fixes arrives at 60-90 pop.
+    public int CartPopulationFloor { get; init; } = 20;
 
     // Print each decision to the console (--ai-trace 1).
     public bool TracePrint { get; init; } = false;
