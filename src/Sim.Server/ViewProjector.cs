@@ -166,6 +166,8 @@ public sealed class ViewProjector
             {
                 ForestThreshold = fert.ForestThreshold,
                 DesertThreshold = fert.DesertThreshold,
+                GrasslandBaseline = fert.GrasslandBaseline,
+                ForestBaseline = fert.ForestBaseline,
             },
         };
     }

@@ -186,3 +186,27 @@ Target the temptation zone in the Phase F sweep.
   Addendum"); verification against code recorded in `docs/m35-status.md`.
 - `docs/biome-degradation.md`, `docs/canals.md`, `docs/rivers.md`,
   `docs/extraction-claims.md`, `docs/architecture.md` section 2.5.
+
+## Update 2026-09-20 - grading against the band, and the placement preview
+
+**Decision (user):** the soil outline is graded against the BAND a structure
+works, not the whole ladder, and the same outline appears while plotting a
+build.
+
+Why: the absolute grade (desert edge = 0, forest edge = 1) put a fresh farm at
+0.5 and a fresh lumber camp at 1, so farmland read as bad land and forest as
+good land by construction. Now `FertilityRulesDto` carries the flat band
+baselines, and the prod client's `SoilGrade.OfBand` grades a claim tile from
+the floor where its structure would LOSE the tile (DesertThreshold for
+Grassland kinds, ForestThreshold for Forest kinds) up to the tile's own
+baseline: fresh = green everywhere, red = about to lose it. The bubble's
+alarm uses the same grade.
+
+Placement: with a claiming kind in hand, `SelectionRenderer.DrawClaimPreview`
+mirrors `Claims.AutoSelect` over the believed map (rings out to claimRange in
+(distance, y, x) order, first claimCount free tiles of the required biome)
+and outlines each predicted claim tile by `SoilGrade.SiteQuality`: the
+board's glow for typical land for that band, toward green above it, toward
+amber below, never red (no unbuilt land is "gone"). It reads
+`KnownWorld.BelievedBaseline`, so on a pre-M35 server it degrades to the
+plain outline. Compile-checked, not yet seen in Play.

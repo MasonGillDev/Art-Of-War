@@ -127,6 +127,12 @@ public sealed class FertilityRulesDto
 {
     public int ForestThreshold { get; set; }
     public int DesertThreshold { get; set; }
+    /// M35 — the flat band baselines (untouched Grassland / Forest before any
+    /// environmental offset), so the client can grade a claim against the band
+    /// its structure works: a fresh farm at 5000 is green farmland, not half a
+    /// forest. docs/environmental-fertility.md.
+    public int GrasslandBaseline { get; set; }
+    public int ForestBaseline { get; set; }
 }
 
 /// How long a day of light lasts, and where tick 0 falls in it.

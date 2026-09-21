@@ -50,6 +50,13 @@ public class EnvironmentalFertilityWireTests
             }
         Assert.True(differs > 0, "a graded config must move some tile off its band baseline");
 
+        // The band baselines ride the fertility rules block so the client can grade
+        // a claim against the band its structure works.
+        Assert.Equal(cfg.GrasslandBaseline, world.Fertility.GrasslandBaseline);
+        Assert.Equal(cfg.ForestBaseline, world.Fertility.ForestBaseline);
+        Assert.True(world.Fertility.GrasslandBaseline > world.Fertility.DesertThreshold);
+        Assert.True(world.Fertility.ForestBaseline > world.Fertility.ForestThreshold);
+
         // The parameterless overload ships the defaults' (flat) baselines, not zeros.
         var flat = projector.BuildWorldDto();
         Assert.Equal(world.Baseline.Length, flat.Baseline.Length);

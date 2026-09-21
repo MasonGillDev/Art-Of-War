@@ -38,6 +38,7 @@ asked.
 
 ## Verified
 
+- 2026-09-20 presentation follow-up (user): band-relative soil grade + graded claim preview while placing; `FertilityRulesDto` gains the band baselines; 34 wire tests green, prod client type-checks.
 - 2026-09-20 after Phase E: full suite green: 1152 passed, 0 failed, 3m26s (1124 baseline + 28 new, incl. the 3-rung sweep); prod client `_AowTypeCheck` + `_AowWireBoundary` build clean; not run in Play.
 
 ## Phase F — gradient sweep (2026-09-20, `GradientSweep_LabReport`, 100 days, seed 7, 96x96, two Homesteaders)
