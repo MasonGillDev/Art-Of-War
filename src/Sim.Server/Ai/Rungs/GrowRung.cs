@@ -116,8 +116,14 @@ public sealed class GrowRung : IRung
                 if (ctx.Mem.DesignatedParents.Count >= 2) break;
                 ctx.Mem.DesignatedParents.Add(u.Id);
             }
+            // Off the fields, GENERALISTS before FARMERS (2026-09-19): the
+            // food-wall post-mortem counted 116 crews pulled for breeding
+            // in 170 days — the colony's churn is its birth rate, and a
+            // conscripted Farmer costs the 2:1 hand a generalist doesn't.
             foreach (var u in ctx.OwnUnits.Where(u => Eligible(u)
-                         && u.Activity == (int)Activity.Working).OrderBy(u => u.Id))
+                         && u.Activity == (int)Activity.Working)
+                         .OrderBy(u => (UnitRole)u.Role == UnitRole.Farmer ? 1 : 0)
+                         .ThenBy(u => u.Id))
             {
                 if (ctx.Mem.DesignatedParents.Count >= 2) break;
                 ctx.Mem.DesignatedParents.Add(u.Id);

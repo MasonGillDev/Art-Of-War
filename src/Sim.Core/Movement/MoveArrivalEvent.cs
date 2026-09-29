@@ -76,17 +76,41 @@ public sealed class MoveArrivalEvent : ScheduledEvent
             return;
         }
 
+        // THE PER-SIDE CAP (docs/structure-footprints.md, TileCapacity): the
+        // unit's side may have no more units on a tile than it has subtiles
+        // to stand on. Same yield as the flat cap above: the unit stops on the
+        // tile it was leaving. Ground truth, not visibility-gated.
+        if (!TileCapacity.HasRoom(sim.World, To, unit.OwnerId))
+        {
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            unit.TrySetActivity(Activity.Idle);
+            Outcome = IntentOutcome.Reject(
+                $"tile {To.X},{To.Y} is full for your side (room for {TileCapacity.For(sim.World, To, unit.OwnerId)})");
+            return;
+        }
+
         var leftTile = unit.Position;
         unit.Position = To;
+        // M41 — the edge it came in by (battles deploy arrivals there;
+        // Withdraw goes back out that way); a hop off a battlefield has landed.
+        unit.EnteredFrom = leftTile;
+        unit.EnteredTick = sim.Now;
+        unit.LeavingBoard = null;
         // M12 — dock slip-clear hook: if the tile the unit just left is
         // any dock's slip, that dock re-evaluates its production.
         Sim.Core.Boats.DockArmer.OnUnitLeftTile(sim, leftTile);
-        // M2 Phase C: every real arrival credits the tile entered. THE one
-        // mutation point for road condition. See Roads/Roads.cs.
-        Road.CreditTraffic(sim.World, To, sim.Now);
+        // M2 Phase C / M34: every real arrival credits the ARC walked (the
+        // lane between the tile left and the tile entered). THE one mutation
+        // point for road condition. See Roads/Road.cs, docs/roads-on-edges.md.
+        Road.CreditTraffic(sim.World, leftTile, To, sim.Now);
         // M3 Phase B: the arrival also reveals the unit's vision radius for
         // its owner. See Vision/Sight.cs.
         Sight.Reveal(sim.World, unit.OwnerId, To, Sight.RadiusFor(unit.Role), sim.Now);
+        Sight.AfterReveal(sim, unit.OwnerId, To, Sight.RadiusFor(unit.Role));   // M37/M38
+        Sim.Core.Bandits.Camps.OnMoved(sim.World, unit);   // M39 — a camp's raid has left
         // M20: if this unit is scouting, append what its fresh vision touched
         // to the observation log. THE one write site for the log (mirrors
         // Sight.Reveal above; records the very disc it just revealed). No-op —
@@ -104,7 +128,41 @@ public sealed class MoveArrivalEvent : ScheduledEvent
         // M7: presence-gated combat trigger. Hostile-owner co-location on
         // an arrived-at tile starts a fight; benign co-occupancy is a
         // no-op. Already-contested tile fences inside the trigger.
+        var hadPath = unit.PathRemaining is not null;
         Sim.Core.Combat.CombatTrigger.MaybeBeginCombatOnTile(sim, To);
+
+        // M41 — Grid: the unit now has a place on a battlefield here (it opened
+        // one, or waits to come on). It stops walking; the rest of its route is
+        // KEPT (the board steers it to that edge, and it walks on when the
+        // battle ends). A real final arrival still dispatches its errand — a
+        // hauler caught on the castle still deposits.
+        if (unit.Board is not null)
+        {
+            if (unit.PathRemaining is { Count: > 0 }) unit.PathRemaining.RemoveAt(0);
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq = null;
+            if (unit.PathRemaining is null || unit.PathRemaining.Count == 0)
+            {
+                unit.PathRemaining = null;
+                unit.PathFinalDest = null;
+                DispatchOnFinalArrival(sim, unit);
+            }
+            return;
+        }
+
+        // PINNED MID-ROUTE (docs/combat-pin-strands-hauls.md). The trigger
+        // cleared this unit's path because it walked into a fight short of
+        // its destination. It has NOT arrived: dispatching the obligation
+        // here would read "final arrival" off an empty path and either
+        // strand it (a haul left in place at the wrong stop), dissolve it (a
+        // goal that "found no slot" on a tile with no workplace) or end it (a
+        // chase). The obligation stays exactly as it was; the unit stands
+        // and fights; CombatRules.ResumeInterrupted re-issues the leg from
+        // here when the tile's combat ends. Arriving AT the destination and
+        // being pinned there is not this case — the stop is real, so the
+        // dispatch below runs (a hauler pinned on the castle still deposits).
+        if (hadPath && unit.PathRemaining is null && To != FinalDestination)
+            return;
 
         // Pop the tile we just entered from the committed path.
         // Defensive: PathRemaining should never be null/empty here on a fresh

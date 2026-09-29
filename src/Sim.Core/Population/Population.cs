@@ -82,6 +82,10 @@ public static class Population
     // and a catch-up from anchor 0 over 0 elapsed ticks is a no-op.
     public static Unit OnUnitAdded(Simulation sim, Unit unit)
     {
+        // The per-side cap (Movement.TileCapacity): a unit born, arriving as a
+        // refugee or settler, or spawned as a bandit on a tile its side has
+        // filled appears on the nearest tile with room instead.
+        unit.Position = Sim.Core.Movement.TileCapacity.RoomNear(sim.World, unit.Position, unit.OwnerId, unit.Traversal);
         var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(sim.World, unit.OwnerId);
         if (castle is not null)
             Sim.Core.Food.FoodConsumption.CatchUp(castle, sim, sim.Now);
@@ -90,6 +94,8 @@ public static class Population
         var added = sim.World.AddUnit(unit);
         if (castle is not null)
             Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(castle, sim);
+        // M37 — the population gauge moved.
+        Sim.Core.Progression.Progression.Check(sim, unit.OwnerId);
         return added;
     }
 
@@ -152,6 +158,14 @@ public static class Population
         // (age, starvation, combat) already converges here, so this one line
         // is the whole of succession's plumbing.
         Sim.Core.Royalty.Succession.OnRoyalRemoved(sim, unit);
+
+        // M37 — the last raider of an omen's raid gone resolves it
+        // (docs/progression.md). Same convergence point as succession.
+        Sim.Core.Progression.Omens.OnUnitRemoved(sim, unit);
+        // M39 — a dead raider leaves its camp's list.
+        Sim.Core.Bandits.Camps.OnUnitRemoved(sim, unit);
+        // Two-act pacing — a dead bandit leaves its landing band.
+        Sim.Core.Landing.LandingRules.OnUnitRemoved(sim, unit);
 
         // M30 — goal stop-on-removal, the One Stop Rule applied to goals
         // (docs/goal-shaped-intents.md). Two halves:

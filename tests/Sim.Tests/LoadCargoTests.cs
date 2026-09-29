@@ -55,19 +55,22 @@ public class LoadCargoTests
     }
 
     [Fact]
-    public void Load_TopUp_SameResource_Allowed_OtherResource_Rejected()
+    public void Load_OtherResource_MixesUnderOneCapacity()
     {
+        // M36 (docs/hauling-queue-and-routes.md): cargo can be mixed. A unit
+        // carrying wood loads stone into the space left, and no more.
         var sim = MakeSim(out var world);
-        CargoTransfer.DropToGround(world, new TileCoord(2, 2), Resource.Wood, 50);
+        CargoTransfer.DropToGround(world, new TileCoord(2, 2), Resource.Stone, 50);
         var hauler = world.AddUnit(new Unit(1, new TileCoord(2, 2))
         {
-            Role = UnitRole.Hauler, CargoResource = Resource.Wood, CargoAmount = 10,
+            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 10 } },
         });
 
-        Assert.True(new LoadCargoIntent(1, Resource.Stone) { PlayerId = 0 }
-            .Resolve(sim).IsRejected);
-        var outcome = new LoadCargoIntent(1, Resource.Wood) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new LoadCargoIntent(1, Resource.Stone) { PlayerId = 0 }.Resolve(sim);
+
         Assert.True(outcome.IsApplied, outcome.Reason);
+        Assert.Equal(10, hauler.Cargo.AmountOf(Resource.Wood));
+        Assert.Equal(UnitCargoCatalog.HaulerCapacity - 10, hauler.Cargo.AmountOf(Resource.Stone));
         Assert.Equal(UnitCargoCatalog.HaulerCapacity, hauler.CargoAmount);
     }
 
@@ -91,8 +94,7 @@ public class LoadCargoTests
         // Nothing of the named resource on the tile.
         Assert.True(new LoadCargoIntent(1, Resource.Stone) { PlayerId = 0 }.Resolve(sim).IsRejected);
         // Full cargo.
-        unit.CargoResource = Resource.Wood;
-        unit.CargoAmount = unit.CargoCapacity;
+        unit.Cargo.Add(Resource.Wood, unit.CargoCapacity);
         Assert.True(new LoadCargoIntent(1, Resource.Wood) { PlayerId = 0 }.Resolve(sim).IsRejected);
     }
 

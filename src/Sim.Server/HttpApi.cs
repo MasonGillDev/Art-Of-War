@@ -14,12 +14,22 @@ namespace Sim.Server;
 //     GET  /v2/view/{playerId}[?reveal=1]  — slim per-tick view (fog runs, no tile arrays)
 //   both:
 //     POST /intent
-//     GET/POST /v2/pace           — host pause + speed. NOT an intent: pacing is a
-//                                   property of the host clock, never of the sim.
+//     GET/POST /v2/pace           — host pause + speed override, a DEV/ADMIN tool (the
+//                                   pace is scheduled: docs/two-act-pacing.md). NOT an
+//                                   intent: pacing is a property of the host clock,
+//                                   never of the sim.
 public sealed class HttpApi : IDisposable
 {
-    private readonly GameHost _host;
+    private GameHost _host;
     private readonly HttpListener _listener = new();
+
+    // M41 — the battle test bed (Scenarios/ScenarioHost) serves /v2/dev/* and
+    // swaps the host when it loads a scenario. Null in every ordinary game.
+    public Scenarios.ScenarioHost? Dev { get; set; }
+
+    // Requests are handled one at a time on the listener thread, so a swap made
+    // from a dev route never races another request.
+    public void SwapHost(GameHost host) => _host = host;
 
     public HttpApi(GameHost host, int port)
     {
@@ -116,6 +126,12 @@ public sealed class HttpApi : IDisposable
                 }
             }
 
+            if (Dev is not null && path.StartsWith("/v2/dev/"))
+            {
+                using var devReader = new StreamReader(req.InputStream, req.ContentEncoding);
+                if (Dev.Handle(ctx, req.HttpMethod, path, devReader.ReadToEnd())) return;
+            }
+
             if (req.HttpMethod == "POST" && path == "/intent")
             {
                 using var reader = new StreamReader(req.InputStream, req.ContentEncoding);
@@ -133,21 +149,24 @@ public sealed class HttpApi : IDisposable
         }
     }
 
-    // The pace request/response body. Same field names both directions, so the
-    // client posts what it wants and renders what it got back — the clamp is
+    // The pace body — a dev/admin tool: players have no pace control, the pace is
+    // scheduled (docs/two-act-pacing.md). Request: Paused, plus TicksPerSecond to
+    // HOLD an override (omit it or send null to return to the schedule). Response:
+    // the pace actually running, and whether an override holds it. The clamp is
     // visible rather than silent.
     private sealed class PaceDto
     {
         public bool Paused { get; set; }
-        public double TicksPerSecond { get; set; } = 4.0;
+        public double? TicksPerSecond { get; set; }
+        public bool Overridden { get; set; }
     }
 
-    private static string PaceJson((bool Paused, double TicksPerSecond) pace) =>
+    private string PaceJson((bool Paused, double TicksPerSecond) pace) =>
         JsonSerializer.Serialize(
-            new PaceDto { Paused = pace.Paused, TicksPerSecond = pace.TicksPerSecond },
+            new PaceDto { Paused = pace.Paused, TicksPerSecond = pace.TicksPerSecond, Overridden = _host.PaceOverridden },
             ServerJson.Options);
 
-    private static void WriteJson(HttpListenerContext ctx, int status, string json)
+    internal static void WriteJson(HttpListenerContext ctx, int status, string json)
     {
         var bytes = Encoding.UTF8.GetBytes(json);
         ctx.Response.StatusCode = status;

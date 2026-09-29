@@ -50,6 +50,10 @@ public class ViewDto
     // client derives the running calendar/clock from it. Distinct from the wall-clock
     // pace dial (--tps) and the demographic aging clock, both of which leave it alone.
     public long Tick { get; set; }
+    // Two-act pacing (docs/two-act-pacing.md): the tick the landing comes, the end of
+    // the prelude and its truce. 0 = a one-act world. On the base view so the AI
+    // brains, which read only this, see the same countdown a player does.
+    public long LandingTick { get; set; }
     public TileDto[] Visible { get; set; } = [];
     public TileDto[] Remembered { get; set; } = [];
     public UnitDto[] Units { get; set; } = [];
@@ -75,6 +79,26 @@ public class ViewDto
     // are never wire-visible; automation is private strategy). Definition +
     // live cursor so the client can render "supply line: step 1/2, waiting".
     public OrderDto[] Orders { get; set; } = [];
+    // M36 — the viewer's own haul queue and named routes
+    // (docs/hauling-queue-and-routes.md). Owner-only, like Orders.
+    public HaulQueueDto HaulQueue { get; set; } = new();
+    public HaulRouteDto[] HaulRoutes { get; set; } = [];
+    // M37 — the viewer's own omens (docs/progression.md): threats and arrivals
+    // counting down or under way, and the outcome of any that ended in the
+    // last OmenDto.RecentTicks. Owner-only. The milestones behind them and the
+    // progress counters never go on the wire: they are surprises.
+    public OmenDto[] Omens { get; set; } = [];
+    // M37 — structure kinds (StructureKind bytes) the viewer's people do not yet
+    // know how to build; a milestone will teach them. Owner-only. Says WHAT is
+    // locked, never what unlocks it (milestones are surprises). Empty for a
+    // player not enrolled in progression.
+    public int[] LockedKinds { get; set; } = [];
+    // M38 — the viewer's own chart: what their returned scouts reported
+    // (docs/scouting-secrets.md). Owner-only. A HINT, never the secret's kind
+    // or contents. The secret itself is only a structure while in live sight.
+    public ChartEntryDto[] Chart { get; set; } = [];
+    // M38 — the viewer's own live idol circles of sight. Owner-only.
+    public VisionGrantDto[] VisionGrants { get; set; } = [];
 
     // M20 — scout reports that have come in for this player (own-only; a
     // rolling window). Each carries the narrated prose (or raw-claims fallback)
@@ -250,6 +274,124 @@ public sealed class OrderDto
     public string LastDetail { get; set; } = "";
 }
 
+// M38 — one chart marker. Hint: 1 Glint (a cache or ruin), 2 StoneFigure (an
+// idol). State: 1 Known (last seen SeenTick), 2 Gone (struck at GoneTick).
+public sealed class ChartEntryDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Hint { get; set; }
+    public int State { get; set; }
+    public long SeenTick { get; set; }
+    public long GoneTick { get; set; }
+}
+
+// M38 — an activated idol's circle of sight, while it lasts.
+public sealed class VisionGrantDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Radius { get; set; }
+    public long TicksLeft { get; set; }
+}
+
+// M37 — one omen, as its owner sees it. Enum values are the sim's bytes:
+//   Kind   1 Raid, 2 Refugees (newcomers), 3 Rumour (a ruin in the fog),
+//          4 Camp (a bandit camp; TicksLeft counts to its first raid)
+//   State  1 Pending, 2 Arrived (raid under way / ruin standing),
+//          3 Repelled, 4 Lost, 5 Fulfilled (arrived / ruin emptied), 6 Fizzled
+//   From   0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW (north = +y)
+public sealed class OmenDto
+{
+    // How long an ended omen stays on the wire, so the client can say how it went.
+    public const long RecentTicks = 2 * Sim.Core.Time.Day;
+
+    public int Id { get; set; }
+    public int Kind { get; set; }
+    public int State { get; set; }
+    public int From { get; set; }
+    // Raiders or newcomers; 0 for a rumour.
+    public int Size { get; set; }
+    // Pending: when it comes, and how long until then.
+    public long DueTick { get; set; }
+    public long TicksLeft { get; set; }
+    // Where it is headed (the seat). -1 for a rumour: the owner is told which
+    // way to look, never where.
+    public int TargetX { get; set; } = -1;
+    public int TargetY { get; set; } = -1;
+    // Rumour: the search area, a circle that holds the ruin somewhere inside
+    // (never at its centre). Radius 0 for other kinds.
+    public int AreaX { get; set; }
+    public int AreaY { get; set; }
+    public int AreaRadius { get; set; }
+    // Raid under way: raiders still standing.
+    public int Remaining { get; set; }
+    // When it ended; 0 while live.
+    public long ResolvedTick { get; set; }
+}
+
+// M36 — the haul queue. Jobs are in QUEUE order (front first). The live
+// fields come from the driver's last think (presentation only, never hashed);
+// State 0 = added since that think.
+public sealed class HaulQueueDto
+{
+    public int FreeHaulers { get; set; }
+    // Jobs that want a trip and have stock, but no hauler is free.
+    public int Waiting { get; set; }
+    // How long the longest-waiting of those has been in line, in ticks.
+    public long LongestWaitTicks { get; set; }
+    public HaulJobDto[] Jobs { get; set; } = [];
+}
+
+public sealed class HaulJobDto
+{
+    public int Id { get; set; }
+    public int SourceX { get; set; }
+    public int SourceY { get; set; }
+    public int DestX { get; set; }
+    public int DestY { get; set; }
+    public int Resource { get; set; }
+    public int Kind { get; set; }            // HaulJobKind byte: 1 Standing, 2 Once
+    public int Target { get; set; }
+    public int Delivered { get; set; }       // Once only
+    public long WaitTicks { get; set; }      // since it last joined the back of the line
+    // ---- live, from the driver ----
+    public int State { get; set; }           // HaulJobState
+    public int Need { get; set; }
+    public int OnTheWay { get; set; }
+    public int Haulers { get; set; }
+}
+
+public sealed class HaulRouteDto
+{
+    public int Id { get; set; }
+    public HaulStopDto[] Stops { get; set; } = [];
+    public HaulCrewDto[] Crews { get; set; } = [];
+}
+
+public sealed class HaulStopDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public HaulStopRuleDto[] Rules { get; set; } = [];
+}
+
+public sealed class HaulStopRuleDto
+{
+    public int Resource { get; set; }
+    public int Op { get; set; }              // StopRuleOp byte: 1 Pickup, 2 Drop
+    public int Percent { get; set; }
+}
+
+public sealed class HaulCrewDto
+{
+    public int Id { get; set; }
+    public int[] Members { get; set; } = [];
+    public int CurrentStop { get; set; }
+    public int Living { get; set; }
+    public int State { get; set; }           // RouteCrewState, live from the driver
+}
+
 public sealed class SelectorDto
 {
     public int Role { get; set; }
@@ -308,6 +450,13 @@ public sealed class TileDto
     public int Baseline { get; set; }
 }
 
+// M36 — one row of a unit's mixed cargo (docs/hauling-queue-and-routes.md).
+public sealed class CargoItemDto
+{
+    public int Resource { get; set; }
+    public int Amount { get; set; }
+}
+
 public sealed class UnitDto
 {
     public int Id { get; set; }
@@ -323,8 +472,12 @@ public sealed class UnitDto
     public int Activity { get; set; }   // Sim.Core Activity enum; -1 = hidden (not the viewer's unit)
     public int PassengerCap { get; set; } // boats: max passengers (0 for non-boats / not own)
     public int Passengers { get; set; }   // boats: current embarked passenger count
-    public int CargoResource { get; set; } // carried cargo resource (own units; 0/None if empty/not own)
-    public int CargoAmount { get; set; }   // carried cargo amount (own units)
+    // M36 — cargo can be MIXED. CargoAmount is the total aboard and
+    // CargoResource the resource with the most aboard (exact for every
+    // single-resource carrier); Cargo lists every row. Own units only.
+    public int CargoResource { get; set; } // dominant carried resource (own units; 0/None if empty/not own)
+    public int CargoAmount { get; set; }   // total carried, all resources (own units)
+    public CargoItemDto[] Cargo { get; set; } = [];
     public int Power { get; set; } = -1;   // effective combat power (own units; -1 = hidden)
     // Housing (docs/housing-buffs.md): homed at a fed own House, so the
     // settled work/power bonus applies. Own units only, like Power.
@@ -384,6 +537,16 @@ public sealed class UnitDto
     public int GoalX { get; set; } = -1;
     public int GoalY { get; set; } = -1;
 
+    // P3 — the PURSUIT anchor (World/Pursuit.cs, docs/patrols.md): who this unit
+    // is chasing and the leash it will be called off at. OWN UNITS ONLY — a chase
+    // is an order and orders are private; an enemy's chase is inferred from its
+    // movement, never disclosed. -1 everywhere when there is no pursuit or the
+    // unit is not yours. PursuitLeashRadius 0 is a real value: "no leash".
+    public int PursuitTargetId { get; set; } = -1;
+    public int PursuitLeashX { get; set; } = -1;
+    public int PursuitLeashY { get; set; } = -1;
+    public int PursuitLeashRadius { get; set; } = -1;
+
     // C2 — THE CURRENT HOP, so the client can draw motion instead of teleportation.
     //
     // Units move tile to tile on scheduled arrivals, so a client that draws them at
@@ -431,6 +594,13 @@ public sealed class StructDto
     public int Y { get; set; }
     public int Kind { get; set; }
     public int OwnerId { get; set; }
+    // Structure footprints (docs/structure-footprints.md): which way it faces
+    // (Heading: 0 N, 1 E, 2 S, 3 W; a dock: its slip's side), and its resolved
+    // 4×4 layout when that isn't plain ground (walls and canals joined to the
+    // neighbours this viewer can see). Public, like the building itself.
+    public int Facing { get; set; }
+    public bool HasFootprint { get; set; }
+    public FootprintDto Footprint { get; set; } = new();
     public ResAmtDto[] Holdings { get; set; } = [];  // storage holdings / extractor buffer / site materials delivered
     public int Capacity { get; set; }                 // storage capacity / extractor buffer cap (0 if N/A)
     public int Workers { get; set; }                  // extractor: workers assigned
@@ -467,6 +637,18 @@ public sealed class StructDto
     // (ClaimBaseline - ClaimFertility); a riverside field starts above the
     // flat band baseline, a dry-edge one below (docs/environmental-fertility.md).
     public int[] ClaimBaseline { get; set; } = [];
+    // Kingdom analytics (docs/structure-rates-on-the-wire.md) — both in the
+    // SAME unit, per game day, so a farm's output reads directly against a
+    // house's appetite. OWN structures only.
+    //   OutputPerDay: own extractors/refiners — what the current workers on
+    //     the current soil make per day (ProductionRate, the tick's formula).
+    //     The rate at pace, not a promise: Producing says whether it is
+    //     running (false = no workers, buffer full, soil spent, no inputs).
+    //   EatsPerDay: own food homes (House, Castle) — food the residents eat
+    //     per day. The castle counts its own mouths (everyone not housed).
+    public int OutputPerDay { get; set; }
+    public bool Producing { get; set; }
+    public int EatsPerDay { get; set; }
     // P2 — structure health. OWN structures always; ANY visible fortification
     // (Wall/Gate/Tower/Castle) too, because a besieger has to see what they
     // are breaching (docs/siege-visibility.md: exact, not banded). Every other

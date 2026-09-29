@@ -68,6 +68,16 @@ public static class RegenerateQueue
                 new Sim.Core.Combat.CombatRoundEvent(state.Tile));
         }
 
+        // M41: open battlefields with a turn queued (a suspended board has
+        // none; an order or an arrival wakes it). World.Battlefields iterates
+        // in canonical (y, x) order.
+        foreach (var bf in world.Battlefields.Values)
+        {
+            if (bf.Suspended) continue;
+            sim.ScheduleWithSeq(bf.NextTurnTick, bf.NextTurnSeq,
+                new Sim.Core.Battlefields.BattlefieldTurnEvent(bf.Tile));
+        }
+
         // M8: pending old-age deaths. Each unit with (DeathTick, DeathSeq)
         // contributes one queued DeathByAgeEvent, restored at its original
         // anchor. Iterated in canonical id order (SortedDictionary).
@@ -142,6 +152,26 @@ public static class RegenerateQueue
                     new Sim.Core.Food.StarvationDeathEvent(home.At));
             }
         }
+
+        // M39: bandit camps' daily ticks, in (y, x) order.
+        foreach (var camp in world.Structures.Values.OfType<BanditCamp>().OrderBy(c => c.At.Y).ThenBy(c => c.At.X))
+            sim.ScheduleWithSeq(camp.NextTickAt, camp.NextTickSeq, new Sim.Core.Bandits.CampTickEvent(camp.At));
+
+        // M38: live idol vision grants' expiries, in id order.
+        foreach (var (_, g) in world.VisionGrants)
+            sim.ScheduleWithSeq(g.EndsTick, g.EndSeq, new Sim.Core.Scouting.VisionGrantExpiryEvent(g.GrantId));
+
+        // M37: pending omens' countdowns, in id order.
+        foreach (var (_, omen) in world.Omens)
+        {
+            if (omen.State != Sim.Core.Progression.OmenState.Pending) continue;   // Seq 0 is a real Seq
+            sim.ScheduleWithSeq(omen.DueTick, omen.DueSeq,
+                new Sim.Core.Progression.OmenDueEvent(omen.OmenId));
+        }
+
+        // Two-act pacing: the landing, while it is still to come.
+        if (world.LandingSeq is { } landingSeq)
+            sim.ScheduleWithSeq(world.LandingConfig.Tick, landingSeq, new Sim.Core.Landing.LandingEvent());
     }
 
     private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)

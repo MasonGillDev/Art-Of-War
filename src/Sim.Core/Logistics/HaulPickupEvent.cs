@@ -74,6 +74,27 @@ public sealed class HaulPickupEvent : ScheduledEvent
         Structure? source = null;
         world.Structures.TryGetValue(SourceTile, out source);
 
+        // M40 — a salvage trip takes EVERYTHING that fits, from the cache and the
+        // pile, mixed. Finding nothing is how a salvage learns it is over: the
+        // job ends here, on arrival, and the hauler goes idle.
+        if (Resource == Resource.None)
+        {
+            if (Sim.Core.Hauling.Salvage.TakeAll(sim, hauler, SourceTile) == 0)
+            {
+                if (hauler.HaulPlan is { JobId: > 0 } done
+                    && world.HaulJobs.TryGetValue(done.JobId, out var job)
+                    && job.Kind == Sim.Core.Hauling.HaulJobKind.Salvage
+                    && job.OwnerId == hauler.OwnerId)
+                    world.HaulJobs.Remove(job.JobId);
+                hauler.HaulPlan = null;
+                hauler.TrySetActivity(Activity.Idle);
+                Outcome = IntentOutcome.Reject($"nothing left to salvage at {SourceTile.X},{SourceTile.Y}");
+                return;
+            }
+            SecondLeg(sim, hauler);
+            return;
+        }
+
         // M19 — taking FOOD out of a FOOD HOME shifts its dry-out: catch
         // up FIRST so `available` reflects what the lazy clock already
         // ate (no phantom food), and re-evaluate after the withdraw so
@@ -102,7 +123,10 @@ public sealed class HaulPickupEvent : ScheduledEvent
         }
         var available = availableFromStructure > 0 ? availableFromStructure : availableFromGround;
 
-        var pickup = Math.Min(hauler.CargoCapacity, available);
+        var pickup = Math.Min(hauler.CargoCapacity - hauler.CargoAmount, available);
+        // M36 — a sized trip (the queue's last load) takes no more than asked.
+        if (hauler.HaulPlan is { Amount: > 0 } sized)
+            pickup = Math.Min(pickup, sized.Amount);
         if (pickup == 0)
         {
             // FAIL CLEAN — the same discipline the dest-leg paths below already
@@ -141,6 +165,7 @@ public sealed class HaulPickupEvent : ScheduledEvent
             }
             if (foodHome is not null)
                 Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodHome, sim);
+            Sim.Core.Caches.CacheLooting.RemoveIfEmptied(sim, source);
         }
         else
         {
@@ -151,8 +176,14 @@ public sealed class HaulPickupEvent : ScheduledEvent
             if (pile.Count == 0) world.GroundResources.Remove(SourceTile);
         }
 
-        hauler.CargoResource = Resource;
-        hauler.CargoAmount = pickup;
+        hauler.Cargo.Add(Resource, pickup);
+        SecondLeg(sim, hauler);
+    }
+
+    // The trip's second leg: to the destination, depositing on arrival.
+    private void SecondLeg(Simulation sim, Unit hauler)
+    {
+        var world = sim.World;
 
         // M4 Phase A: switch the on-unit haul anchor from "going to source"
         // to "going to dest". MoveArrivalEvent will see Phase == ToDest at

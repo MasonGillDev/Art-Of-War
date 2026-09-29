@@ -142,8 +142,7 @@ public class SameTickFairnessTests
         {
             var u = world.AddUnit(new Unit(id, siteTile) { Role = UnitRole.Hauler });
             u.TrySetActivity(Activity.Hauling);
-            u.CargoResource = Resource.Wood;
-            u.CargoAmount = 1;
+            u.Cargo.Add(Resource.Wood, 1);
         }
         // Builder pre-Building on the site tile so ConditionsMet is satisfied
         // the instant materials hit.
@@ -186,8 +185,7 @@ public class SameTickFairnessTests
             {
                 var u = world.AddUnit(new Unit(id, siteTile) { Role = UnitRole.Hauler });
                 u.TrySetActivity(Activity.Hauling);
-                u.CargoResource = Resource.Wood;
-                u.CargoAmount = 1;
+                u.Cargo.Add(Resource.Wood, 1);
             }
             var builder = world.AddUnit(new Unit(99, siteTile) { Role = UnitRole.Builder });
             builder.TrySetActivity(Activity.Building, siteTile);

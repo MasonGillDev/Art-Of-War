@@ -58,6 +58,17 @@ public sealed class GroupArrivalEvent : ScheduledEvent
         // Idle, the player can re-task. Bumps MovementEpoch so any queued
         // GroupArrivalEvents from this chain fence on fire.
         var existingOnDest = MovementCost.CountUnitsOnTile(world, To);
+        // The per-side cap (TileCapacity) as well: the whole column fits on To
+        // for its side, or none of it goes.
+        if (!TileCapacity.HasRoom(world, To, group.OwnerId, group.Members.Count))
+        {
+            MoveGroupIntent.ClearMovementAnchors(group);
+            group.State = GroupState.Idle;
+            group.BumpEpoch();
+            Outcome = IntentOutcome.Reject(
+                $"tile {To.X},{To.Y} has no room for the group's {group.Members.Count} (room for {TileCapacity.For(world, To, group.OwnerId)})");
+            return;
+        }
         if (existingOnDest + group.Members.Count > MovementConstants.MaxUnitsPerTile)
         {
             MoveGroupIntent.ClearMovementAnchors(group);
@@ -72,10 +83,15 @@ public sealed class GroupArrivalEvent : ScheduledEvent
         foreach (var memberId in group.Members)
         {
             if (!world.Units.TryGetValue(memberId, out var unit)) continue;
+            var left = unit.Position;
             unit.Position = To;
-            // Each member is a real arrival on this tile.
-            Road.CreditTraffic(world, To, sim.Now);
+            unit.EnteredFrom = left;      // M41 — see MoveArrivalEvent
+            unit.EnteredTick = sim.Now;
+            unit.LeavingBoard = null;
+            // Each member is a real arrival: credit the arc it walked.
+            Road.CreditTraffic(world, left, To, sim.Now);
             Sight.Reveal(world, unit.OwnerId, To, Sight.RadiusFor(unit.Role), sim.Now);
+            Sight.AfterReveal(sim, unit.OwnerId, To, Sight.RadiusFor(unit.Role));   // M37/M38
         }
 
         // Group's own position follows.

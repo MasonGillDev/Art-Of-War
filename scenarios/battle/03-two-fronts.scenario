@@ -1,0 +1,31 @@
+# Blue holds a tile with a line and archers. Red comes at it from two
+# neighbouring tiles at once: the east and the north edges.
+title: Two fronts
+note: Red attacks your held tile from the east AND the north. Four lanes per edge: a line facing one way can be flanked from the other.
+size: 64
+seed: 4242
+tps: 4
+turn: 60
+founders: none
+war: blue red
+
+unit blue soldier 3 3 sword shield
+unit blue soldier 3 3 sword shield
+unit blue soldier 3 3 sword shield
+unit blue soldier 3 3 sword shield
+unit blue archer 3 3 bow
+unit blue archer 3 3 bow
+
+unit red soldier 8 3 sword shield doctrine=advance
+unit red soldier 8 3 sword shield doctrine=advance
+unit red soldier 8 3 sword shield doctrine=advance
+unit red soldier 3 -2 sword shield doctrine=advance
+unit red soldier 3 -2 sword shield doctrine=advance
+unit red soldier 3 -2 sword shield doctrine=advance
+
+move 7 3 3
+move 8 3 3
+move 9 3 3
+move 10 3 3
+move 11 3 3
+move 12 3 3

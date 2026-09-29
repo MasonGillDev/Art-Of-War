@@ -121,3 +121,11 @@ intercept movement:
   of forced stop) without needing a separate event.
 - **Auto-resume surviving path.** As above — one extra field on `CombatState`;
   zero changes to the round event.
+
+## Update 2026-09-24 — to be retired by the battlefield grid (designed, not built)
+
+`docs/battlefield-grid.md` §4 replaces the pin. A unit on an open battlefield may move within the
+tile but may not leave it, except by withdrawing toward the tile it entered from. When the board
+closes, units **continue their route**, so the route must be kept through the battle instead of
+cleared (the "auto-resume surviving path" idea above). The pin stays in force until the board is
+built.

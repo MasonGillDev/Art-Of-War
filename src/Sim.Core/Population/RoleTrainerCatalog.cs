@@ -3,7 +3,8 @@ using Sim.Core.World;
 namespace Sim.Core.Population;
 
 // Which structure trains which role (docs/military-training.md).
-// Civilian roles → School; military roles → Barracks; Boat → none
+// Civilian roles → School; military roles → Barracks; Scout → Lodge (M38,
+// docs/scouting-secrets.md: scouting is earned, like arms); Boat → none
 // (dock-produced, never trained from a citizen).
 //
 // Exhaustive switch, no silent default: an unmapped role is a bug the
@@ -20,7 +21,7 @@ public static class RoleTrainerCatalog
         UnitRole.Lumberjack => StructureKind.School,
         UnitRole.Quarryman  => StructureKind.School,
         UnitRole.Hauler     => StructureKind.School,
-        UnitRole.Scout      => StructureKind.School,
+        UnitRole.Scout      => StructureKind.Lodge,
         UnitRole.Soldier    => StructureKind.Barracks,
         UnitRole.Archer     => StructureKind.Barracks,
         UnitRole.Boat       => null,

@@ -58,22 +58,23 @@ public static class PursuitRules
         }
 
         // ---- 4. PINNED IN A FIGHT ----
-        // The pursuer walked onto a contested tile — the engagement pin has
-        // just cancelled its movement precisely so a force cannot walk THROUGH
-        // a hostile one. Stepping again here would march it straight back out
+        // The pursuer stands on a contested tile — the engagement pin has
+        // cancelled its movement precisely so a force cannot walk THROUGH a
+        // hostile one. Stepping again here would march it straight back out
         // of the fight and defeat the pin.
         //
-        // Being pinned ENDS the chase rather than suspending it. Suspending
-        // would leave a live anchor on a unit with no arrival scheduled — the
-        // permanent-brick shape (docs/automation-substrate.md) — because
-        // nothing would re-enter Step once the fight resolved. Ending it is
-        // also the honest division of labour: the sim owns the fight, and the
-        // patrol driver re-evaluates posture on its next think.
+        // The target is NOT here (rule 3 above took the catch), so this is a
+        // BYSTANDER fight: a third party stood on the hop. The chase is
+        // SUSPENDED, not ended — the anchor stays, no leg is issued, and
+        // CombatRules.ResumeInterrupted re-enters Step the tick this tile's
+        // combat ends, taking the next hop toward wherever the target is by
+        // then (or releasing on leash / target gone, by the rules below).
+        // This used to release, on the reasoning that nothing would re-enter
+        // Step once the fight resolved; the un-pin is exactly that re-entry
+        // (docs/combat-pin-strands-hauls.md). Every fight ends — by a death
+        // or the no-progress guard — so the anchor can never brick.
         if (world.CombatStates.ContainsKey(pursuer.Position))
-        {
-            Release(pursuer);
             return;
-        }
 
         // ---- 5. Leash ----
         // Measured from the ROUTE anchor to the TARGET: a runner that breaks

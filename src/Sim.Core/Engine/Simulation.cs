@@ -57,6 +57,12 @@ public sealed class Simulation
         // (Count == 0 is a no-op that consumes no Rng). Deterministic from
         // (seed, spec). See docs/loot-caches.md.
         Sim.Core.Caches.CacheScatter.Scatter(World, Rng, spec.Caches);
+        // M38 — idols, after the caches (so a cache-only scenario's Rng
+        // sequence is untouched; Count == 0 draws nothing).
+        Sim.Core.Scouting.IdolScatter.Scatter(World, Rng, spec.Idols);
+        // Two-act pacing — the landing (day X) is scheduled at genesis. Last, so
+        // a one-act world (no event, no Seq drawn) is untouched.
+        Sim.Core.Landing.LandingRules.ScheduleAtGenesis(this);
     }
 
     // Schedule an event with the next monotonic Seq. Returns the Seq actually

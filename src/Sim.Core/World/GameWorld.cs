@@ -11,12 +11,13 @@ public sealed class GameWorld
     // by Snapshot — see Persistence/Snapshot.cs.
     public Dictionary<TileCoord, Structure> Structures { get; } = new();
 
-    // Sparse: only tiles with non-zero road condition live here. Mutated
+    // Sparse: only ARCS (the lane between two adjacent tiles, docs/roads-on-
+    // edges.md) with non-zero road condition live here. Mutated
     // exclusively by Roads.CreditTraffic (called from MoveArrivalEvent —
     // the one mutation point). Read by Roads.EffectiveCost / ConditionAt
     // from pathfinding and views — those reads must NEVER write. See
     // Roads/Roads.cs for the contract.
-    public Dictionary<TileCoord, RoadState> Roads { get; } = new();
+    public Dictionary<TileEdge, RoadState> Roads { get; } = new();
 
     // Player registry. Genesis seeds player 0; multi-player scenarios add
     // more. Minimal for M3 — no factions / economies / win conditions yet.
@@ -67,6 +68,11 @@ public sealed class GameWorld
     // war-effective event).
     public Combat.CombatConfig CombatConfig { get; private set; }
     public Dictionary<TileCoord, Combat.CombatState> CombatStates { get; } = new();
+    // M41 — open battlefields (CombatModel.Grid), by tile. Written only by
+    // Sim.Core.Battlefields.Battlefields; snapshotted v41; turn events are
+    // rebuilt from each board's anchor by RegenerateQueue.
+    public SortedDictionary<TileCoord, Sim.Core.Battlefields.Battlefield> Battlefields { get; } =
+        new(Comparer<TileCoord>.Create((a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X)));
     public Dictionary<TileCoord, SortedDictionary<Resource, int>> GroundResources { get; } = new();
 
     // M8 — population config (lifespan, gestation, age gates) + monotonic
@@ -119,6 +125,38 @@ public sealed class GameWorld
     // snapshotted state — same contract as Explored / Fertility above.
     public SortedDictionary<int, Sim.Core.Automation.Claim> Claims { get; } = new();
 
+    // M36 — THE HAUL QUEUE (docs/hauling-queue-and-routes.md). Sparse by job
+    // id; one owner's queue is its jobs sorted by (QueueStamp, JobId).
+    // Mutated ONLY by Set/Clear/RequeueHaulJobIntent and HaulDepositEvent
+    // (a Once job's Delivered count and removal). NextHaulStamp is the
+    // monotonic "back of the queue" counter, shared by every owner.
+    public SortedDictionary<int, Sim.Core.Hauling.HaulJob> HaulJobs { get; } = new();
+    public int NextHaulJobId { get; internal set; } = 1;
+    public long NextHaulStamp { get; internal set; } = 1;
+
+    // M36 — NAMED HAUL ROUTES, sparse by route id. Mutated ONLY by
+    // Set/ClearHaulRouteIntent, Add/RemoveRouteCrewIntent and
+    // ServeRouteStopIntent (a crew's cursor).
+    public SortedDictionary<int, Sim.Core.Hauling.HaulRoute> HaulRoutes { get; } = new();
+    public int NextHaulRouteId { get; internal set; } = 1;
+
+    // M37 — progression (docs/progression.md). The config is genesis-set and
+    // snapshotted (v37); Milestones is DERIVED from it (the catalog rows are
+    // code), never serialized and never part of the hash. Omens are live
+    // state: announced threats and the raids they became, until resolved.
+    // Mutated only by Sim.Core.Progression.Omens.
+    public Sim.Core.Progression.ProgressionConfig ProgressionConfig { get; private set; } = new();
+    public IReadOnlyList<Sim.Core.Progression.Milestone> Milestones { get; private set; } =
+        Sim.Core.Progression.MilestoneCatalog.For(new());
+    public SortedDictionary<int, Sim.Core.Progression.Omen> Omens { get; } = new();
+    public int NextOmenId { get; internal set; } = 1;
+
+    internal void RestoreProgressionConfig(Sim.Core.Progression.ProgressionConfig config)
+    {
+        ProgressionConfig = config;
+        Milestones = Sim.Core.Progression.MilestoneCatalog.For(config);
+    }
+
     // M20 — scouting missions, keyed by the scout's own unit id (one slot
     // per scout). Sorted so snapshot iteration is canonical. The observation
     // log inside each mission is appended ONLY by ScoutObservation.Capture
@@ -127,6 +165,33 @@ public sealed class GameWorld
     // the server-side claims compiler reads it on the presentation side. See
     // Scouting/ScoutMission.cs and docs/m20-scouting-reports-spec.md.
     public SortedDictionary<int, Sim.Core.Scouting.ScoutMission> ScoutMissions { get; } = new();
+
+    // M38 — each player's chart: the secrets their returned scouts reported,
+    // keyed by tile in (y, x) order (docs/scouting-secrets.md). Mutated only by
+    // Sim.Core.Scouting.Charts; snapshotted (v38).
+    public SortedDictionary<int, SortedDictionary<TileCoord, Sim.Core.Scouting.ChartEntry>> Charts { get; } = new();
+
+    // M38 — idols: the grade table (genesis-set, snapshotted) and the live
+    // circles of sight they have granted. Mutated only by Sim.Core.Scouting.Idols.
+    public Sim.Core.Scouting.IdolConfig IdolConfig { get; private set; } = new();
+    public SortedDictionary<int, Sim.Core.Scouting.VisionGrant> VisionGrants { get; } = new();
+    public int NextVisionGrantId { get; internal set; } = 1;
+    internal void RestoreIdolConfig(Sim.Core.Scouting.IdolConfig config) => IdolConfig = config;
+
+    // M39 — bandit camp knobs (genesis-set, snapshotted v39).
+    public Sim.Core.Bandits.CampConfig CampConfig { get; private set; } = new();
+    internal void RestoreCampConfig(Sim.Core.Bandits.CampConfig config) => CampConfig = config;
+
+    // Two-act pacing — when the landing (day X) comes (genesis-set, snapshotted
+    // v40). Default Tick 0 = a one-act world. docs/two-act-pacing.md.
+    public Sim.Core.Landing.LandingConfig LandingConfig { get; private set; }
+    internal void RestoreLandingConfig(Sim.Core.Landing.LandingConfig config) => LandingConfig = config;
+    // The hosts the landing raised, one per kingdom it came for, by target owner
+    // id. Written only by LandingRules; snapshotted (v40).
+    public SortedDictionary<int, Sim.Core.Landing.LandingHost> LandingHosts { get; } = new();
+    // The pending LandingEvent's Seq (its anchor): set at genesis, cleared when
+    // it fires. Null in a one-act world.
+    public long? LandingSeq { get; internal set; }
 
     // M22 — tiles whose worldgen biome is common-knowledge HIGH terrain
     // (Biomes.IsCommonKnowledgeTerrain — Mountain today). View.BuildPlayerView

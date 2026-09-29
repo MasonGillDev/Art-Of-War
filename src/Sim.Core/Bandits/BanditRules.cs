@@ -32,6 +32,9 @@ public static class BanditRules
             if (s.OwnerId == BanditConstants.OwnerId) continue;
             if (WithinEuclidean(s.At, tile, Sight.RadiusFor(s.Kind))) return true;
         }
+        // M38 — an idol's circle of sight counts: no bandit spawns under it.
+        foreach (var g in world.VisionGrants.Values)
+            if (g.OwnerId != BanditConstants.OwnerId && g.Covers(tile)) return true;
         return false;
     }
 

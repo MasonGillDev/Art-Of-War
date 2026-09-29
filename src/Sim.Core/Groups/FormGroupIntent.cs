@@ -52,8 +52,8 @@ public sealed class FormGroupIntent : Intent
         }
 
         // Reachability — every off-rendezvous member must have a path to it.
-        // Uses the same road-aware cost the move chain will use.
-        var now = sim.Now;
+        // Reachability only: plain terrain. A road is an arc, not a tile
+        // property, and this check needs a yes/no, not a price.
         foreach (var id in UnitIds)
         {
             var unit = world.Units[id];
@@ -62,7 +62,7 @@ public sealed class FormGroupIntent : Intent
                 world.Grid,
                 unit.Position,
                 RendezvousTile,
-                tile => Road.EffectiveCost(world, tile, now));
+                tile => world.Grid.TerrainCost(tile));
             if (path is null)
                 return IntentOutcome.Reject(
                     $"unit {id} cannot reach rendezvous {RendezvousTile.X},{RendezvousTile.Y}");

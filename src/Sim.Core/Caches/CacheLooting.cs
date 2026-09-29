@@ -8,8 +8,8 @@ namespace Sim.Core.Caches;
 public static class CacheLooting
 {
     // Why this body cannot loot at all, or null. Cargo state is the whole of
-    // it: looting is a pickup, and a carrier that is full or already holding
-    // something else has nowhere to put the treasure.
+    // it: looting is a pickup, and a full carrier has nowhere to put the
+    // treasure. (M36: cargo can be mixed, so holding something else is fine.)
     //
     // These are checked at firing AND on arrival, because a walk across the map
     // takes game-days and a unit can pick up a load on the way.
@@ -18,8 +18,6 @@ public static class CacheLooting
         if (resource == Resource.None) return "no resource named";
         if (unit.GroupId is not null) return "in a group";
         if (unit.IsEmbarked) return "embarked";
-        if (unit.CargoAmount > 0 && unit.CargoResource != resource)
-            return $"already carrying {unit.CargoResource} (unload first)";
         if (unit.CargoCapacity - unit.CargoAmount <= 0) return "no cargo space free";
         return null;
     }
@@ -29,8 +27,9 @@ public static class CacheLooting
     // big haul wants a hauler or several trips — and a rival can take the rest.
     //
     // Returns the amount taken; 0 means nothing happened.
-    public static int TryLoot(GameWorld world, Unit unit, Resource resource)
+    public static int TryLoot(Simulation sim, Unit unit, Resource resource)
     {
+        var world = sim.World;
         if (Blocker(unit, resource) is not null) return 0;
         if (!world.Structures.TryGetValue(unit.Position, out var s) || s is not Cache cache) return 0;
 
@@ -38,14 +37,29 @@ public static class CacheLooting
         var taken = cache.Withdraw(resource, space);
         if (taken == 0) return 0;
 
-        unit.CargoResource = resource;
-        unit.CargoAmount += taken;
+        unit.Cargo.Add(resource, taken);
         unit.TrySetActivity(Activity.Idle);
         unit.BumpEpoch();
 
-        // Consumed when emptied — the treasure is gone, and the tile with it.
-        if (cache.TotalHeld() == 0)
-            world.Structures.Remove(cache.At);
+        RemoveIfEmptied(sim, cache);
         return taken;
+    }
+
+    // Consumed when emptied — the treasure is gone, and the tile with it.
+    // THE ONE removal path for a cache, called by every way of taking from
+    // one: the loot verb above, CargoTransfer.WithdrawFrom (plain loading,
+    // which is how bandits steal, and route stops) and HaulPickupEvent (a haul
+    // may name any structure as its source). Before 2026-09-23 only the loot
+    // verb removed it, so a cache emptied any other way stood forever, empty,
+    // and a rumour about it never ended.
+    public static void RemoveIfEmptied(Simulation sim, Structure? source)
+    {
+        if (source is not Cache cache || cache.TotalHeld() > 0) return;
+        if (!sim.World.Structures.TryGetValue(cache.At, out var here) || !ReferenceEquals(here, cache)) return;
+        sim.World.Structures.Remove(cache.At);
+        // M37 — a rumour about this ruin is over (docs/progression.md).
+        Sim.Core.Progression.Omens.OnCacheGone(sim.World, cache.At, sim.Now);
+        // M38 — an owner watching a charted cache sees it go.
+        Sim.Core.Scouting.Charts.OnSecretGone(sim, cache.At);
     }
 }

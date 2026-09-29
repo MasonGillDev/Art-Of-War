@@ -7,8 +7,12 @@ namespace Sim.Tests;
 
 // Phase C of M2: traffic gain on traversal. Direct CreditTraffic tests
 // (the integration with MoveArrivalEvent gets a smoke check at the end).
+// M34: credit lands on the ARC walked (docs/roads-on-edges.md).
 public class RoadTrafficTests
 {
+    // The arc (2,0)-(3,0), used by the direct-credit tests.
+    private static readonly TileEdge Arc = TileEdge.FromOwner(new TileCoord(2, 0), TileEdge.Axis.East);
+
     private static (Simulation sim, GameWorld world) MakeWorld(int width = 5)
     {
         var grid = new TileGrid(width, 1, Biome.Grassland);
@@ -20,7 +24,7 @@ public class RoadTrafficTests
     public void FirstCreditTraffic_CreatesRoad()
     {
         var (_, world) = MakeWorld();
-        var tile = new TileCoord(2, 0);
+        var tile = Arc;
         Assert.False(world.Roads.ContainsKey(tile));
 
         Road.CreditTraffic(world, tile, now: 0);
@@ -37,7 +41,7 @@ public class RoadTrafficTests
         // decay can erase any of it). Condition should rise toward CAP,
         // each gain smaller than the last.
         var (_, world) = MakeWorld();
-        var tile = new TileCoord(2, 0);
+        var tile = Arc;
         var lastGain = int.MaxValue;
         var prevCondition = 0;
 
@@ -65,7 +69,7 @@ public class RoadTrafficTests
         // should be exactly GAIN_FLOOR... but then clamped to not overshoot
         // cap. So condition stays at cap.
         var (_, world) = MakeWorld();
-        var tile = new TileCoord(2, 0);
+        var tile = Arc;
         world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
 
         Road.CreditTraffic(world, tile, now: 0);
@@ -79,7 +83,7 @@ public class RoadTrafficTests
         // Tile drops from world.Roads. This is the "one citizen can't make
         // a road" emergence property — no counter, just gain vs decay.
         var (_, world) = MakeWorld();
-        var tile = new TileCoord(2, 0);
+        var tile = Arc;
 
         Road.CreditTraffic(world, tile, now: 0);
         var initialCondition = world.Roads[tile].Condition;
@@ -102,7 +106,7 @@ public class RoadTrafficTests
         // LastDecayTick == now). Diminishing returns applies — the second
         // gain is smaller because condition is higher.
         var (_, world) = MakeWorld();
-        var tile = new TileCoord(2, 0);
+        var tile = Arc;
 
         Road.CreditTraffic(world, tile, now: 100);
         var afterFirst = world.Roads[tile].Condition;
@@ -119,24 +123,23 @@ public class RoadTrafficTests
     // -------- Integration with MoveArrivalEvent --------
 
     [Fact]
-    public void UnitWalk_CreditsEveryTileEntered()
+    public void UnitWalk_CreditsEveryArcWalked()
     {
-        // Walk a unit from (0,0) to (4,0). Tiles 1..4 should each get
-        // exactly one traffic credit (tile 0 is the starting position,
-        // no arrival event there).
+        // Walk a unit from (0,0) to (4,0). Each of the four arcs walked
+        // should get exactly one traffic credit.
         var (sim, world) = MakeWorld(width: 5);
         world.AddUnit(new Unit(1, new TileCoord(0, 0)));
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(4, 0)));
         sim.Run();
 
+        // Four hops, four arcs, one credit each.
         for (var x = 1; x <= 4; x++)
         {
-            var t = new TileCoord(x, 0);
-            Assert.True(world.Roads.ContainsKey(t), $"tile ({x},0) should be credited");
-            Assert.Equal(RoadConstants.BASE_GAIN, world.Roads[t].Condition);
+            var arc = TileEdge.Between(new TileCoord(x - 1, 0), new TileCoord(x, 0));
+            Assert.True(world.Roads.ContainsKey(arc), $"arc ({x - 1},0)-({x},0) should be credited");
+            Assert.Equal(RoadConstants.BASE_GAIN, world.Roads[arc].Condition);
         }
-        Assert.False(world.Roads.ContainsKey(new TileCoord(0, 0)),
-            "starting tile should not be credited (no arrival event)");
+        Assert.Equal(4, world.Roads.Count);
     }
 
     [Fact]
@@ -162,9 +165,9 @@ public class RoadTrafficTests
         // a tile credited twice would have ~99 (50 + 49).
         for (var x = 1; x <= 4; x++)
         {
-            var c = world.Roads[new TileCoord(x, 0)].Condition;
+            var c = world.Roads[TileEdge.Between(new TileCoord(x - 1, 0), new TileCoord(x, 0))].Condition;
             Assert.True(c <= RoadConstants.BASE_GAIN + 1,
-                $"tile ({x},0) credited too many times: condition={c}");
+                $"arc ({x - 1},0)-({x},0) credited too many times: condition={c}");
         }
     }
 }

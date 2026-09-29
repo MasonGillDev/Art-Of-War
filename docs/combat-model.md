@@ -220,3 +220,48 @@ milestone — see `docs/military-training.md` and
 
 **Ranged-from-adjacent remains open** — `GatherForcesNearTile` is still
 the documented next seam; Archer is a stat row only until it lands.
+
+## Update 2026-09-24 — archers fight behind the line
+
+**Decision (the user's).** An archer's point is range: it cannot be hit until the enemy
+gets to it. On a contested tile a **ranged** unit (`UnitCombatSpec.Ranged`, true for the
+Archer only) takes **no damage while any non-ranged unit of its owner still stands on
+that tile**. It deals its full power every round. When the last of the line falls, the
+rest of that round's damage spills onto the archers, lowest health first among them.
+Implemented as one ordering key in `CombatRoundEvent.ApplyDamageToOwnerForce`: (rank,
+health, id) instead of (health, id).
+
+**Why.** Under plain lowest-health-first, the 15-health archer was always the first body
+to die, so archers were a trap inside any mixed force. Replayed on the real stats:
+
+| Fight | Before | After |
+|---|---|---|
+| 6 soldiers vs 6 bandits | win, 2 left | unchanged |
+| 4 soldiers + 2 archers vs 6 bandits | **lose** | win, 3 left (both archers) |
+| 2 soldiers + 4 archers vs 6 bandits | lose | win, 4 left |
+| 6 archers alone vs 6 bandits | lose | lose (no line, no protection) |
+
+Mixed forces now beat pure ones, which is the combined-arms game.
+
+**Alternatives.**
+- **Archer health 15 → 20.** Lost: it fixes the number, not the fantasy; archers would
+  still be struck first.
+- **Shooting from an adjacent tile.** Deferred to fortifications. Manned towers
+  (`docs/manned-towers.md`, M32) already decided that archers add power to fights near
+  their post and take no damage. Walls and towers are where "range" means distance.
+  Open-field adjacent fire would need new engagement rules (who starts a fight, pinning,
+  kiting while the owner sleeps).
+
+**Watch.** A bow is 10 wood for +4 power, now the cheapest damage in the game behind a
+line. If bow archers crowd out everything else, price the bow up (for example 20 wood +
+1 iron). Levied citizens count as the line: they soak blows for the archers, as they
+already did for everyone.
+
+## Update 2026-09-24 — superseded by the battlefield grid (designed, not built)
+
+The user locked a replacement for the stat-pool model: `docs/battlefield-grid.md`. A contested
+tile opens a 4×4 board with one unit per side per subtile. Soldiers duel on their own subtile to
+the death, and archers shoot one adjacent enemy. Damage lands per duel on round ticks, not pooled
+per owner. Until the board is built, everything above still describes the running code. The
+archer line rule (the update above) goes with it: on the board, "behind the line" is the subtile
+behind.

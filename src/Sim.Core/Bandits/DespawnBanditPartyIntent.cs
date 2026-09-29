@@ -68,8 +68,9 @@ public sealed class DespawnBanditPartyIntent : Intent
         {
             // The loot vanishes with them — clear cargo so OnUnitDeath's
             // drop-to-ground (the capture economy) has nothing to drop.
-            u.CargoAmount = 0;
-            u.CargoResource = Resource.None;
+            // M37 — first, a raid that got away with loot is a raid lost.
+            Sim.Core.Progression.Omens.OnRaiderEscaping(world, u);
+            u.Cargo.Clear();
             Sim.Core.Combat.CombatRules.OnUnitDeath(sim, u);
         }
         return IntentOutcome.Applied;

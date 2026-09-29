@@ -37,9 +37,19 @@ public static class WorldFactory
         // field (ocean-border mask included), not the raw noise — so the client builds
         // a heightmap whose waterline and slopes line up with the biome grid.
         var elevation = QuantizeElevation(ContinentShaper.BuildElevation(cfg));
-        var spec = BuildSpec(map, opts.AiPlayers, opts.CacheCount, FertilityFor(opts.FertilityGradient));
+        var spec = BuildSpec(map, opts.AiPlayers, opts.CacheCount, FertilityFor(opts.FertilityGradient), opts.GodMode, opts.Progression, opts.IdolCount, opts.LandingDay);
+        spec = spec with { Combat = spec.Combat with { Model = CombatModelFor(opts.Combat) } };
         return new WorldBuild(spec, map, elevation, cfg);
     }
+
+    // M41 — the combat model by name (docs/battlefield-grid.md). Unknown names
+    // fail loudly rather than silently pooled.
+    public static Sim.Core.Combat.CombatModel CombatModelFor(string name) => name switch
+    {
+        "pooled" => Sim.Core.Combat.CombatModel.Pooled,
+        "grid"   => Sim.Core.Combat.CombatModel.Grid,
+        _ => throw new ArgumentException($"unknown combat model '{name}' (pooled | grid)", nameof(name)),
+    };
 
     // M35 — the played fertility gradient by rung name (docs/environmental-
     // fertility.md; sweep in docs/m35-status.md). "flat" is the config's own
@@ -52,7 +62,7 @@ public static class WorldFactory
         _ => throw new ArgumentException($"unknown fertility gradient '{gradient}' (flat | mild | strong)", nameof(gradient)),
     };
 
-    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers, int cacheCount, Sim.Core.Biomes.BiomeDegradationConfig fertility)
+    private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers, int cacheCount, Sim.Core.Biomes.BiomeDegradationConfig fertility, bool godMode, bool progression, int idolCount, int landingDay)
     {
         var start = map.Start;
         var nextId = 1;
@@ -63,7 +73,7 @@ public static class WorldFactory
         // must cover the M13 drain until a farm is up AND delivering back
         // to the castle — 14 citizens eat 56/game-day, the bootstrap is
         // ~2-3 game-days at march pace, 200 ≈ 3.6 game-days of runway.
-        FactionStartSpec MakeFaction(int ownerId, TileCoord castleAt)
+        FactionStartSpec MakeFaction(int ownerId, TileCoord castleAt, bool humanSeat = false)
         {
             // A tile a unit can actually stand on: in-bounds and not water/void.
             // Water is exactly what stranded starting units in the sea when a
@@ -117,10 +127,19 @@ public static class WorldFactory
 
             // Two of each role — units to drive every initial task (build, haul,
             // work each extractor, scout).
+            //
+            // M38 — a HUMAN seat starts with no scouts (docs/scouting-secrets.md):
+            // scouts are trained at the Lodge, and scouting is how the player
+            // uncovers the world's secrets. The two slots stay as untrained
+            // citizens, so the headcount (and the food it eats) is unchanged and the
+            // player has the bodies to train once a Lodge stands. AI factions keep
+            // their scouts: they are placeholders being phased out and are not
+            // taught to build a Lodge.
             var roster = new[]
             {
                 UnitRole.Builder, UnitRole.Hauler, UnitRole.Lumberjack,
-                UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer, UnitRole.Scout,
+                UnitRole.Quarryman, UnitRole.Miner, UnitRole.Farmer,
+                humanSeat ? UnitRole.None : UnitRole.Scout,
             };
             var need = roster.Length * 2;
 
@@ -187,7 +206,15 @@ public static class WorldFactory
             };
         }
 
-        var factions = new List<FactionStartSpec> { MakeFaction(0, start) };
+        // God mode is the human seat's alone (docs/god-mode.md), and so is
+        // progression (docs/progression.md): AI factions never enrol.
+        var factions = new List<FactionStartSpec>
+        {
+            // M38 — `progression` is the human-seat switch (on for the host, off for
+            // the AI labs that drive player 0): the same seat that enrols in
+            // progression starts without scouts.
+            MakeFaction(0, start, humanSeat: progression) with { GodMode = godMode, Progression = progression },
+        };
 
         // M17 — N full AI factions (the token "neutral scout" faction is
         // retired; AI players are the "other" now). Castles placed on
@@ -215,7 +242,11 @@ public static class WorldFactory
             // M23 — scatter loot caches into the fog (never on a tile any
             // faction's starting vision has revealed). docs/loot-caches.md.
             Caches = new Sim.Core.Caches.CacheConfig(Count: cacheCount),
+            Idols = new Sim.Core.Scouting.IdolConfig() with { Count = idolCount },
             BiomeDegradation = fertility,
+            // Two-act pacing — day X, the end of the prelude (docs/two-act-pacing.md).
+            // 0 = a one-act world, which is what every lab's bare ServerOptions gets.
+            Landing = Sim.Core.Landing.LandingConfig.OnDay(landingDay),
         };
 
         Console.WriteLine($"Generated {map.Width}x{map.Height} continent (seed {map.Seed}); " +

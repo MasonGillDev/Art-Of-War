@@ -167,7 +167,7 @@ public class BanditDriverTests
         world.AddUnit(new Unit(200, new TileCoord(lurkAt.X + 2, lurkAt.Y))
         {
             Role = UnitRole.Hauler, OwnerId = 0, BornTick = 0,
-            CargoResource = Resource.Wood, CargoAmount = 10,
+            Cargo = { { Resource.Wood, 10 } },
         });
         RunWithDriver(sim, driver, until: sim.Now + 10_000, step: 30);
 

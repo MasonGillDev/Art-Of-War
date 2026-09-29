@@ -20,6 +20,11 @@ public abstract class Structure
     // docs/sieges-and-conquest.md.
     public int Health { get; set; }
 
+    // Which way the structure faces on its tile (docs/structure-footprints.md):
+    // the side its footprint is turned to (a wall's outer side, the castle's
+    // gate). The player will choose it when placing; North until then.
+    public Sim.Core.Battlefields.Heading Facing { get; set; } = Sim.Core.Battlefields.Heading.North;
+
     protected Structure(TileCoord at) { At = at; }
 }
 
@@ -555,6 +560,34 @@ public sealed class Rubble : Structure
     public Rubble(TileCoord at) : base(at) { }
 }
 
+// A dug canal tile (docs/structure-footprints.md, 2026-09-28). The tile is
+// Biome.Water (boats sail it, it irrigates, as M21 built it); this structure
+// gives it banks: a two-wide channel through the middle, following the canal,
+// with walkable land either side, on the battle board. At world scale the tile
+// is water feet can't enter: they follow the canal on the land beside it, and a
+// bridge will be the way across. No health: it can't be razed.
+// Placed only in grid-combat worlds for now, with the rest of the battlefield
+// work; in the default game a finished canal is still just water.
+public sealed class Canal : Structure
+{
+    public override StructureKind Kind => StructureKind.Canal;
+    public Canal(TileCoord at) : base(at) { }
+}
+
+// A deck across a straight canal tile (docs/structure-footprints.md): the tile
+// stays Water (boats pass under), and the deck joins the two banks, so it is
+// the one canal tile feet may walk onto. Razed or demolished, it goes back to
+// a plain Canal (SiegeDamage.Teardown).
+public sealed class Bridge : Structure
+{
+    public override StructureKind Kind => StructureKind.Bridge;
+    public Bridge(TileCoord at) : base(at) { }
+
+    // A bridge, or the scaffolding of one being built: both carry the deck.
+    public static bool IsDeck(Structure? s) =>
+        s is Bridge || (s is ConstructionSite site && site.TargetKind == StructureKind.Bridge);
+}
+
 // Training — School. A unit standing on this tile can issue
 // TrainUnitIntent to flip its UnitRole. No production, no storage; the
 // structure just exists as a placeable seam for training intents.
@@ -562,6 +595,43 @@ public sealed class School : Structure
 {
     public override StructureKind Kind => StructureKind.School;
     public School(TileCoord at) : base(at) { }
+}
+
+// M39 — a bandit camp (docs/bandit-camps.md). Owned by the bandit faction; its
+// Holdings are the HOARD (what it was raised with plus everything its raiders
+// carried home), spilled on the ground when it is razed. The fields below are
+// mutated only by Sim.Core.Bandits.Camps.
+public sealed class BanditCamp : StorageStructure
+{
+    public override StructureKind Kind => StructureKind.BanditCamp;
+    public BanditCamp(TileCoord at) : base(at, StructureCatalog.Spec(StructureKind.BanditCamp).StorageCapacity) { }
+
+    // The player whose seat its raiders ride against.
+    public int TargetOwnerId { get; init; }
+    // The milestone that raised it (razing it is counted against this).
+    public int SourceMilestoneId { get; init; }
+    // Who is out raiding right now (durable, so a restarted driver cannot send
+    // a raid twice). Ascending id within one muster.
+    public List<int> Raiders { get; } = new();
+    // True once a raider of the current raid has stepped off the camp: from
+    // then on, a raider standing at home with nothing to unload is BACK, not
+    // setting out. Reset at each muster.
+    public bool RaidDeparted { get; internal set; }
+    public long LastRaidTick { get; internal set; }
+    public long LastRecruitTick { get; internal set; }
+    // ANCHOR: the pending CampTickEvent.
+    public long NextTickAt { get; internal set; }
+    public long NextTickSeq { get; internal set; }
+}
+
+// M38 — Idol. A statue in the fog, nobody's (the cache sentinel owner). A unit
+// standing on it activates it: its owner sees a random circle of unexplored
+// world for the grade's time, and the idol crumbles (docs/scouting-secrets.md).
+public sealed class Idol : Structure
+{
+    public override StructureKind Kind => StructureKind.Idol;
+    public Sim.Core.Scouting.IdolKind Grade { get; }
+    public Idol(TileCoord at, Sim.Core.Scouting.IdolKind grade) : base(at) { Grade = grade; }
 }
 
 // M20 — Lodge. The intelligence structure. No production, no storage; like

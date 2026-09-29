@@ -172,7 +172,10 @@ public static class PredicateEvaluator
         return s switch
         {
             StorageStructure storage => storage.AmountOf(r),
-            Extractor e => e.Spec.OutputResource == r ? e.Buffer : 0,
+            // A refiner holds two kinds of stock: its output buffer, and the
+            // inputs it burns (M36: a "keep 12 ore at the smelter" job read 0
+            // forever and kept delivering into a full input store).
+            Extractor e => e.Spec.OutputResource == r ? e.Buffer : e.IsRefiner ? e.InputOf(r) : 0,
             _ => 0,
         };
     }

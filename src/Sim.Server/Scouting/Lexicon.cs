@@ -146,10 +146,14 @@ public static class Lexicon
     }
 
     // Deterministic display name for a faction. Owner 0 is the player; foreign
-    // owners draw a stable house name; bandits (owner -1) ride under no banner.
+    // owners draw a stable house name; bandits (owner -1) ride under no banner;
+    // the world's own sentinels (caches and idols -2, rubble -3) are nobody's.
+    // (Before 2026-09-23 a sentinel indexed the house table with a negative
+    // number and crashed the report — a scout that saw a cache killed the host.)
     public static string FactionName(int ownerId)
     {
         if (ownerId == Sim.Core.Bandits.BanditConstants.OwnerId) return "brigands under no banner";
+        if (ownerId < 0) return "no one's";
         if (ownerId == 0) return "your own";
         var houses = new[]
         {
@@ -173,6 +177,11 @@ public static class Lexicon
         StructureKind.School     => "hall",
         StructureKind.Barracks   => "barracks",
         StructureKind.Stockpile  => "store",
+        // M38 — secrets are described as faintly as the chart describes them
+        // (docs/scouting-secrets.md): the report never says what one holds.
+        StructureKind.Cache      => "something glinting",
+        StructureKind.Idol       => "figure of stone",
+        StructureKind.Rubble     => "ruin",
         _                        => "works",
     };
 

@@ -1,0 +1,7 @@
+{
+  "name": "aow-ui-art",
+  "private": true,
+  "description": "Glyph sources for the Art of War world UI; builds PNGs into the Unity client.",
+  "scripts": { "build": "node build-glyphs.js" },
+  "devDependencies": { "@resvg/resvg-js": "^2.6.2" }
+}

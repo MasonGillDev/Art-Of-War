@@ -36,6 +36,22 @@ namespace Sim.Server.Bandits;
 //            there, loot and all. While anyone can SEE a unit, the
 //            despawn rejects (validated sim-side) — pursuit keeps the
 //            loot in the world.
+//
+// M37 — an omen's raiders (docs/progression.md) are ordinary bandits the
+// sim put on the map. The census recognises them from the DURABLE omen
+// record (Omens.RaidOf), so a restarted driver still knows where they are
+// headed, and gives the party a Target: the owner's seat. With nothing in
+// sight they march on it instead of wandering; once there, or once they
+// see something worth taking, they raid like anyone else.
+//
+// M39 — bandit CAMPS (docs/bandit-camps.md). Camp-bound bandits are not kept
+// in _parties at all: every think re-derives them from the sim, which owns who
+// is out (BanditCamp.Raiders) and who stands guard (everyone else on the camp's
+// tile). The garrison stays put. Raiders steal what they can see; carrying
+// anything, they go HOME and unload into the hoard (instead of despawning);
+// with nothing seen and nothing carried they march on the camp's target seat.
+// A razed camp's raiders are no longer on any list, so the census adopts them
+// as ordinary raiders.
 public sealed class BanditDriver
 {
     private enum Mode { Ambush, Raid, Flee }
@@ -45,6 +61,8 @@ public sealed class BanditDriver
         public List<int> UnitIds = new();
         public Mode Mode = Mode.Raid;
         public TileCoord? OrderedDest;
+        // M37 — an omen raid's objective; null for ordinary parties.
+        public TileCoord? Target;
     }
 
     private readonly BanditConfig _cfg;
@@ -56,6 +74,10 @@ public sealed class BanditDriver
     private readonly Dictionary<TileCoord, Mode> _pendingModes = new();
     private long _lastThink = long.MinValue;
     private int _spawnOrdinal;
+    // Two-act pacing — landing bandits whose assault is over (they reached the
+    // castle or carry loot): the census adopts them as ordinary raiders.
+    // Ephemeral: a restarted driver re-derives it from the same two facts.
+    private readonly HashSet<int> _released = new();
 
     public BanditDriver(BanditConfig cfg)
     {
@@ -74,6 +96,11 @@ public sealed class BanditDriver
         MaybeSpawn(sim, now, world);
         foreach (var party in _parties)
             Act(sim, now, world, party);
+        foreach (var camp in world.Structures.Values.OfType<BanditCamp>()
+                     .OrderBy(c => c.At.Y).ThenBy(c => c.At.X).ToList())
+            ActCampRaid(sim, now, world, camp);
+        foreach (var (_, host) in world.LandingHosts)   // target id order
+            ActLanding(sim, now, world, host);
     }
 
     // ---- census: prune the dead, adopt the unknown ----------------------
@@ -84,8 +111,16 @@ public sealed class BanditDriver
         foreach (var u in world.Units.Values)
             if (u.OwnerId == BanditConstants.OwnerId) live.Add(u.Id);
 
-        foreach (var p in _parties) p.UnitIds.RemoveAll(id => !live.Contains(id));
+        // M39 — camp-bound bandits (raiders on a camp's list, and anyone
+        // standing on a camp) are the sim's to account for; the driver
+        // re-derives them each think and never keeps them in a party.
+        var campBound = CampBound(world);
+        // Two-act pacing — so are landing bands still marching or holding for
+        // the assault (ActLanding); released ones fall through to the census.
+        campBound.UnionWith(HostBound(world));
+        foreach (var p in _parties) p.UnitIds.RemoveAll(id => !live.Contains(id) || campBound.Contains(id));
         _parties.RemoveAll(p => p.UnitIds.Count == 0);
+        live.ExceptWith(campBound);
 
         var tracked = new HashSet<int>(_parties.SelectMany(p => p.UnitIds));
         // Orphans (fresh spawns, or everything after a server restart)
@@ -104,8 +139,126 @@ public sealed class BanditDriver
         {
             var tile = new TileCoord(x, y);
             var mode = _pendingModes.Remove(tile, out var m) ? m : Mode.Raid;
-            _parties.Add(new Party { UnitIds = ids, Mode = mode });
+            // M37 — raiders an omen brought: raid, with the seat as objective.
+            var omen = Sim.Core.Progression.Omens.RaidOf(world, ids[0]);
+            _parties.Add(new Party
+            {
+                UnitIds = ids,
+                Mode = omen is null ? mode : Mode.Raid,
+                Target = omen?.Target,
+            });
         }
+    }
+
+    // Every bandit a camp accounts for: its raiders and its garrison.
+    private static HashSet<int> CampBound(GameWorld world)
+    {
+        var bound = new HashSet<int>();
+        var camps = world.Structures.Values.OfType<BanditCamp>().ToList();
+        if (camps.Count == 0) return bound;
+        var campTiles = new HashSet<TileCoord>(camps.Select(c => c.At));
+        foreach (var c in camps) bound.UnionWith(c.Raiders);
+        foreach (var u in world.Units.Values)
+            if (u.OwnerId == BanditConstants.OwnerId && campTiles.Contains(u.Position)) bound.Add(u.Id);
+        return bound;
+    }
+
+    // Every landing bandit still under its band's orders.
+    private HashSet<int> HostBound(GameWorld world)
+    {
+        var bound = new HashSet<int>();
+        foreach (var host in world.LandingHosts.Values)
+            foreach (var front in host.Fronts)
+                foreach (var id in front.UnitIds)
+                    if (!_released.Contains(id)) bound.Add(id);
+        return bound;
+    }
+
+    // ---- the landing: form up, then strike together ----------------------
+    //
+    // docs/two-act-pacing.md. Each band marches from where it came out of the fog
+    // to its gathering point, in sight of the target's castle, and holds there.
+    // At the host's assault tick every band moves at once: to its approach tile,
+    // then onto the castle, so each enters through its own side (on the
+    // battlefield grid, its own edge row). Distractions are ignored until then:
+    // a band that meets defenders on the way fights them where it stands (combat
+    // starts on co-location) and resumes its march when it can.
+    private void ActLanding(Simulation sim, long now, GameWorld world, Sim.Core.Landing.LandingHost host)
+    {
+        // The objective is the castle as it stood at the landing. If it has
+        // fallen, or its kingdom is out, there is nothing to take by assault:
+        // the bands turn into ordinary raiders.
+        var castle = Sim.Core.Food.FoodConsumption.FindCastleFor(world, host.TargetOwnerId);
+        var seatStands = castle is not null && castle.At == host.Seat
+            && world.Players.TryGetValue(host.TargetOwnerId, out var target) && !target.Defeated;
+        var assault = now >= host.AssaultTick;
+
+        foreach (var front in host.Fronts)
+            foreach (var id in front.UnitIds)
+            {
+                if (_released.Contains(id) || !world.Units.TryGetValue(id, out var u)) continue;
+                // At the castle, or carrying loot: this one's assault is over. From
+                // here it raids like any bandit (steal, then flee with it).
+                if (!seatStands || u.Position == host.Seat || u.Cargo.Total > 0)
+                {
+                    _released.Add(id);
+                    continue;
+                }
+                if (IsMoving(u) || u.Activity != Activity.Idle) continue;   // marching, or fighting
+                var to = !assault ? front.Staging
+                    : u.Position == front.Approach ? host.Seat
+                    : front.Approach;
+                if (u.Position != to)
+                    sim.SubmitIntent(now, new MoveIntent(u.Id, to) { PlayerId = BanditConstants.OwnerId });
+            }
+    }
+
+    // ---- camps: the raid rides, steals, comes home ----------------------
+
+    private void ActCampRaid(Simulation sim, long now, GameWorld world, BanditCamp camp)
+    {
+        // Raiders already back (home, empty, the raid having left) stand guard
+        // until the camp's next tick takes them off the list.
+        var units = camp.Raiders.Where(world.Units.ContainsKey).Select(id => world.Units[id])
+            .Where(u => !Camps.IsBack(camp, u)).ToList();
+        if (units.Count == 0) return;
+        var home = camp.At;
+
+        // Home with loot: into the hoard.
+        foreach (var u in units)
+            if (u.Position == home && !IsMoving(u) && u.Activity == Activity.Idle && u.Cargo.Total > 0)
+                sim.SubmitIntent(now, new UnloadCargoIntent(u.Id) { PlayerId = BanditConstants.OwnerId });
+
+        var sated = units.All(u => u.CargoAmount >= u.CargoCapacity);
+        var target = sated ? null : FindTarget(world, units);
+        if (target is { } dest)
+        {
+            foreach (var u in units)
+            {
+                if (u.Position == dest && !IsMoving(u))
+                {
+                    if (u.Activity == Activity.Idle
+                        && u.CargoAmount < u.CargoCapacity
+                        && !world.CombatStates.ContainsKey(dest) && !world.Battlefields.ContainsKey(dest)
+                        && StealableResource(world, dest, u) is { } r)
+                        sim.SubmitIntent(now, new LoadCargoIntent(u.Id, r) { PlayerId = BanditConstants.OwnerId });
+                }
+                else if (!IsMoving(u) && u.Activity == Activity.Idle)
+                    sim.SubmitIntent(now, new MoveIntent(u.Id, dest) { PlayerId = BanditConstants.OwnerId });
+            }
+            return;
+        }
+
+        // Carrying anything with nothing left in sight, or the seat reached and
+        // bare: home. Otherwise, march on the target's seat.
+        var seat = camp.TargetOwnerId >= 0
+            ? Sim.Core.Food.FoodConsumption.FindCastleFor(world, camp.TargetOwnerId)?.At
+            : null;
+        var goHome = units.Any(u => u.Cargo.Total > 0) || seat is null || units.Any(u => u.Position == seat);
+        var to = goHome ? home : seat!.Value;
+        foreach (var u in units)
+            if (!IsMoving(u) && u.Activity == Activity.Idle && u.Position != to)
+                sim.SubmitIntent(now, new MoveIntent(u.Id, to) { PlayerId = BanditConstants.OwnerId });
     }
 
     // ---- spawning: prosperity attracts wolves ---------------------------
@@ -116,8 +269,12 @@ public sealed class BanditDriver
         // and raise a garrison (see BanditConfig.SpawnGraceTicks).
         if (now < _cfg.SpawnGraceTicks) return;
 
+        // Real factions' structures only (owner >= 0). Before 2026-09-24 this
+        // counted every structure not the bandits' own: caches (-2), idols
+        // (-2), rubble (-3), and bandit camps, which pinned the target at the
+        // cap from day 7 on every map (docs/secrets-and-progression-proposal.md).
         var playerStructures = world.Structures.Values
-            .Count(s => s.OwnerId != BanditConstants.OwnerId);
+            .Count(s => s.OwnerId >= 0);
         var target = Math.Min(_cfg.MaxLiveParties, playerStructures / _cfg.StructuresPerParty);
         if (_parties.Count >= target) return;
 
@@ -170,7 +327,7 @@ public sealed class BanditDriver
                         // stealable and no fight raging on the tile.
                         if (u.Activity == Activity.Idle
                             && u.CargoAmount < u.CargoCapacity
-                            && !world.CombatStates.ContainsKey(dest)
+                            && !world.CombatStates.ContainsKey(dest) && !world.Battlefields.ContainsKey(dest)
                             && StealableResource(world, dest, u) is { } r)
                             sim.SubmitIntent(now, new LoadCargoIntent(u.Id, r)
                                 { PlayerId = BanditConstants.OwnerId });
@@ -192,6 +349,16 @@ public sealed class BanditDriver
                 // sight: the job's done — go home. Falls through to Flee.
                 party.Mode = Mode.Flee;
                 party.OrderedDest = null;
+            }
+            else if (party.Target is { } seat && units.All(u => u.Position != seat))
+            {
+                // M37 — an omen raid with nothing in sight yet: march on.
+                foreach (var u in units)
+                    if (!IsMoving(u) && u.Activity == Activity.Idle)
+                        sim.SubmitIntent(now, new MoveIntent(u.Id, seat)
+                            { PlayerId = BanditConstants.OwnerId });
+                party.OrderedDest = seat;
+                return;
             }
             else
             {

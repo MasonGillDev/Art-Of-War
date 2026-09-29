@@ -18,7 +18,8 @@ namespace Sim.Core.Diplomacy;
 //   * declarer == target;
 //   * either faction missing from world.Players;
 //   * the pair is already Enemy;
-//   * the pair already has a pending war.
+//   * the pair already has a pending war;
+//   * the prelude's truce still holds (before the landing; docs/two-act-pacing.md).
 //
 // Today's commitment rule: once declared, the war cannot be cancelled
 // unilaterally. The only way out is a bilateral peace proposal that the
@@ -50,6 +51,12 @@ public sealed class DeclareWarIntent : Intent
             return IntentOutcome.Reject($"declarer {DeclarerId} is not a registered faction");
         if (!sim.World.Players.ContainsKey(TargetId))
             return IntentOutcome.Reject($"target {TargetId} is not a registered faction");
+        // Two-act pacing (docs/two-act-pacing.md): the peace holds until the
+        // landing. Checked after the malformed-request rejects above, so a bad
+        // declaration still says what is wrong with it.
+        if (Sim.Core.Landing.LandingRules.TruceHolds(sim.World, sim.Now))
+            return IntentOutcome.Reject(
+                $"the peace holds until the landing (tick {sim.World.LandingConfig.Tick})");
 
         var pair = FactionPair.Of(DeclarerId, TargetId);
         var d = sim.World.Diplomacy;

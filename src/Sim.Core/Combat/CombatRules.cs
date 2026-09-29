@@ -204,17 +204,10 @@ public static class CombatRules
 
         // 1. Drop cargo (Phase E hook): the laden caravan's payload
         //    survives the unit and becomes loose tile resource.
-        if (unit.CargoAmount > 0)
-        {
-            if (!world.GroundResources.TryGetValue(tile, out var pile))
-            {
-                pile = new SortedDictionary<Resource, int>();
-                world.GroundResources[tile] = pile;
-            }
-            pile.TryGetValue(unit.CargoResource, out var existing);
-            pile[unit.CargoResource] = existing + unit.CargoAmount;
-            unit.CargoAmount = 0;
-        }
+        //    M36 — every resource aboard, not just one (mixed cargo).
+        foreach (var (r, a) in unit.Cargo.Items)
+            Sim.Core.Logistics.CargoTransfer.DropToGround(world, tile, r, a);
+        unit.Cargo.Clear();
 
         // 1b. Drop equipment: each equipment-kind buff converts back to
         //     its item on the death tile (docs/equipment-model.md) —
@@ -282,6 +275,76 @@ public static class CombatRules
                 .OrderBy(c => c.At.Y).ThenBy(c => c.At.X)
                 .FirstOrDefault()?.At ?? tile;
             sim.Schedule(sim.Now, new Sim.Core.Sieges.PlayerDefeatedEvent(unit.OwnerId, seat));
+        }
+    }
+
+    // THE UN-PIN (docs/combat-pin-strands-hauls.md). CombatTrigger's pin
+    // clears a belligerent's movement anchors and nothing else, so a hauler,
+    // goal walker, pursuer or scout caught mid-leg kept its obligation with
+    // no leg left to finish it — a statue with a plan, reported "on the trip"
+    // forever. When the tile's combat ends, every survivor standing here
+    // that still carries such an obligation gets the leg re-issued from
+    // where it stands. Pure function of world state at the tick the combat
+    // ends (called from CombatRoundEvent.Apply), so it is deterministic and
+    // replay-safe.
+    //
+    // Dispatch order mirrors MoveArrivalEvent.DispatchOnFinalArrival —
+    // pursuit, scout mission, haul, goal — so a unit never gets two legs.
+    // Groups are out of scope: a pinned group is set Idle (visible) and the
+    // player re-orders it.
+    public static void ResumeInterrupted(Simulation sim, TileCoord tile)
+    {
+        var world = sim.World;
+        List<Unit>? standing = null;
+        foreach (var u in world.Units.Values)   // SortedDictionary → id order
+        {
+            if (u.Position != tile || u.IsEmbarked || u.GroupId is not null) continue;
+            if (u.PathRemaining is not null || u.NextArrivalTick is not null) continue; // already walking
+            if (u.Pursuit is null && u.HaulPlan is null && u.Goal is null
+                && !world.ScoutMissions.ContainsKey(u.Id)) continue;
+            (standing ??= new List<Unit>()).Add(u);
+        }
+        if (standing is null) return;
+
+        foreach (var u in standing)
+        {
+            if (u.Pursuit is not null)
+            {
+                PursuitRules.Step(sim, u);          // handles "target gone" itself
+                continue;
+            }
+            if (world.ScoutMissions.TryGetValue(u.Id, out var mission)
+                && mission.State != Scouting.ScoutMissionState.Returned)
+            {
+                Scouting.ScoutMissionRunner.Advance(sim, u);
+                continue;
+            }
+            if (u.HaulPlan is { } plan)
+            {
+                var stop = plan.Phase == HaulPhase.ToSource ? plan.SourceTile : plan.DestTile;
+                if (Logistics.HaulStops.AtStop(world, u, stop))
+                {
+                    // Pinned ON the stop: finish the stop, don't walk a
+                    // zero-length path.
+                    sim.Schedule(sim.Now, plan.Phase == HaulPhase.ToSource
+                        ? new Logistics.HaulPickupEvent(u.Id, plan.SourceTile, plan.DestTile, plan.Resource, u.AssignmentEpoch)
+                        : new Logistics.HaulDepositEvent(u.Id, plan.DestTile, u.AssignmentEpoch));
+                }
+                else if (Logistics.HaulStops.MoveTarget(world, u, stop) is { } target)
+                {
+                    // A boat's stop is the dock's slip (docs/boats.md); on
+                    // foot the stop is the tile itself.
+                    Movement.MoveIntent.BeginMove(sim, u, target);
+                }
+                continue;
+            }
+            if (u.Goal is { } goal)
+            {
+                if (u.Position == goal.TargetTile)
+                    Sim.Core.Intents.GoalRules.OnArrival(sim, u);   // the goal's own arrival handling
+                else
+                    Movement.MoveIntent.BeginMove(sim, u, goal.TargetTile);
+            }
         }
     }
 }

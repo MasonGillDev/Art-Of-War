@@ -10,6 +10,7 @@ public enum GoalKind : byte
     Equip         = 5,
     Loot          = 6,
     Embark        = 7,
+    ActivateIdol  = 8,   // M38 — walk to an idol, activate it (docs/scouting-secrets.md)
 }
 
 // M30 — the on-unit GOAL anchor (docs/goal-shaped-intents.md).

@@ -83,6 +83,10 @@ public static class TrainingRules
         unit.Health += Sim.Core.Combat.UnitCombatCatalog.Spec(newRole).BaseHealth
                      - Sim.Core.Combat.UnitCombatCatalog.Spec(oldRole).BaseHealth;
         if (unit.Health < 1) unit.Health = 1;
+
+        // M37 — a finished training counts toward the owner's progress.
+        Sim.Core.Progression.Progression.Bump(sim, unit.OwnerId,
+            Sim.Core.Progression.ProgressKey.Trained(newRole));
         return true;
     }
 }

@@ -7,8 +7,14 @@ namespace Sim.Tests;
 
 // Phase A of M2: EffectiveCost reads hand-set road condition smoothly,
 // floored, and never mutates. Decay is NOT yet applied (Phase B).
+// M34: a road is an ARC between two tiles (docs/roads-on-edges.md); the
+// priced hop is From -> To and the arc is the one between them.
 public class RoadCostTests
 {
+    private static readonly TileCoord From = new(0, 1);
+    private static readonly TileCoord To = new(1, 1);
+    private static readonly TileEdge Arc = TileEdge.Between(From, To);
+
     private static GameWorld GrasslandWorld(int w = 4, int h = 4)
     {
         var grid = new TileGrid(w, h, Biome.Grassland);
@@ -29,22 +35,20 @@ public class RoadCostTests
     public void NoRoad_ReturnsBiomeCost()
     {
         var world = GrasslandWorld();
-        var tile = new TileCoord(1, 1);
-        Assert.Equal(world.Grid.TerrainCost(tile), Road.EffectiveCost(world, tile, now: 0));
+        Assert.Equal(world.Grid.TerrainCost(To), Road.EffectiveCost(world, From, To, now: 0));
     }
 
     [Fact]
     public void CostDecreasesSmoothly_AsConditionRises()
     {
         var world = GrasslandWorld();
-        var tile = new TileCoord(1, 1);
-        var biomeCost = world.Grid.TerrainCost(tile); // 10
+        var biomeCost = world.Grid.TerrainCost(To); // 10
         var prev = biomeCost + 1;
 
         for (var condition = 0; condition <= RoadConstants.CONDITION_MAX; condition += 50)
         {
-            world.Roads[tile] = new RoadState(condition, 0);
-            var cost = Road.EffectiveCost(world, tile, now: 0);
+            world.Roads[Arc] = new RoadState(condition, 0);
+            var cost = Road.EffectiveCost(world, From, To, now: 0);
             Assert.True(cost <= prev,
                 $"Cost increased between condition steps: prev={prev}, cur={cost} at condition={condition}");
             prev = cost;
@@ -57,10 +61,9 @@ public class RoadCostTests
         // Grassland at cap: reduced by MAX_REDUCTION_PERCENT, never below
         // MIN_COST. Expected derives from the constants.
         var world = GrasslandWorld();
-        var tile = new TileCoord(1, 1);
 
-        world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        var cost = Road.EffectiveCost(world, tile, now: 0);
+        world.Roads[Arc] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        var cost = Road.EffectiveCost(world, From, To, now: 0);
         Assert.True(cost >= RoadConstants.MIN_COST,
             $"Cost {cost} below MIN_COST {RoadConstants.MIN_COST}");
 
@@ -76,9 +79,8 @@ public class RoadCostTests
         // "meaningful speedup" shape under any tuning.
         var grid = new TileGrid(4, 4, Biome.Forest);
         var world = new GameWorld(grid);
-        var tile = new TileCoord(1, 1);
-        world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        var cost = Road.EffectiveCost(world, tile, now: 0);
+        world.Roads[Arc] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        var cost = Road.EffectiveCost(world, From, To, now: 0);
         Assert.Equal(CapCost(Biome.Forest), cost);
         Assert.True(cost * 2 < Biomes.MoveCost(Biome.Forest),
             "a maxed road should at least halve forest cost");
@@ -93,9 +95,8 @@ public class RoadCostTests
         // constants; the relational assert pins the proportionality.
         var grid = new TileGrid(4, 4, Biome.Mountain);
         var world = new GameWorld(grid);
-        var tile = new TileCoord(1, 1);
-        world.Roads[tile] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        var cost = Road.EffectiveCost(world, tile, now: 0);
+        world.Roads[Arc] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        var cost = Road.EffectiveCost(world, From, To, now: 0);
         Assert.Equal(CapCost(Biome.Mountain), cost);
         Assert.True(cost * 2 < Biomes.MoveCost(Biome.Mountain),
             "a maxed road should at least halve mountain cost");
@@ -108,9 +109,8 @@ public class RoadCostTests
         // (defensive: real code removes such entries, but the read must not
         // double-reduce by reading a sentinel).
         var world = GrasslandWorld();
-        var tile = new TileCoord(1, 1);
-        world.Roads[tile] = new RoadState(0, 0);
-        Assert.Equal(world.Grid.TerrainCost(tile), Road.EffectiveCost(world, tile, now: 0));
+        world.Roads[Arc] = new RoadState(0, 0);
+        Assert.Equal(world.Grid.TerrainCost(To), Road.EffectiveCost(world, From, To, now: 0));
     }
 
     [Fact]
@@ -121,14 +121,14 @@ public class RoadCostTests
         var world = GrasslandWorld(8, 8);
         var sim = new Simulation(world, seed: 1);
         for (var i = 0; i < 5; i++)
-            world.Roads[new TileCoord(i, i)] = new RoadState(200 + 100 * i, 7);
+            world.Roads[TileEdge.FromOwner(new TileCoord(i, i), TileEdge.Axis.East)] = new RoadState(200 + 100 * i, 7);
         var beforeHash = Snapshot.Hash(sim);
 
         for (var i = 0; i < 100; i++)
         {
-            for (var x = 0; x < 8; x++)
+            for (var x = 0; x < 7; x++)
                 for (var y = 0; y < 8; y++)
-                    Road.EffectiveCost(world, new TileCoord(x, y), now: 0);
+                    Road.EffectiveCost(world, new TileCoord(x, y), new TileCoord(x + 1, y), now: 0);
         }
 
         Assert.Equal(beforeHash, Snapshot.Hash(sim));
@@ -139,11 +139,12 @@ public class RoadCostTests
     {
         var world = GrasslandWorld();
         var sim = new Simulation(world, seed: 1);
-        world.Roads[new TileCoord(0, 0)] = new RoadState(500, 7);
+        var arc = TileEdge.FromOwner(new TileCoord(0, 0), TileEdge.Axis.East);
+        world.Roads[arc] = new RoadState(500, 7);
         var beforeHash = Snapshot.Hash(sim);
 
         for (var i = 0; i < 100; i++)
-            Road.ConditionAt(world, new TileCoord(0, 0), now: 0);
+            Road.ConditionAt(world, arc, now: 0);
 
         Assert.Equal(beforeHash, Snapshot.Hash(sim));
     }
@@ -157,8 +158,7 @@ public class RoadCostTests
         // This prevents stale entries from bloating snapshots indefinitely
         // for tiles that decayed and were never re-touched by traffic.
         var world = GrasslandWorld();
-        var tile = new TileCoord(1, 1);
-        world.Roads[tile] = new RoadState(condition: 50, lastDecayTick: 0);
+        world.Roads[Arc] = new RoadState(condition: 50, lastDecayTick: 0);
 
         // 10000 ticks at decay-per-period=1, period=100 → 100 decay total →
         // 50 - 100 = clamped to 0 via ConditionAt(now=10000).
@@ -169,8 +169,8 @@ public class RoadCostTests
 
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 1);
-        Assert.False(restored.World.Roads.ContainsKey(tile),
-            "fully-decayed-but-untouched road tile should not round-trip");
+        Assert.False(restored.World.Roads.ContainsKey(Arc),
+            "fully-decayed-but-untouched road arc should not round-trip");
     }
 
     private sealed class NoOp : ScheduledEvent
@@ -182,9 +182,12 @@ public class RoadCostTests
     public void Snapshot_RoundTripsRoadSet()
     {
         var world = GrasslandWorld(8, 8);
-        world.Roads[new TileCoord(1, 2)] = new RoadState(400, 50);
-        world.Roads[new TileCoord(5, 1)] = new RoadState(1000, 0);
-        world.Roads[new TileCoord(3, 7)] = new RoadState(75, 1234);
+        var a = TileEdge.FromOwner(new TileCoord(1, 2), TileEdge.Axis.East);
+        var b = TileEdge.FromOwner(new TileCoord(1, 2), TileEdge.Axis.South);   // same owner, other axis
+        var c = TileEdge.FromOwner(new TileCoord(3, 6), TileEdge.Axis.South);
+        world.Roads[a] = new RoadState(400, 50);
+        world.Roads[b] = new RoadState(1000, 0);
+        world.Roads[c] = new RoadState(75, 1234);
         var sim = new Simulation(world, seed: 1);
 
         var bytes = Snapshot.Serialize(sim);
@@ -192,7 +195,9 @@ public class RoadCostTests
 
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
         Assert.Equal(3, restored.World.Roads.Count);
-        Assert.Equal(400, restored.World.Roads[new TileCoord(1, 2)].Condition);
-        Assert.Equal(50,  restored.World.Roads[new TileCoord(1, 2)].LastDecayTick);
+        Assert.Equal(400, restored.World.Roads[a].Condition);
+        Assert.Equal(50,  restored.World.Roads[a].LastDecayTick);
+        Assert.Equal(1000, restored.World.Roads[b].Condition);
+        Assert.Equal(75, restored.World.Roads[c].Condition);
     }
 }

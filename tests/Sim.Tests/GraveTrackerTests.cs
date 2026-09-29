@@ -43,8 +43,7 @@ public class GraveTrackerTests
         {
             Role = UnitRole.Builder,
             OwnerId = 1,
-            CargoResource = victimCargo > 0 ? Resource.Wood : Resource.None,
-            CargoAmount = victimCargo,
+            Cargo = { { victimCargo > 0 ? Resource.Wood : Resource.None, victimCargo } },
         });
 
         return new Simulation(world, seed: seed);
@@ -119,8 +118,7 @@ public class GraveTrackerTests
         {
             Role = UnitRole.Builder,
             OwnerId = 0,
-            CargoResource = Resource.Wood,
-            CargoAmount = 4,
+            Cargo = { { Resource.Wood, 4 } },
         };
         world.AddUnit(unit);
         var sim = new Simulation(world, seed: 0xC0F);

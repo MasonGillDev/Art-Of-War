@@ -200,9 +200,14 @@ public sealed class MusterRung : IRung
 
         if (ctx.Mem.DesignatedVeteran is null)
         {
+            // BARE HANDS GO HOME FIRST (2026-09-19, arming): a retrain
+            // drops the veteran's equipment on the school floor, so
+            // demobilizing the swordsman while the bare recruit keeps
+            // the watch throws the armoury's work into the dirt. Fewest
+            // buffs first; the lab's first run lost every sword this way.
             var vet = ctx.OwnUnits.Where(u => (UnitRole)u.Role == UnitRole.Soldier
                     && ctx.IsIdleStill(u) && ctx.IsFree(u) && u.CargoAmount == 0)
-                .OrderBy(u => u.Id).FirstOrDefault();
+                .OrderBy(u => u.Buffs.Length).ThenBy(u => u.Id).FirstOrDefault();
             if (vet is null) return null;
             ctx.Mem.DesignatedVeteran = vet.Id;
         }

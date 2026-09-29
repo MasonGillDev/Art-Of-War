@@ -42,6 +42,11 @@ public static class Sight
     //   * BuildCompleteEvent.Apply (vision structures becoming visible)
     //   * Genesis.Build (initial Castle + unit placements)
     //
+    // M37/M38 — every caller that runs inside the sim follows its reveal with
+    // AfterReveal: the explored-tiles gauge may have moved (docs/progression.md)
+    // and the owner's eyes may have fallen on a charted secret
+    // (docs/scouting-secrets.md). A new caller must do the same.
+    //
     // Reveal a Euclidean disc of radius `r` around `center` into player
     // `playerId`'s explored set. Squared-distance comparison keeps the
     // math integer-exact and runtime-deterministic. Clamps to grid bounds.
@@ -54,6 +59,13 @@ public static class Sight
     //
     // No-op when r <= 0 (non-vision structure kinds return 0 from
     // RadiusFor, so callers can union safely).
+    // What follows a reveal made inside the sim (see the note above Reveal).
+    internal static void AfterReveal(Simulation sim, int playerId, TileCoord center, int r)
+    {
+        Sim.Core.Scouting.Charts.OnSight(sim, playerId, center, r);
+        Sim.Core.Progression.Progression.Check(sim, playerId);
+    }
+
     internal static void Reveal(GameWorld world, int playerId, TileCoord center, int r, long now)
     {
         if (r <= 0) return;

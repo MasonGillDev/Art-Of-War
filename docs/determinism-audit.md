@@ -1224,3 +1224,230 @@ derived, so snapshot round-trip is unchanged apart from the config block
 forest depth; its affected set widens to the union of the recovery and
 fertility radii. `world.Fertility` still has exactly two production write
 sites. Filled in per phase in `docs/m35-status.md`.
+
+## M36 addendum (2026-09-23) - haul queue and named routes
+
+`docs/hauling-queue-and-routes.md`. Snapshot **v35**.
+
+**New stored state and its mutation points.**
+
+| State | Written only by |
+|---|---|
+| `Unit.Cargo` (mixed resource bag) | the cargo verbs: `HaulPickupEvent`, `HaulDepositEvent`, `Load/UnloadCargoIntent`, `CacheLooting`, `ServeRouteStopIntent`, the death drop in `CombatRules.OnUnitDeath`, `DespawnBanditPartyIntent` (the same sites that wrote the old resource/amount pair, plus route stops) |
+| `HaulPlan.Amount`, `HaulPlan.JobId` | `HaulIntent` (init-only after) |
+| `GameWorld.HaulJobs`, `NextHaulJobId`, `NextHaulStamp` | `SetHaulJobIntent`, `ClearHaulJobIntent`, `RequeueHaulJobIntent`; `HaulDepositEvent` credits a Once job's `Delivered` and removes it when met |
+| `GameWorld.HaulRoutes`, `NextHaulRouteId` | `SetHaulRouteIntent`, `ClearHaulRouteIntent`, `Add/RemoveRouteCrewIntent`; a crew's `CurrentStop` only by `ServeRouteStopIntent` |
+| `Unit.RouteId` | `AddRouteCrewIntent`, `RemoveRouteCrewIntent`, `ClearHaulRouteIntent` |
+
+**Canonical order.** `CargoHold` is a `SortedDictionary` by `Resource`
+(snapshot rows and death drops iterate by enum ordinal). Jobs and routes
+serialize in id order; a route's stops, rules and crews in list order (rule
+order is application order; crews are ascending id). The queue ORDER is
+not written: it is `(QueueStamp, JobId)`, so restoring the jobs restores
+the line.
+
+**No new anchors, no new scheduled events.** Queue work rides the existing
+`HaulPlan` anchor; route crews walk with ordinary `MoveIntent`s. The driver
+(`Sim.Server/Hauling/HaulingDriver`) holds no sim state: in-flight amounts
+are read from haulers' plans each think, so a fresh driver after restore
+agrees with the old one (pinned by `HaulQueueTests` / `HaulRouteTests`
+`SnapshotMid*_RecoversToTheSameWorld`, which continue both worlds with
+fresh drivers).
+
+**Server-internal intents.** `RequeueHaulJobIntent` and
+`ServeRouteStopIntent` are wire-rejected in `GameHost.SubmitEnvelopeJson`
+and durable in the intent log. `ServeRouteStopIntent` serves and advances
+in one resolution (fenced on the stop the driver saw), so a restart cannot
+serve a stop twice.
+
+**Dormancy.** `ClaimLedger.IsDormant` gains `RouteId is null`: a route
+crew is never pulled by a queue job or an automation order. AI units never
+carry a `RouteId`, so AI behavior is unchanged.
+
+## M37 addendum (2026-09-23) - progression, Phase A (docs/progression.md)
+
+**New mutation surface: `Player.Progress` (the `ProgressLedger`).**
+
+| State | Written only by |
+|---|---|
+| `Player.Progress` (null or a ledger) | `Genesis.Build` from `FactionStartSpec.Progression`; `Snapshot` restore |
+| `ProgressLedger.Counts` | `Progression.Bump`, called from `TrainingRules.Train` (RoleTrained), `Construction.Complete` (StructureCompleted), `ProductionTickEvent` on a refiner (ResourceRefined) |
+| `ProgressLedger.Fired` | `Progression.Fire`, reached only through `Progression.Check` |
+
+**Checks run inside the sim.** `Progression.Check` runs after every bump and
+wherever a gauge may move: `Population.OnUnitAdded` (population) and each
+`Sight.Reveal` made from a sim event or intent (`MoveArrivalEvent`,
+`GroupArrivalEvent`, `DisembarkIntent`, `Construction.Complete` and the canal
+flood). Genesis reveals do not check (no sim yet). A check fires rows in
+catalog order and repeats until none fires, so `Fired(id)` chains resolve in
+the same call regardless of row order.
+
+**Effects are deterministic.** No RNG draw, no wall clock. `Grant` deposits
+into the castle through `CargoTransfer.DepositInto`. The effects that will
+place things in the world (omens, Phase B) hash a (world seed, omen id) pair
+instead of drawing from the world RNG.
+
+**Canonical order.** Counts are a `SortedDictionary` keyed by
+`(Stat, Sub)`; fired ids a `SortedSet`. Snapshot v36 writes the ledger in the
+player row after `GodMode`: a has-ledger bool, the count rows in key order,
+then the fired ids ascending.
+
+**No anchors, no scheduled events** in Phase A. The catalog is code and is
+not serialized; a row's id is, so ids are append-only.
+
+### M37 Phase B (2026-09-23) - omens
+
+| State | Written only by |
+|---|---|
+| `GameWorld.ProgressionConfig` (+ derived `Milestones`) | `Genesis.Build`; `Snapshot` restore |
+| `GameWorld.Omens`, `NextOmenId`, every `Omen` field | `Omens.Raise` (from `Threat.Apply`), `Omens.Arrive` (from `OmenDueEvent`), `Omens.OnRaiderEscaping` (from `DespawnBanditPartyIntent`), `Omens.OnUnitRemoved` (from `Population.OnUnitRemoved`) |
+
+**Anchor:** a Pending omen's `(DueTick, DueSeq)` is its `OmenDueEvent`, regenerated in
+`RegenerateQueue` (omens in id order, after the food homes). Liveness is `State`, not the
+Seq: Seq 0 is a real Seq (found in `OmenTests.ASnapshotMidCountdown_ArrivesTheSame`).
+A slip reschedules and moves the anchor; the event fences on `(At, Seq)`.
+
+**No RNG.** The bearing is a fixed scan (wildness count per octant) with a hash
+tie-break; the arrival tile is a fixed ring scan in hash order. Raiders are created by
+`SpawnBanditPartyIntent.Materialize`, which (as before) skips the lifespan roll.
+
+**Driver state stays disposable.** The bandit driver recognises omen raiders from
+`Omens.RaidOf` (durable), so a restarted driver still marches them on the seat.
+
+**Snapshot v37** appends the config knobs, `NextOmenId` and the omens (id order, party
+ids in list order).
+
+### M37 Phases C–D1 (2026-09-23) - arrivals, rumours, the wire
+
+- **Omens are never removed.** A resolved omen keeps its outcome state and
+  `ResolvedTick` (snapshot v37 carries both). `Omens.RaidOf` and the regenerate pass
+  filter on state.
+- **New writers:** `Omens.OnCacheGone` from `CacheLooting.TryLoot` (which now takes the
+  `Simulation` for the tick); newcomers are added through `Population.OnUnitAdded`, roll
+  their lifespan with `Population.ScheduleLifespan` (a world-RNG draw, in the sim's own
+  event order, as for any birth) and start walking with `MoveIntent.BeginMove`; a
+  rumour's ruin is an ordinary `Cache` added with `world.AddStructure`; the war chest
+  drops through `CargoTransfer.DropToGround`.
+- **The projector's `FillOmens` is a pure read** (`OmenWireTests.ProjectingOmens_IsAPureRead`).
+
+## M38 addendum (2026-09-23) - scouting secrets (docs/scouting-secrets.md)
+
+| State | Written only by |
+|---|---|
+| `GameWorld.Charts` | `Charts.Deliver` (ScoutMissionRunner at `Returned`), `Charts.OnSight` (`Sight.AfterReveal`, `Construction.Complete`'s reveals), `Charts.OnSecretGone` (`CacheLooting.RemoveIfEmptied`, `Idols.Activate`) |
+| `GameWorld.IdolConfig` | `Genesis.Build`; `Snapshot` restore |
+| `GameWorld.VisionGrants`, `NextVisionGrantId` | `Idols.Activate` (from `ActivateIdolIntent` or the `ActivateIdol` goal's arrival), `Idols.Expire` (from `VisionGrantExpiryEvent`) |
+| `Idol` structures | `IdolScatter` at genesis (sim RNG, after the caches); removed by `Idols.Activate` |
+
+**RNG draws** (in the sim's event order, replayed exactly): the genesis idol scatter;
+an idol's circle centre; a rumour's search-area offset (moved off a public hash, which a
+modded client could invert).
+
+**Vision equivalence.** `View.VisibleTiles`, `View.Sees` and
+`BanditRules.IsSeenByAnyPlayer` all include vision grants.
+
+**Anchor.** A grant's `(EndsTick, EndSeq)` is its expiry event, regenerated in
+`RegenerateQueue`.
+
+**Snapshot v38** appends the charts, the idol config, `NextVisionGrantId` and the
+grants; an `Idol` structure's payload is its grade byte.
+
+**Consolidation.** Every sim-side reveal now calls `Sight.AfterReveal` (charts, then
+progression) instead of `Progression.Check` directly; `Construction.Complete` keeps its
+own order because its progression bump already runs the check.
+
+## M39 addendum (2026-09-24) - bandit camps (docs/bandit-camps.md)
+
+| State | Written only by |
+|---|---|
+| `BanditCamp` structures | `Camps.Build` (from `Omens.RaiseCamp`, the `CampRumour` effect); removed by `SiegeDamage.RazeStructure` |
+| `BanditCamp.Raiders`, `RaidDeparted`, `LastRaidTick`, `LastRecruitTick`, tick anchor | `Camps.Tick` (from `CampTickEvent`), `Camps.OnUnitRemoved` (from `Population.OnUnitRemoved`), `Camps.OnMoved` (from `MoveArrivalEvent`) |
+| The hoard (`Holdings`) | raiders' `UnloadCargoIntent` (bandit-issued, the ordinary deposit path); the raze spill |
+| `GameWorld.CampConfig` | `Genesis.Build`; `Snapshot` restore |
+| `ProgressStat.CampRazed` | `Camps.OnRazed`, called from `CombatRoundEvent` right after the raze, crediting every hostile non-bandit owner in the round's start forces |
+
+**Anchor:** a camp's `(NextTickAt, NextTickSeq)` is its `CampTickEvent`, regenerated in
+`RegenerateQueue` in (y, x) order.
+
+**RNG:** a camp's placement is a fixed ring scan in hash order (as the ruin's). Its
+search circle's offset is a sim RNG draw (as the ruin's). Recruits are materialized
+without a lifespan roll (bandits die by the sword).
+
+**Snapshot v39** adds the camp payload (hoard, target, source, raiders, departed flag,
+last raid / recruit, anchor), the `CampConfig` block after the idol grants, and two
+`ProgressionConfig` knobs (`SmokePopulation`, `CampCaptives`).
+
+## M40 addendum (2026-09-24) - salvage (docs/salvage.md)
+
+| State | Written only by |
+|---|---|
+| a Salvage `HaulJob` | `SetHaulJobIntent` (validated by `Salvage.Blocker`, which reads the player's chart and `View.Sees`: both pure reads); removed by `ClearHaulJobIntent` or by `HaulPickupEvent` when a salvage hauler arrives to nothing |
+| a cache's holdings / a ground pile | `Salvage.TakeAll` from `HaulPickupEvent` (cache first, then pile, resource order); the cache's removal still goes through `CacheLooting.RemoveIfEmptied` |
+
+The driver never reads a salvage source; its report counts haulers from their plans. No
+snapshot change: the job kind is a new byte value in an existing field, and a salvage
+`HaulPlan` carries `Resource.None`.
+
+## Two-act pacing addendum (2026-09-24) - the landing (docs/two-act-pacing.md)
+
+| State | Written only by |
+|---|---|
+| `GameWorld.LandingConfig` (the landing tick; 0 = a one-act world) | `Genesis.Build`; `Snapshot` restore |
+
+**Pure reads:** `LandingRules.HasLanded` and `LandingRules.TruceHolds` read the config
+and the clock and write nothing (pinned by `LandingTests.LandingRules_ArePureReads`).
+`DeclareWarIntent` rejects while the truce holds, which consumes a `Seq` like any
+rejection and mutates nothing.
+
+**The host's pace is not sim state.** `Sim.Server`'s `PaceSchedule` switches the tick
+rate at the landing tick; nothing in `Sim.Core` reads it, and it never enters the
+replay log.
+
+**Snapshot v40** adds a trailing landing block: the `LandingConfig` tick.
+
+### Update 2026-09-25 — the landing's hosts
+
+| State | Written only by |
+|---|---|
+| `GameWorld.LandingSeq` (the pending `LandingEvent`'s anchor) | `LandingRules.ScheduleAtGenesis` (Simulation spec-ctor); cleared by `LandingEvent.Apply`; `Snapshot` restore |
+| `GameWorld.LandingHosts` (hosts, bands, rosters) | `LandingRules.Land` (from `LandingEvent`); rosters shrink only in `LandingRules.OnUnitRemoved` (from `Population.OnUnitRemoved`); `Snapshot` restore |
+
+**Anchor:** `(LandingConfig.Tick, LandingSeq)`, regenerated in `RegenerateQueue`.
+**RNG:** none. Sides are ordered by an integer hash, and landing tiles by
+`Omens.Search`'s hash ring order. The bandits are materialized without a lifespan
+roll (the bandit rule).
+**Pure read:** `LandingRules.IsHostBound`. The driver's release set is ephemeral
+and never hashed.
+
+## M41 addendum (2026-09-25) - the battlefield grid (docs/battlefield-grid.md)
+
+| State | Written only by |
+|---|---|
+| `GameWorld.Battlefields` (turn anchor, suspended flag, turn number) | `Battlefields.Open`, `RunTurn`, `Wake`, `Close`; restored by `Snapshot.ReadBattlefields`; the turn event is rebuilt from the anchor by `RegenerateQueue` |
+| `Unit.Board` (subtile, came-from, standing order, last note, sheltered) | `Battlefields` (open, admit, turn, leave, close) and `SetBattleOrderIntent`; cleared on death by `Battlefields.Apply` |
+| `Unit.Doctrine` | `SetBattleDoctrineIntent` |
+| `Unit.EnteredFrom` / `EnteredTick` / `LeavingBoard` | `MoveArrivalEvent` and `GroupArrivalEvent` (every hop); `Battlefields.Leave` sets `LeavingBoard` |
+| `CombatConfig.Model`, `LineSupport` | genesis; restored by `ReadBattlefields` |
+
+- **Pure reads:**
+  - `TurnPlanner`, `TurnResolver` and `BattlePathing` work on a snapshot of the board and
+    return values.
+  - `BattlefieldProjection` and `Battlefields.PlanPreview` build the same board for the view
+    and write nothing.
+  - `Battlefield.LastTurn` is presentation only: not snapshotted, not hashed.
+- **Order independence:** a turn's steps resolve together by the collision table. Ties
+  between friends go to the lower unit id, never to intent order (`TurnResolverTests`).
+- **Headline tests** (`BattlefieldWorldTests.TwinRuns_AndARestoreMidBattle_EndIdentically`):
+  - two runs of the same battle hash equal;
+  - a snapshot restored mid-battle runs to the same hash.
+
+## Structure footprints addendum (2026-09-28, docs/structure-footprints.md)
+
+| State | Written only by |
+|---|---|
+| `Structure.Facing` | construction (North by default); scenario setup (`castle-facing:`); restored by `ReadStructures` (v42) |
+
+- `Footprints.For`, `SubtileLayer` and `BattlePathing.ReachableFrom` are pure reads of the
+  structure and return values.
+- The board layer is rebuilt from the structure every time it is needed, so it is never
+  saved.

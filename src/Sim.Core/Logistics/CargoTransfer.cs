@@ -86,6 +86,40 @@ public static class CargoTransfer
         return deposited;
     }
 
+    // Take up to `amount` of `resource` out of a structure; returns how much
+    // came out. The withdraw-side twin of DepositInto, shared by
+    // LoadCargoIntent and route stops (M36) so both keep the same two hooks:
+    //   * FOOD out of a FOOD HOME catches consumption up first (no phantom
+    //     food) and re-evaluates the famine forecast after (M19);
+    //   * freeing an extractor's buffer re-arms dormant production (Phase D).
+    // Touches only the structure — the caller owns the carrier's cargo.
+    public static int WithdrawFrom(Simulation sim, Structure source, Resource resource, int amount)
+    {
+        if (amount <= 0 || resource == Resource.None) return 0;
+
+        var foodHome = source is Sim.Core.Food.IFoodHome fh && resource == Resource.Food ? fh : null;
+        if (foodHome is not null)
+            Sim.Core.Food.FoodConsumption.CatchUp(foodHome, sim, sim.Now);
+
+        var taken = 0;
+        switch (source)
+        {
+            case StorageStructure ss:
+                taken = ss.Withdraw(resource, amount);
+                break;
+            case Extractor ex when ex.Spec.OutputResource == resource && ex.Buffer > 0:
+                taken = Math.Min(amount, ex.Buffer);
+                ex.Buffer -= taken;
+                ex.ArmIfDormant(sim);
+                break;
+        }
+
+        if (foodHome is not null && taken > 0)
+            Sim.Core.Food.FoodConsumption.OnRateOrFoodChanged(foodHome, sim);
+        if (taken > 0) Sim.Core.Caches.CacheLooting.RemoveIfEmptied(sim, source);
+        return taken;
+    }
+
     // Drop loose cargo onto a tile's ground pile — the same capture-economy pile a
     // dying laden unit leaves (see CombatRules.OnUnitDeath). Re-haulable.
     public static void DropToGround(GameWorld world, TileCoord tile, Resource resource, int amount)

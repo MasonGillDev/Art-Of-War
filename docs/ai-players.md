@@ -458,3 +458,122 @@ Pinned by `ScavengeTests`: the two core rules, the expedition stages
 the budget/living-kingdom/wall/kill-switch gates, and a lab where the
 M25 conquest scenario runs PAST the victory and the fallen castle's
 stone/ore tracers end up in the victor's vault.
+
+## Update 2026-09-19 — arming: the Forge and Arm rungs (the ore chain, taught)
+
+`docs/refining-structures.md` shipped the Smelter, Workshop and Smithy and
+deferred the AI side with a warning: "every hop a human can automate, the AI
+must be taught." This update pays that. Both brains gained two rungs in the
+same slot (below Fortify, above Irrigate — walls, then weapons, then water),
+gated on the Fortify population floor so the small-colony curves are the
+pre-arming curves byte for byte:
+
+- **`ForgeRung`** raises the armoury industry in payoff order: a **Smithy**
+  first (shields are wood + stone, both already flowing — the garrison gets
+  +10 health within days of the roof), then a **Mine** on *known* Hills
+  (no known hills, no chain: the colony stays a shield kingdom until the
+  scouts find ore — industry grows with knowledge, never drives it), then
+  a **Smelter**. It staffs what stands fewest-hands-first (one pick and one
+  furnace before two of either). One site at a time, crewed only once
+  provisioned, every site behind the full-cost check (lesson #10) and the
+  four Fortify surplus gates.
+- **`ArmRung`** spends it: forge to need, never to bank (an item is made
+  only while more soldiers lack it than the smithy holds), and equip by
+  walking — `EquipUnitIntent` is goal-shaped (M30), so the rung names the
+  store and the sim walks the soldier in. Sword before shield; bows only
+  for archers, which no brain trains yet.
+- **Feed lines in `LogisticsLayer`**, lowest haul priority: castle → smelter
+  (ore and fuel, the recipe line covering the fewest batches first),
+  smelter → smithy (iron; castle when no smithy stands), castle → smithy
+  (working stock of wood/stone/iron). The castle keeps `ArmCastleReserve`
+  of wood and stone back — hafts never outbid a farm's ten planks.
+- **`EnemyIntel`** prices a faction's soldiers as *armed* once its Smithy
+  has been seen (visible or remembered — structures are physical land
+  use). The loadout stays private; the forge is the tell. Without it an
+  armed defender read as bare and the Rival's overmatch gate launched
+  campaigns into swords it never counted.
+- **`MusterRung` demobilizes bare hands first.** A retrain drops the
+  veteran's gear on the school floor; the lab's first run lost every sword
+  to the drawdown this way.
+
+Three arbitration lessons for the ledger, all from the 200-day A/B lab
+(`ArmTests.Arm_TheGarrisonArmsItself_LabReport`, Arm on vs off, same seed):
+
+- **#13 — the builder ping-pong.** `EnsureBuilders` marches builders early
+  ("a walk is re-targetable"), and a builder standing idle on an
+  UNPROVISIONED site is free to every other site's early march. Two
+  long-waiting Forge sites bounced one builder between them for 36 days —
+  walking, never hammering, while the houses waited; the armed faction
+  ended at half the baseline population. Fix: `EnsureBuilders(site,
+  marchEarly: false)` for rungs whose sites wait weeks for materials, and
+  one open Forge site at a time. Every other rung keeps the early march.
+- **#14 — staffing is not free.** Ungated staffing of the mine and smelter
+  ("it only takes idlers the food rungs passed over") cost 13-16% of the
+  population by day 200. In a labor-tight colony an idler is the next
+  farmhand. Staffing sits behind the same surplus gates as ground-breaking,
+  and the default crew is one hand each (a sword every three days is an
+  armoury; two-and-two was a second economy).
+- **#15 — stagger the chain's hands.** With the mine staffed to two before
+  the smelter got one, the surplus gate closed for ninety days with ore
+  piling up and no iron. Fewest-hands-first across the chain.
+
+Pinned by `ArmTests`: the placed smithy (and mine, on hills) pass the
+server's validation; the feed lines route ore in and iron on; the smithy
+forges a sword before a shield and a soldier walks in and comes out
+carrying it; the kill switch (`AiConfig.Arm = false`) silences both rungs
+and the feed lines; the enemy estimate flips on a seen smithy; and the
+A/B lab pins that arming never puts a faction in a famine the baseline
+avoided. Deferred: Miner training (generalists smelt at the base rate),
+archers and bows, carts for haulers (the Workshop), and iron for gates.
+
+## Update 2026-09-19 (later) — the haul belt: haulers, carts, and the "food wall"
+
+The 200-day arming lab surfaced a famine at ~90 pop that the baseline
+(arming off) hit too. The post-mortem on the baseline trace said it was
+not yield: farm-hand demand rose 7 → 22 over 190 days and live farms
+6 → 10 on schedule, but the last twenty days ran ~4.5 food hauls per
+think on nearly every think, carried five turnips at a time by field
+hands, from ten far farms. The colony trained **1 Hauler against 23
+Farmers** in 170 days. The wall was people on the road — the distance tax
+the design intends, paid in the most expensive currency because the brain
+never bought the tools a human buys first. Every fix is AI-side; no sim
+knob moved.
+
+- **The hauler floor rises with the belt** (`ThinkContext.HaulerDemand`,
+  `AiConfig.ExtractorsPerHauler`): one Hauler per three own extractors,
+  never below `HaulerFloor`. TrainRung reads it in the floors pass.
+- **`CartRung`** (both ladders, right after Train — organs, then tools):
+  raise a Workshop, forge a Cart for every Hauler, walk them in to hitch
+  up. The craft-and-equip loop is the same play ArmRung runs over the
+  Smithy, extracted into `Outfitter` (one store, catalog items in doctrine
+  order: craft to need, equip by the goal-shaped walk). Gates are lighter
+  than Forge's on purpose — no labor-slack gate, because freeing labor is
+  the point — but bread still outranks it, a camp doesn't build a workshop
+  (`CartPopulationFloor` 20, below the Fortify/Arm floor because the wall
+  arrives at 60–90), and the site waits for the castle to hold its cost.
+  The workshop's frame-and-wheel stock rides the same craft-store feed
+  line as the smithy's.
+- **Grow conscripts generalists before Farmers.** The baseline pulled 116
+  crews off the fields for breeding in 170 days — the churn the trace
+  showed as "staffing a farm toward N hands" ×300 is the birth rate, not
+  a thrash (no unit ping-ponged). A conscripted Farmer costs the 2:1 hand
+  a generalist doesn't. "Sticky staffing" was considered and dropped: the
+  data didn't support it.
+- **Deferred:** a Stockpile rung for far clusters. Only if the belt is
+  still the wall with haulers and carts in play.
+
+Pinned by `CartTests`: the workshop site passes the server's validation,
+the feed line stocks it, a cart is forged to need and a Hauler comes out
+carrying it, the hauler demand rises with the belt and TrainRung acts on
+it, and the kill switch (`AiConfig.Carts = false`) silences rung and feed
+line. The A/B lab (`ArmTests`) now reports haulers and carts per faction.
+
+**Arming floor retuned 25 → 40** (`ArmPopulationFloor`) on the haul-belt
+lab's evidence: with the belt fixed, seed 11's marginal coastal colony
+survived at 57 pop unarmed but collapsed to 7 when it armed at 25 — three
+sites and two crews are a town's spend, not a village's. At 40 the marginal
+colony never arms (its curve is the unarmed curve) and the healthy ones
+still raise the full chain by day 200. What remains is the honest price of
+an armoury: 5–30 % of day-200 population across seeds and runs, never a
+famine the unarmed twin avoided (the A/B pin). That price is the user's
+dial — `Arm`, `ArmPopulationFloor`, `ArmMineWorkers`/`ArmSmelterWorkers`.

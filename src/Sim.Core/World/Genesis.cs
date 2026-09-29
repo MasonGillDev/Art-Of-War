@@ -53,10 +53,25 @@ public sealed record GenesisSpec
     // scatter runs in the Simulation spec-ctor with the seeded Rng; only the
     // resulting Cache structures persist. See docs/loot-caches.md.
     public Sim.Core.Caches.CacheConfig Caches { get; init; } = new();
+    // M38 — idols scattered in the fog, and their grade table.
+    public Sim.Core.Scouting.IdolConfig Idols { get; init; } = new();
+    // M39 — bandit camp knobs.
+    public Sim.Core.Bandits.CampConfig Camps { get; init; } = new();
+    // Two-act pacing — the landing (day X). Default = no landing, a one-act
+    // world (docs/two-act-pacing.md).
+    public Sim.Core.Landing.LandingConfig Landing { get; init; }
 
     // M31: world-level dynasty configuration (aura radius/bonus, majority
     // age). Defaulted; scenarios override, same as every config above.
     public Sim.Core.Royalty.RoyaltyConfig Royalty { get; init; } = new();
+    // M37 — progression knobs (docs/progression.md). Only enrolled factions
+    // (FactionStartSpec.Progression) are affected.
+    public Sim.Core.Progression.ProgressionConfig Progression { get; init; } = new();
+
+    // M41 — pairs of factions at war from tick 0 (the battle test bed's
+    // scenarios; docs/m41-status.md). Empty for every ordinary world, where
+    // war comes only by declaration.
+    public IReadOnlyList<(int A, int B)> StartingWars { get; init; } = Array.Empty<(int, int)>();
 
     public int FactionCount => FactionStarts.Count;
 }
@@ -94,6 +109,16 @@ public sealed record FactionStartSpec
     // accident, because a realm without a king is quietly at a permanent
     // disadvantage against every realm that has one.
     public int? KingUnitId { get; init; }
+
+    // God mode (docs/god-mode.md): this faction places structures for free
+    // and they stand instantly. A test-harness switch (--god on the host),
+    // off for every ordinary and AI faction.
+    public bool GodMode { get; init; }
+
+    // M37 — this faction takes part in progression (docs/progression.md):
+    // counters, hidden milestones, omens. Human seats only; AI factions are
+    // placeholders and never enrol.
+    public bool Progression { get; init; }
 }
 
 public sealed record UnitSpawn(
@@ -145,6 +170,10 @@ public static class Genesis
 
         var world = new GameWorld(grid, spec.Diplomacy, spec.Combat, spec.Population, spec.BiomeDegradation);
         world.RestoreRoyaltyConfig(spec.Royalty);   // M31 — genesis-set, then immutable
+        world.RestoreProgressionConfig(spec.Progression);   // M37 — same
+        world.RestoreIdolConfig(spec.Idols);                 // M38 — same
+        world.RestoreCampConfig(spec.Camps);                 // M39 — same
+        world.RestoreLandingConfig(spec.Landing);            // two-act pacing — same
 
         // M16 — every world carries the bandit faction, usually empty: a
         // Player row with no castle, no holdings, no spawns. Registering it
@@ -157,9 +186,16 @@ public static class Genesis
         // matches the snapshot canonical Players order (sorted-by-id).
         foreach (var fs in spec.FactionStarts.OrderBy(f => f.OwnerId))
         {
-            world.Players[fs.OwnerId] = new Player(fs.OwnerId);
+            world.Players[fs.OwnerId] = new Player(fs.OwnerId)
+            {
+                GodMode = fs.GodMode,
+                Progress = fs.Progression ? new Sim.Core.Progression.ProgressLedger() : null,
+            };
 
             var castle = world.AddStructure(new Castle(fs.CastlePosition) { OwnerId = fs.OwnerId });
+            // Its gate faces a side you can walk out of (docs/structure-footprints.md):
+            // north if that neighbour is walkable land, else east, south, west.
+            castle.Facing = GateFacing(world, fs.CastlePosition);
             foreach (var (r, n) in fs.CastleHoldings)
             {
                 var accepted = castle.Deposit(r, n);
@@ -205,6 +241,10 @@ public static class Genesis
                 world.Players[fs.OwnerId].KingUnitId = kingId;
         }
 
+        // M41 — wars in force from the start (scenarios only).
+        foreach (var (a, b) in spec.StartingWars)
+            world.Diplomacy.SetState(Diplomacy.FactionPair.Of(a, b), Diplomacy.RelationshipState.Enemy);
+
         // M8: seed the monotonic unit-id counter so BirthEvent allocates
         // ids that don't collide with any spawned unit.
         world.NextUnitId = world.Units.Count == 0 ? 1 : world.Units.Keys.Max() + 1;
@@ -225,9 +265,9 @@ public static class Genesis
             if (mask == RiverEdge.None) continue;
             foreach (var n in grid.Neighbors(tile))
             {
-                var edge = Sim.Core.Rivers.River.EdgeBetween(tile, n);
+                var edge = TileEdge.SideBetween(tile, n);
                 var mine = (mask & edge) != 0;
-                var theirs = (grid.RiverEdgesAt(n) & Sim.Core.Rivers.River.Opposite(edge)) != 0;
+                var theirs = (grid.RiverEdgesAt(n) & TileEdge.Opposite(edge)) != 0;
                 if (mine != theirs)
                     throw new InvalidOperationException(
                         $"GenesisSpec.Rivers is asymmetric between {x},{y} and {n.X},{n.Y} ({edge}).");
@@ -240,5 +280,18 @@ public static class Genesis
                 throw new InvalidOperationException(
                     $"GenesisSpec.Rivers: {x},{y} carries a river on the map border.");
         }
+    }
+
+    // The first of N, E, S, W whose neighbour is in bounds, dry and walkable.
+    private static Sim.Core.Battlefields.Heading GateFacing(GameWorld world, TileCoord at)
+    {
+        foreach (var h in Sim.Core.Battlefields.Headings.All)
+        {
+            var n = new TileCoord(at.X + Sim.Core.Battlefields.Headings.Dx(h), at.Y + Sim.Core.Battlefields.Headings.Dy(h));
+            if (world.Grid.InBounds(n) && world.Grid.BiomeAt(n) != Biome.Water
+                && world.Grid.TerrainCost(n) < Biomes.Impassable)
+                return h;
+        }
+        return Sim.Core.Battlefields.Heading.North;
     }
 }

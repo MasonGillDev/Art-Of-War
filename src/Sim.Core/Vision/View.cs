@@ -95,7 +95,38 @@ public static class View
             if (r > 0) AddDisc(world, visible, s.At, r);
         }
 
+        // M38 — an activated idol's circle of sight.
+        foreach (var g in world.VisionGrants.Values)
+            if (g.OwnerId == playerId) AddDisc(world, visible, g.Center, g.Radius);
+
         return visible;
+    }
+
+    // Is `tile` in player `playerId`'s live sight right now? The one-tile
+    // question VisibleTiles answers for the whole disc union, without building
+    // the set: O(sources). MUST mirror VisibleTiles exactly (the same pairing
+    // BanditRules.IsSeenByAnyPlayer keeps for every non-bandit player).
+    public static bool Sees(GameWorld world, int playerId, TileCoord tile)
+    {
+        foreach (var u in world.Units.Values)
+        {
+            if (u.OwnerId != playerId || u.IsEmbarked) continue;
+            if (Within(u.Position, tile, Sight.RadiusFor(u.Role))) return true;
+        }
+        foreach (var s in world.Structures.Values)
+        {
+            if (s.OwnerId != playerId) continue;
+            if (Within(s.At, tile, Sight.RadiusFor(s.Kind))) return true;
+        }
+        return Sim.Core.Scouting.Idols.GrantSees(world, playerId, tile);   // M38
+
+        static bool Within(TileCoord c, TileCoord t, int r)
+        {
+            if (r <= 0) return false;
+            var dx = t.X - c.X;
+            var dy = t.Y - c.Y;
+            return dx * dx + dy * dy <= r * r;
+        }
     }
 
     // Builds a player's full filtered view. PURE READ — never writes any

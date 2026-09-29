@@ -282,3 +282,66 @@ difference between the two shapes, observed rather than assumed. Both rejection
 paths were exercised too (a canal into Mountain, a wall with a gap), and each
 came back as a readable notice.
 
+
+## Update 2026-09-18 — edges versus tiles, settled
+
+The edges-versus-tiles question came back with roads (`docs/roads-on-edges.md`),
+and the rule of thumb the bridge doc leaned on is now written down here, where
+it originated: **edges hold inert things; tiles hold anything with health,
+ownership, construction, combat or rubble.** Rivers, bridges, fords and roads
+are edges because they carry a cost or a bit and nothing else. Walls stay
+tiles because a wall segment has all five, and moving them to edges means an
+edge-flavoured twin of the site, siege, breach, mend and reclaim machinery.
+The "why is a wall a whole kilometre" complaint remains declined on those
+grounds. A barrier edge that is *inert* (a hedgerow, a fence with a crossing
+surcharge and no health) is a different object and is reserved under the
+roads doc's future expansion, following the river's bits-on-both-tiles
+convention rather than the wall's site.
+
+## Update 2026-09-28 — walls stand on the battlefield (grid combat)
+
+Decided with the user, for `--combat grid` (`docs/battlefield-grid.md`). Not built yet.
+It reverses two M26 rules, in grid worlds only: "nobody can stand on a wall tile" and
+"forces besiege a wall from the four tiles beside it". The pooled model keeps both.
+
+- **The wall is a line through the board.** On a wall tile's 4×4 board, the wall is a
+  line of obstacle subtiles along **one of the two middle rows**, turned to follow the
+  wall's direction (a north–south wall is a middle column). Nobody crosses it. Because it
+  is a middle row, each side always has at least one row of the tile to stand on, so
+  attackers can always get a foothold on a wall tile. Which middle row (which side gets
+  two rows) is still open.
+- **A gate** is a subtile in that line. It is passable for the owner and allies (the
+  existing `AlliedPassage`) and blocked for everyone else.
+- **A tower in a wall** is a subtile in the line where only the owner's units stand, and
+  archers there shoot at enemies on the far side. The existing `Tower` structure is
+  standalone (vision 7, HP 150) and not part of a wall; how the two relate is open.
+- **Wall damage is positional; this is the exception to shielding.** A unit next to a
+  wall subtile, and not in a duel, damages the wall even while its defenders are on the
+  board. Otherwise defenders behind the line would make it unbreakable, since attackers
+  could never reach them. Defenders keep the wall face clear with tower archers and by
+  sallying out through the gate.
+- **HP is unchanged:** one HP pool for the whole wall on a tile, at today's values (Wall
+  500, Gate 300). No per-subtile breaches yet. At 0 the whole tile's wall becomes rubble,
+  as today.
+- **Undefended walls:** with no defenders present no board opens, and the existing siege
+  rounds apply.
+- **Every other building keeps the simple rule** (confirmed 2026-09-28): the tile's
+  attackers' summed power hits it each round, and the owner's units on the tile block
+  that damage.
+- **Deferred:**
+  - siege engines as damage multipliers (ram against gates, trebuchet at range, siege
+    tower to cross the line);
+  - a separate structure-damage knob per role (today soldiers use their normal power);
+  - per-subtile breaches.
+
+## Update 2026-09-28 (later) — the defenders stand on the wall
+
+Superseded in part by `docs/structure-footprints.md`:
+- **A wall subtile can be stood on** by the owner and allies. They step on and off from
+  three sides: the defended side, and along the line to the next wall or tower subtile.
+  The outer side is closed. Enemies cannot enter a wall subtile at all.
+- **Nobody passes through a wall.** A gate is the only way through: the owner and allies
+  cross it in either direction, as today's `AlliedPassage`. The `Gate` kind stays.
+- **Only archers deal damage from a wall.**
+- **A tower** follows the same entry rule, and its archers reach three subtiles.
+- **Castle walls** are a ring that cannot be damaged, with one open gap that anyone may use.

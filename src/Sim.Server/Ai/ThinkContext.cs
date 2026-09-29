@@ -411,15 +411,18 @@ public sealed class ThinkContext
     // resulting knife-edge into the cascade.
     public (int Pool, int Hands, int HandsDemanded) LaborLedger()
     {
+        // A PLANNING price, not a live rate: the catalog's untapered,
+        // unhoused yield. Deliberately cautious — the settled-worker bonus
+        // is unpriced headroom. Scaling it by the farms' reported
+        // OutputPerDay was tried both ways on 2026-09-23 and lost both
+        // (docs/structure-rates-on-the-wire.md, Update 2026-09-23).
         var spec = StructureCatalog.Spec(StructureKind.Farm);
         var periodsPerDay = Sim.Core.Time.Day / spec.ProductionPeriodTicks;
         var farmerDaily = (long)spec.BaseRatePerWorker * periodsPerDay
             * spec.RoleBonusNumerator / spec.RoleBonusDenominator;
         var generalDaily = (long)spec.BaseRatePerWorker * periodsPerDay;
 
-        var dailyDemand = (long)View.Population
-            * Sim.Core.Food.FoodConsumptionConstants.FoodPerCitizenPerPeriod
-            * (Sim.Core.Time.Day / Sim.Core.Food.FoodConsumptionConstants.FoodConsumptionPeriod);
+        var dailyDemand = (long)View.Population * Sim.Core.Food.FoodConsumption.DemandPerDayPerCitizen;
         var required = dailyDemand * Cfg.FarmHeadroomPercent / 100;
 
         // IsFreeOrDesignated, not IsFree: designated parents are still the

@@ -7,30 +7,11 @@ namespace Sim.Core.Rivers;
 // genesis and restored by Snapshot. See docs/rivers.md.
 public static class River
 {
-    // The edge of `from` that a hop to `to` crosses, or None if the two are
-    // not 4-adjacent (same tile, diagonal, far apart). Non-adjacent pairs are
-    // "no edge" rather than an error because PlanCost is also asked to price
-    // a tile in isolation (tests, tooling) with from == to.
-    public static RiverEdge EdgeBetween(TileCoord from, TileCoord to)
-    {
-        var dx = to.X - from.X;
-        var dy = to.Y - from.Y;
-        if (dx == 0 && dy == -1) return RiverEdge.North;
-        if (dx == 1 && dy == 0)  return RiverEdge.East;
-        if (dx == 0 && dy == 1)  return RiverEdge.South;
-        if (dx == -1 && dy == 0) return RiverEdge.West;
-        return RiverEdge.None;
-    }
-
-    // The same edge seen from the other tile.
-    public static RiverEdge Opposite(RiverEdge e) => e switch
-    {
-        RiverEdge.North => RiverEdge.South,
-        RiverEdge.South => RiverEdge.North,
-        RiverEdge.East  => RiverEdge.West,
-        RiverEdge.West  => RiverEdge.East,
-        _ => RiverEdge.None,
-    };
+    // The side of `from` that a hop to `to` crosses. The geometry lives on
+    // TileEdge (docs/roads-on-edges.md: one edge vocabulary for rivers,
+    // bridges and roads); these forward so river callers read naturally.
+    public static RiverEdge EdgeBetween(TileCoord from, TileCoord to) => TileEdge.SideBetween(from, to);
+    public static RiverEdge Opposite(RiverEdge e) => TileEdge.Opposite(e);
 
     // Does the hop from → to cross a river? True iff the shared edge carries
     // one. Reads `from`'s mask; the symmetry invariant means `to`'s would say
@@ -47,6 +28,9 @@ public static class River
     // fords plug into (a bridge returns 0, a ford something smaller).
     public static int CrossingCostFor(TileGrid grid, TileCoord from, TileCoord to) =>
         Crosses(grid, from, to) ? RiverConstants.CrossingCost : 0;
+
+    // Same question asked of an edge value (shared with roads and bridges).
+    public static bool Crosses(TileGrid grid, TileEdge edge) => Crosses(grid, edge.A, edge.B);
 
     // Count of river tiles (any bit set). Tooling / smoke output only.
     public static int CountRiverTiles(TileGrid grid)

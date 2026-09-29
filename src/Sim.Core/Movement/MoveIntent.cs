@@ -59,6 +59,15 @@ public sealed class MoveIntent : Intent
             unit.BumpEpoch();                // explicit bump for Idle→Idle move so
                                              // any prior move chain's MoveArrivalEvents fence out
 
+        // M36 — a countermanded haul is OVER. Its plan used to ride along: the
+        // unit arrived somewhere else, went Idle, and kept a dead HaulPlan
+        // forever — every "is this hauler free?" test (the haul queue, the
+        // automation substrate) read it as busy, and the queue counted its
+        // cargo as "on the way" to a job it would never reach. Found in play:
+        // a breed order walked a laden queue hauler into a house mid-trip.
+        // The cargo stays aboard (unload or haul it later), only the plan goes.
+        unit.HaulPlan = null;
+
         BeginMove(sim, unit, Destination);
         return IntentOutcome.Applied;
     }
@@ -102,17 +111,53 @@ public sealed class MoveIntent : Intent
         // "cost of ignorance" gameplay loop. See docs/movement-cost.md.
         var visibleTiles = View.VisibleTiles(world, unit.OwnerId);
         var trav = unit.Traversal;
-        var path = Pathfinding.FindPath(
-            world.Grid,
-            unit.Position,
-            finalDest,
-            MovementCost.Planner(world, unit.OwnerId, visibleTiles, now, trav));
+        // Tile shapes (docs/structure-footprints.md): a castle is entered by its
+        // gate, a canal followed, not crossed. The mover starts from the edge
+        // it came onto this tile by.
+        var cost = MovementCost.Planner(world, unit.OwnerId, visibleTiles, now, trav);
+        var rule = trav == Traversal.Foot && CrossingRule.Applies(world) ? CrossingRule.Planning(world, unit.OwnerId, visibleTiles) : null;
+        var entry = CrossingRule.EntryEdge(unit.Position, unit.EnteredFrom);
+        List<TileCoord>? path;
+        if (trav == Traversal.Foot && MovementCost.FeetKeepOffWater(world, finalDest))
+        {
+            // Aimed at water: walk to the nearest land that can be reached.
+            path = null;
+            foreach (var land in MovementCost.LandNear(world, finalDest))
+            {
+                if (land == unit.Position) { finalDest = land; path = new List<TileCoord> { land }; break; }
+                path = Pathfinding.FindPath(world.Grid, unit.Position, land, cost, rule, entry);
+                if (path is not null) { finalDest = land; break; }
+            }
+            if (unit.Position == finalDest && unit.Board is null)
+            {
+                unit.PathRemaining = null;
+                unit.PathFinalDest = null;
+                unit.NextArrivalTick = null;
+                unit.NextArrivalSeq  = null;
+                return;
+            }
+        }
+        else
+            path = Pathfinding.FindPath(world.Grid, unit.Position, finalDest, cost, rule, entry);
+        if ((path is null || path.Count < 2) && unit.Board is not null)
+        {
+            Sim.Core.Battlefields.Battlefields.DeferWorldMove(sim, unit, path, finalDest);
+            return;
+        }
         if (path is null || path.Count < 2)
         {
             unit.PathRemaining = null;
             unit.PathFinalDest = null;
             unit.NextArrivalTick = null;
             unit.NextArrivalSeq  = null;
+            return;
+        }
+
+        // M41 — on a battlefield the path is committed but not walked: the
+        // board steers the unit to the edge it leaves by (Battlefields).
+        if (unit.Board is not null)
+        {
+            Sim.Core.Battlefields.Battlefields.DeferWorldMove(sim, unit, path, finalDest);
             return;
         }
 
@@ -136,7 +181,13 @@ public sealed class MoveIntent : Intent
         // after planning. The unit yields HERE — same semantics as the
         // arrival-time cap rejection — and, having been stopped face-to-wall,
         // opens a siege if the blocker is hostile (docs/walls-and-gates.md).
-        if (Fortification.BlocksMover(world, next, unit.OwnerId))
+        // The tile-shape gate, ground truth: the planner may not have known a
+        // structure (fog), or one went up after planning. Same yield.
+        if (Fortification.BlocksMover(world, next, unit.OwnerId)
+            || (unit.Traversal == Traversal.Foot && CrossingRule.Applies(world)
+                && !CrossingRule.GroundTruth(world, unit.OwnerId).AllowsHop(
+                    unit.Position, CrossingRule.EntryEdge(unit.Position, unit.EnteredFrom), next,
+                    final: next == unit.PathFinalDest)))
         {
             unit.PathRemaining = null;
             unit.PathFinalDest = null;
@@ -151,6 +202,18 @@ public sealed class MoveIntent : Intent
         // unit pays the real cost of this hop even if it differs from
         // what the plan assumed. See MovementCost.ExecutionCost.
         var hopCost = MovementCost.ExecutionCost(world, unit.Position, next, sim.Now, unit.Traversal);
+        // The ground under the path changed since it was planned (a canal dug
+        // across it): the hop can't be walked, so the unit stops here rather
+        // than scheduling an arrival an Impassable number of ticks away.
+        if (hopCost >= Sim.Core.World.Biomes.Impassable)
+        {
+            unit.PathRemaining = null;
+            unit.PathFinalDest = null;
+            unit.NextArrivalTick = null;
+            unit.NextArrivalSeq  = null;
+            unit.TrySetActivity(Activity.Idle);
+            return;
+        }
         // M-cart — per-unit move-cost buffs (a cart trades speed for cargo).
         // Applied to the EXECUTION cost only — the slowdown is real travel
         // time, not a route change, so the planned path is unaffected. Summed

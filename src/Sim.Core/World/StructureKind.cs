@@ -25,4 +25,7 @@ public enum StructureKind : byte
     Smelter = 19,  // refiner: Ore + Wood (fuel) → Iron; the only Extractor with inputs
     Workshop = 20, // civil crafting storage: the Cart is forged here, not at the Barracks
     Smithy = 21,   // weapons crafting storage: Sword / Bow / Shield; the Barracks now only trains
+    Idol = 22,     // M38 — a statue in the fog; activate it for a timed circle of sight, then it crumbles (docs/scouting-secrets.md)
+    BanditCamp = 23, // M39 — bandit-owned: a garrison, raiders on a schedule, a hoard of their takings (docs/bandit-camps.md)
+    Bridge = 24,     // a deck across a straight canal tile: the way over a canal; boats pass under (docs/structure-footprints.md)
 }

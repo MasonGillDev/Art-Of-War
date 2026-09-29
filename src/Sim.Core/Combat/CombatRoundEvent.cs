@@ -73,7 +73,7 @@ public sealed class CombatRoundEvent : ScheduledEvent
 
         if (!hasHostilePair && !hostileSiege)
         {
-            world.CombatStates.Remove(Tile);
+            EndCombat(sim, Tile);
             return;
         }
 
@@ -110,7 +110,7 @@ public sealed class CombatRoundEvent : ScheduledEvent
                 if (diplomacy.AreHostile(oid, siegeTarget!.OwnerId)) { anyDamage = true; break; }
             }
         }
-        if (!anyDamage) { world.CombatStates.Remove(Tile); return; }
+        if (!anyDamage) { EndCombat(sim, Tile); return; }
 
         // 4) Apply damage to units. Each owner takes damage = sum of all
         //    hostile counterparts' start-of-round power.
@@ -147,7 +147,15 @@ public sealed class CombatRoundEvent : ScheduledEvent
                 siegeTarget.Health -= siegeDamage;
                 if (siegeTarget.Health <= 0)
                 {
+                    // M39 — who brought a bandit camp down (credited after the
+                    // raze, which spills its hoard).
+                    var razedCamp = siegeTarget as BanditCamp;
+                    var razers = razedCamp is null ? null : startPower.Keys
+                        .Where(o => o != Sim.Core.Bandits.BanditConstants.OwnerId
+                                    && diplomacy.AreHostile(o, razedCamp.OwnerId))
+                        .ToList();
                     Sim.Core.Sieges.SiegeDamage.RazeStructure(sim, siegeTarget);
+                    if (razedCamp is not null) Sim.Core.Bandits.Camps.OnRazed(sim, razedCamp, razers!);
                     siegeTarget = null;  // gone — subsequent reads must re-look up
                 }
             }
@@ -168,7 +176,7 @@ public sealed class CombatRoundEvent : ScheduledEvent
 
         if (!stillHostile && !stillSiege)
         {
-            world.CombatStates.Remove(Tile);
+            EndCombat(sim, Tile);
             return;
         }
 
@@ -183,9 +191,14 @@ public sealed class CombatRoundEvent : ScheduledEvent
     // drops to <= 0 via CombatRules.OnUnitDeath (Phase D).
     private static void ApplyDamageToOwnerForce(Simulation sim, int ownerId, List<Unit> ownersUnits, int damage)
     {
-        // Sort by (Health ASC, Id ASC) — deterministic, observable, intuitive.
+        // Sort by (rank, Health ASC, Id ASC) — deterministic, observable,
+        // intuitive. RANK FIRST (2026-09-24, the user's archer rule): ranged
+        // units stand behind the line, so the line takes every point of damage
+        // until its last body falls, and only then does the rest spill onto the
+        // archers — in the same round, lowest health first among them.
         var ordered = ownersUnits
-            .OrderBy(u => u.Health)
+            .OrderBy(u => UnitCombatCatalog.Spec(u.Role).Ranged ? 1 : 0)
+            .ThenBy(u => u.Health)
             .ThenBy(u => u.Id)
             .ToList();
 
@@ -204,6 +217,15 @@ public sealed class CombatRoundEvent : ScheduledEvent
                 damage = 0;
             }
         }
+    }
+
+    // THE ONE combat-end site for a unit fight: drop the tile's anchor, then
+    // un-pin the survivors (docs/combat-pin-strands-hauls.md). Fort sieges
+    // end in FortSiege and have nobody standing on the tile to resume.
+    private static void EndCombat(Simulation sim, TileCoord tile)
+    {
+        sim.World.CombatStates.Remove(tile);
+        CombatRules.ResumeInterrupted(sim, tile);
     }
 
     public override string Describe() => $"CombatRound(@ {Tile.X},{Tile.Y})";

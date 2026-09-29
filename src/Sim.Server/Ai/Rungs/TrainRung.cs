@@ -53,6 +53,12 @@ public sealed class TrainRung : IRung
             return new Decision("train", "building the school", b);
         if (school is null) return null;
         var schoolTile = ThinkContext.TileOf(school);
+        // M38 — a scout trains at the Lodge, everyone else at the School.
+        if (target == UnitRole.Scout)
+        {
+            if (ctx.OwnStructure(StructureKind.Lodge) is not { } lodge) return null;
+            schoolTile = ThinkContext.TileOf(lodge);
+        }
 
         // Designate an apprentice (ownership across thinks — same lesson
         // as parents): natives (Role None) first, then off-role
@@ -127,8 +133,15 @@ public sealed class TrainRung : IRung
         // M27 — the floor rises to the largest crew a pending site needs
         // (a canal's 3 builders vs the genesis floor of 2).
         if (Adults(UnitRole.Builder) < ctx.BuilderDemand()) return UnitRole.Builder;
-        if (Adults(UnitRole.Hauler) < ctx.Cfg.HaulerFloor) return UnitRole.Hauler;
-        if (Adults(UnitRole.Scout) < ctx.Cfg.ScoutFloor) return UnitRole.Scout;
+        // The hauler floor rises with the belt (2026-09-19): one per
+        // ExtractorsPerHauler extractors — the food-wall fix.
+        if (Adults(UnitRole.Hauler) < ctx.HaulerDemand()) return UnitRole.Hauler;
+        // M38 — scouts train at a Lodge now, and the AI is not taught to build
+        // one (docs/scouting-secrets.md): it keeps its starting scouts and
+        // replaces a lost one only if it happens to own a Lodge. Asking for a
+        // scout without one would pin the rung on a training the sim refuses.
+        if (Adults(UnitRole.Scout) < ctx.Cfg.ScoutFloor
+            && ctx.Own.Any(s => s.Kind == (int)StructureKind.Lodge)) return UnitRole.Scout;
         var (pool, _, handsDemanded) = ctx.LaborLedger();
         if (Adults(UnitRole.Farmer) < Math.Min(handsDemanded, Math.Max(1, pool - 3)))
             return UnitRole.Farmer;

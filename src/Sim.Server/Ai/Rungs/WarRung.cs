@@ -91,6 +91,11 @@ public sealed class WarRung : IRung
 
     private static Decision? ConsiderDeclaring(ThinkContext ctx)
     {
+        // Two-act pacing: the peace holds until the landing (docs/two-act-pacing.md).
+        // The sim rejects a declaration before it anyway; reading the countdown off
+        // the view keeps the brain from submitting one every think.
+        if (ctx.View.LandingTick > 0 && ctx.Now < ctx.View.LandingTick) return null;
+
         // Affordability first (all cheap reads — bail early).
         if (ctx.View.Population < ctx.Cfg.CampaignPopulationFloor) return null;
         if (ctx.View.InFamine) return null;

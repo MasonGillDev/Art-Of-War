@@ -85,8 +85,10 @@ public class RiversTests
     {
         var sim = RiverWorld();
         var w = sim.World;
-        w.Roads[new TileCoord(3, 2)] = new Sim.Core.Roads.RoadState(Sim.Core.Roads.RoadConstants.CONDITION_MAX, 0);
-        var roadCost = Sim.Core.Roads.Road.EffectiveCost(w, new(3, 2), sim.Now);
+        // A maxed road on the crossing arc itself reduces the terrain term
+        // but never the river surcharge (docs/roads-on-edges.md).
+        w.Roads[TileEdge.Between(new(2, 2), new(3, 2))] = new Sim.Core.Roads.RoadState(Sim.Core.Roads.RoadConstants.CONDITION_MAX, 0);
+        var roadCost = Sim.Core.Roads.Road.EffectiveCost(w, new(2, 2), new(3, 2), sim.Now);
         Assert.True(roadCost < G);
         Assert.Equal(roadCost + X, MovementCost.ExecutionCost(w, new(2, 2), new(3, 2), sim.Now));
     }

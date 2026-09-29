@@ -101,8 +101,17 @@ public sealed class Unit
     // events per unit. Wraps cleanly on overflow.
     public byte AssignmentEpoch { get; private set; }
 
-    public Resource CargoResource { get; set; }
-    public int CargoAmount { get; set; }
+    // Everything this unit carries — any mix of resources under one
+    // CargoCapacity (M36, docs/hauling-queue-and-routes.md).
+    public CargoHold Cargo { get; } = new();
+
+    // Total units aboard, all resources together.
+    public int CargoAmount => Cargo.Total;
+
+    // The resource with the most aboard (None when empty). Exact for every
+    // single-resource carrier; for a mixed load it is only a label — code
+    // that moves cargo reads Cargo, never this.
+    public Resource CargoResource => Cargo.Dominant;
 
     // ---- M4 in-flight movement anchor (Phase A) ----
     // The committed remaining steps of the current movement chain. Null when
@@ -219,6 +228,34 @@ public sealed class Unit
     // to take a Protected unit that is genuinely idle. The flag guards
     // against being TAKEN FROM WORK, not against being useful.
     public bool Protected { get; set; }
+
+    // M36 — the named haul route this unit crews, or null
+    // (docs/hauling-queue-and-routes.md). A crew member belongs to its loop:
+    // never in the haul-queue pool, never pulled by another order. Mutated
+    // ONLY by AddRouteCrewIntent, RemoveRouteCrewIntent and
+    // ClearHaulRouteIntent.
+    public int? RouteId { get; internal set; }
+
+    // ---- M41 battlefield grid (docs/battlefield-grid.md) ----
+    // The unit's place on an open battlefield (or waiting to come on, or
+    // sheltered), null at world scale. Written only by Battlefields.
+    public Sim.Core.Battlefields.BoardSlot? Board { get; internal set; }
+
+    // Standing battle doctrine (what it does on a board with no order); null
+    // = the default for its role (BattleDoctrine.DefaultFor). Set only by
+    // SetBattleDoctrineIntent. Survives between battles.
+    public Sim.Core.Battlefields.BattleDoctrine? Doctrine { get; internal set; }
+
+    // The tile this unit last walked in from, and when: a battle's arriving
+    // units deploy on the edge facing it, and Withdraw goes back out that
+    // way. Set on every hop arrival.
+    public TileCoord? EnteredFrom { get; internal set; }
+    public long EnteredTick { get; internal set; } = long.MinValue / 2;
+
+    // Set while the unit is making the world hop OFF a battlefield it left
+    // (the tile it left): it no longer counts as present there and nothing
+    // pins it. Cleared when the hop lands.
+    public TileCoord? LeavingBoard { get; internal set; }
 
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 

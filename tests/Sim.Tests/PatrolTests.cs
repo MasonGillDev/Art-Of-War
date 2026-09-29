@@ -198,8 +198,7 @@ public class PatrolTests
         var sim = BuildWorld();
         Install(sim, Patrol(engage: 6, leash: 12));
         var bandit = AddBandit(sim, new TileCoord(11, 10));
-        sim.World.Units[bandit].CargoResource = Resource.Food;
-        sim.World.Units[bandit].CargoAmount = 20;
+        sim.World.Units[bandit].Cargo.Add(Resource.Food, 20);
 
         Run(sim, 4000);
 

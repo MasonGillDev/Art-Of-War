@@ -65,20 +65,85 @@ public static class MovementCost
         return count;
     }
 
+    // The player's side on a tile as the player knows it: its own units always,
+    // its allies' only on a tile it can see. Off boats.
+    private static int VisibleSideCount(GameWorld world, TileCoord tile, int playerId, HashSet<TileCoord> visibleTiles)
+    {
+        var visible = visibleTiles.Contains(tile);
+        var n = 0;
+        foreach (var u in world.Units.Values)
+        {
+            if (u.IsEmbarked || u.Position != tile) continue;
+            if (u.OwnerId == playerId || (visible && Fortification.IsOwnOrAllied(world, playerId, u.OwnerId))) n++;
+        }
+        return n;
+    }
+
     // ---- terrain-cost dispatcher --------------------------------------
 
     // M12 — pick the terrain-cost table based on the moving unit's
-    // movement domain. Foot reads Road.EffectiveCost (biome + road
-    // condition) plus the river surcharge for the hop from → to
+    // movement domain. Foot reads Road.EffectiveCost (destination biome
+    // reduced by the ARC's road condition, docs/roads-on-edges.md) plus the
+    // river surcharge for the hop from → to
     // (docs/rivers.md); Water reads BoatMovementCost (water cheap, land
     // Impassable). Roads and rivers do not apply on water.
     public static int TerrainCostFor(GameWorld world, TileCoord from, TileCoord to, long now, Traversal trav) =>
         trav switch
         {
             Traversal.Water => BoatMovementCost.CostFor(world.Grid.BiomeAt(to)),
-            _ => Road.EffectiveCost(world, to, now)
+            // A bridge walks like grassland, and a road across it helps as anywhere.
+            _ when IsBridge(world, to) => Road.EffectiveCost(world, from, to, now,
+                                              Sim.Core.World.Biomes.MoveCost(Sim.Core.World.Biome.Grassland))
+                                          + Sim.Core.Rivers.River.CrossingCostFor(world.Grid, from, to),
+            _ when FeetKeepOffWater(world, to) => Sim.Core.World.Biomes.Impassable,
+            _ => Road.EffectiveCost(world, from, to, now)
                  + Sim.Core.Rivers.River.CrossingCostFor(world.Grid, from, to),
         };
+
+    // Only boats go on water (user, 2026-09-28; docs/structure-footprints.md).
+    // Grid-combat worlds only for now, with the rest of the battlefield work;
+    // the default game still lets feet wade at the Water biome's cost.
+    //
+    // A canal tile is water too, at world scale: feet follow a canal on the land
+    // beside it and cross it by a bridge. Its banks exist on the battle board
+    // only. Walking the banks inside canal tiles would need each unit to know
+    // which bank it is on (an edge of a canal tile touches both), which world
+    // movement doesn't track.
+    public static bool FeetKeepOffWater(GameWorld world, TileCoord to) =>
+        world.Grid.BiomeAt(to) == Sim.Core.World.Biome.Water && CrossingRule.Applies(world) && !IsBridge(world, to);
+
+    // A bridge, or one being built (its scaffolding is already a deck, so its
+    // builders can walk on): the canal tiles feet may enter.
+    public static bool IsBridge(GameWorld world, TileCoord t) =>
+        world.Structures.TryGetValue(t, out var s) && Bridge.IsDeck(s);
+
+    public static bool IsCanal(GameWorld world, TileCoord t) =>
+        world.Structures.TryGetValue(t, out var s) && s.Kind == StructureKind.Canal;
+
+    // A foot move aimed at water ends on the nearest land instead: the tiles
+    // around `goal`, nearest first (Manhattan), then north to south, west to
+    // east. Never an error: rejecting a move because its target is water would
+    // let a player map the fog's water by clicking into it.
+    public static IEnumerable<TileCoord> LandNear(GameWorld world, TileCoord goal, int maxRadius = 6)
+    {
+        var grid = world.Grid;
+        for (var r = 1; r <= maxRadius; r++)
+        {
+            var ring = new List<TileCoord>();
+            for (var dy = -r; dy <= r; dy++)
+            {
+                var dx = r - Math.Abs(dy);
+                foreach (var x in dx == 0 ? new[] { goal.X } : new[] { goal.X - dx, goal.X + dx })
+                {
+                    var t = new TileCoord(x, goal.Y + dy);
+                    if (grid.InBounds(t) && grid.BiomeAt(t) != Sim.Core.World.Biome.Water
+                        && grid.TerrainCost(t) < Sim.Core.World.Biomes.Impassable)
+                        ring.Add(t);
+                }
+            }
+            foreach (var t in ring.OrderBy(t => t.Y).ThenBy(t => t.X)) yield return t;
+        }
+    }
 
     // The A* cost delegate MoveIntent / MoveGroupIntent hand to
     // Pathfinding.FindPath — one place, so a new per-hop term (rivers today,
@@ -118,6 +183,13 @@ public static class MovementCost
             return Sim.Core.World.Biomes.Impassable;
         var visibleCount = CountVisibleUnitsOnTile(world, tile, playerId, visibleTiles);
         if (visibleCount >= MovementConstants.MaxUnitsPerTile)
+            return Sim.Core.World.Biomes.Impassable;
+        // The per-side cap, as the player knows it: its own side's units it can
+        // see (its own always), against the room the tile gives its side (a
+        // structure in the fog counts as open ground).
+        if (TileCapacity.Applies(world)
+            && VisibleSideCount(world, tile, playerId, visibleTiles)
+               >= TileCapacity.For(world, tile, playerId, visibleTiles.Contains))
             return Sim.Core.World.Biomes.Impassable;
         var terrain = TerrainCostFor(world, from, tile, now, trav);
         // Short-circuit: an Impassable terrain (e.g. land tile for a

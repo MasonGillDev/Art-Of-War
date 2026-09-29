@@ -474,3 +474,39 @@ mountain rising through it":
   silver lining becomes a broad glow rather than a spike. The fog's sun feed is also
   normalised by the sun's intensity above 1, so a brighter sun (the preset's golden
   hour is now 2.2 at noon, for ACES) no longer brightens the haze with it.
+
+## Update 2026-09-18 — depth of field on the SUBJECT (`FocusRig`)
+
+**Decision.** Depth of field is on only when the camera is following a selection,
+and its focus is that selection. `FocusRig` (beside `ShadowRig`) makes its own global
+Volume at priority 10 with a runtime profile holding one Bokeh `DepthOfField`
+override. The subject is `CameraRig.TryGetSubject` — the follow point the world UI
+already sets on select — lifted half a person so faces, not feet, are the sharp
+plane. Focal length and aperture ramp from a very shallow lens at `ShallowDistance`
+(eye-to-subject) to a deep one at `InfinityDistance`, where the override is
+**disabled outright**. With nothing selected the world is sharp everywhere and the
+pass costs nothing. Engage and release are eased so a click is not a cut to blur.
+
+**Why.** The user's vision, refined in the same session: first "shallow zoomed in,
+infinity zoomed out", then "I really only want this when I select something and zoom
+in on it — super shallow, with the subject focused". A profile dial cannot do either:
+the rig orbits 70 to 7,000 units and focus needs a per-frame distance — the same
+asymmetry that made the clip planes and shadow distance code-owned. Reading the rig's
+follow point rather than the selection model directly means focus and framing can
+never disagree and a released follow releases the focus with it. Bokeh over Gaussian
+because URP's Gaussian blurs the far side only and the tabletop look needs the near
+ground soft too. Own volume so the tuned atmosphere profile is never mutated in Play.
+
+**A rig rule changed with it.** Scroll-zoom, the Q/E keyboard orbit and the R tilt
+reset no longer count as "the player moved the camera", so they neither break the
+follow nor clear the selection. Zooming in on a selected thing, or circling it, is
+looking at it harder, not away; the previous rule made "select and zoom in"
+impossible. The keyboard pan and the mouse drags still break the follow
+(docs/world-ui.md). Also fixed alongside: the world UI flew the camera back to place
+distance on EVERY `Selection.Changed`, and a structure re-raises that each tick as
+its holdings move, which snapped a zoomed-in player straight back out. It now flies
+only when the subject's identity changes (`WorldUi.SubjectSignature`).
+
+**Future.** Dials live on the component (like `ShadowRig`); move them to an asset if
+they start being tuned in Play. Cinematic framing (a battle, a coronation) can hand
+the rig a follow point and get the lens for free.

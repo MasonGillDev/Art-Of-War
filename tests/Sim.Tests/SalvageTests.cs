@@ -84,7 +84,7 @@ public class SalvageTests
         var victim = new Unit(9999, new TileCoord(c0.X + 2, c0.Y))
         {
             Role = UnitRole.Farmer, OwnerId = 1,
-            CargoResource = Resource.Ore, CargoAmount = 10,
+            Cargo = { { Resource.Ore, 10 } },
         };
         sim.World.AddUnit(victim);
         tracker.SnapshotUnits(sim.World);
@@ -251,7 +251,7 @@ public class SalvageTests
         var victim = new Unit(9999, graveTile)
         {
             Role = UnitRole.Farmer, OwnerId = 0,
-            CargoResource = Resource.Ore, CargoAmount = 10,
+            Cargo = { { Resource.Ore, 10 } },
         };
         sim.World.AddUnit(victim);
         tracker.SnapshotUnits(sim.World);   // baseline INCLUDES the victim — the diff needs to see it vanish

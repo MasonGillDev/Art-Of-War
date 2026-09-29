@@ -181,7 +181,10 @@ public sealed class SubstrateDriver
                 sim.SubmitIntent(now, ClaimUnitIntent.Release(unitId, order.OrderId, order.OwnerId));
                 continue;
             }
-            if (releaseIdle && IsFreeForWork(u) && u.CargoAmount == 0)
+            // A stalled hand is released whatever the trigger says: it keeps
+            // its cargo (a laden unit can be retasked) and the order is free
+            // to pull another.
+            if ((releaseIdle && IsFreeForWork(u) && u.CargoAmount == 0) || IsStalled(u))
                 sim.SubmitIntent(now, ClaimUnitIntent.Release(unitId, order.OrderId, order.OwnerId));
         }
     }
@@ -197,7 +200,7 @@ public sealed class SubstrateDriver
             if (keep is not null && unitId == keep.Id) continue;
             if (ClaimLedger.ClaimOf(world, unitId) is not { Purpose: ClaimPurpose.InFlight }) continue;
             if (!world.Units.TryGetValue(unitId, out var u) || u.OwnerId != order.OwnerId) continue;
-            if (IsFreeForWork(u) && u.CargoAmount == 0)
+            if ((IsFreeForWork(u) && u.CargoAmount == 0) || IsStalled(u))
                 sim.SubmitIntent(now, ClaimUnitIntent.Release(unitId, order.OrderId, order.OwnerId));
         }
     }
@@ -353,6 +356,18 @@ public sealed class SubstrateDriver
             // So: alive-but-busy is WAITING (work in flight, like the
             // errand recipe's "hand travelling"), and NoCrew is reserved
             // for a line that wants to work and has genuinely nobody.
+            // A STATUE IS NOT A TRIP. A held hand with an obligation and no
+            // leg (the combat-pin strand) reads "busy" to every anchor test
+            // above; naming it here is the sentence the player needed, and
+            // the release sweep has already let it go for next think.
+            if (StalledHand(world, order) is { } stalled)
+            {
+                _journal.Add(now, order, JournalOutcome.Blocked,
+                    $"unit {stalled.Id} stalled carrying {stalled.CargoAmount} {stalled.CargoResource} " +
+                    $"at ({stalled.Position.X},{stalled.Position.Y})");
+                return;
+            }
+
             if (HoldsLiveHands(world, order))
             {
                 _journal.Add(now, order, JournalOutcome.InFlight, "crew is on the trip");
@@ -878,6 +893,21 @@ public sealed class SubstrateDriver
         return false;
     }
 
+    // The lowest-id held (or named) hand that IsStalled, else null.
+    private static Unit? StalledHand(GameWorld world, Order order)
+    {
+        IEnumerable<int> ids = order.CrewMode == CrewMode.Named
+            ? order.NamedCrew
+            : ClaimLedger.UnitsOf(world, order.OrderId);
+        Unit? found = null;
+        foreach (var unitId in ids)
+        {
+            if (!world.Units.TryGetValue(unitId, out var u) || u.OwnerId != order.OwnerId) continue;
+            if (IsStalled(u) && (found is null || u.Id < found.Id)) found = u;
+        }
+        return found;
+    }
+
     // Does this named crew still have anyone left? Distinguishes an order
     // whose hands are merely BUSY from one whose hands are in the ground.
     private static bool AnyCrewAlive(GameWorld world, Order order)
@@ -887,6 +917,20 @@ public sealed class SubstrateDriver
                 return true;
         return false;
     }
+
+    // A hand that is neither free nor going anywhere: a haul obligation with
+    // no travel leg and no pending arrival. Combat pins used to produce these
+    // (docs/combat-pin-strands-hauls.md); the sim now resumes them on combat
+    // end, and this is the belt to that brace — an order must never report a
+    // statue as a trip. Hauling is the right gate for this driver: Working
+    // and Building have no travel leg by design, and a goal walker is not a
+    // driver hand.
+    private static bool IsStalled(Unit u) =>
+        !IsFreeForWork(u)
+        && u.PathRemaining is null
+        && u.NextArrivalTick is null
+        && u.Activity == Activity.Hauling
+        && !u.IsEmbarked;
 
     // Free = idle body with no in-flight anchors. Anchors, never Activity.
     private static bool IsFreeForWork(Unit u) =>

@@ -563,3 +563,16 @@ Suggested sequence:
 ---
 
 *End of draft.*
+
+## Update 2026-09-24 — §9: contested tiles become a battlefield grid
+
+§9.3 decided "no frontage cap needed". The battlefield grid (`docs/battlefield-grid.md`, locked
+2026-09-24, not built) brings one back:
+- A contested tile opens a 4×4 board, one unit per side per subtile.
+- Each edge admits 4 lanes, and a side holds at most 16 subtiles.
+- §9's pooled rounds become per-duel rounds on the board.
+- §9.4's ranged-from-adjacent-tiles becomes archers reaching adjacent subtiles.
+
+The reason is new: positioning. It answers §9.3's own residual concern, that "the bigger force
+always wins predictably". Flanking is decided on the world map, by which neighbouring tiles you
+attack from.

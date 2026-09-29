@@ -55,7 +55,7 @@ public sealed class LootCacheIntent : Intent
             return IntentOutcome.Reject($"no cache at {tile.X},{tile.Y}");
 
         if (unit.Position == tile)
-            return CacheLooting.TryLoot(world, unit, Resource) > 0
+            return CacheLooting.TryLoot(sim, unit, Resource) > 0
                 ? IntentOutcome.Applied
                 : IntentOutcome.Reject($"cache at {tile.X},{tile.Y} has no {Resource}");
 

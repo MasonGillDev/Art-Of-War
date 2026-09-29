@@ -47,8 +47,9 @@ public class CombatEngagementPinTests
 
     private static void PaveRow5(GameWorld world)
     {
-        for (var x = 0; x < world.Grid.Width; x++)
-            world.Roads[new TileCoord(x, RoadRow)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        // Every east-west arc along the row (docs/roads-on-edges.md).
+        for (var x = 0; x < world.Grid.Width - 1; x++)
+            world.Roads[TileEdge.FromOwner(new TileCoord(x, RoadRow), TileEdge.Axis.East)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
     }
 
     [Fact]

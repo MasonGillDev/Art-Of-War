@@ -25,6 +25,14 @@ public static class CombatTrigger
     public static void MaybeBeginCombatOnTile(Simulation sim, TileCoord tile)
     {
         var world = sim.World;
+        // M41 — a Grid world fights unit against unit on a battlefield
+        // (docs/battlefield-grid.md); only a siege with no defenders left runs
+        // the pooled rounds below (build decision D4).
+        if (Sim.Core.Battlefields.Battlefields.IsGrid(world))
+        {
+            Sim.Core.Battlefields.Battlefields.OnPresenceChanged(sim, tile);
+            return;
+        }
         var diplomacy = world.Diplomacy;
 
         // Distinct owners physically present. Embarked passengers are off-tile
@@ -70,6 +78,26 @@ public static class CombatTrigger
         // picks up the newcomer (reinforcement falls out for free).
         if (world.CombatStates.ContainsKey(tile)) return;
 
+        var state = new CombatState(tile);
+        var nextTick = sim.Now + world.CombatConfig.RoundIntervalTicks;
+        state.RoundNumber = 1;
+        state.NextRoundTick = nextTick;
+        state.NextRoundSeq = sim.Schedule(nextTick, new CombatRoundEvent(tile));
+        world.CombatStates[tile] = state;
+    }
+
+    // M41 — Grid worlds: the pooled rounds only ever run a SIEGE (attackers
+    // alone with a hostile destructible structure; decision D4). Called by
+    // Battlefields when a tile holds no hostile unit pair. Same start as the
+    // siege branch above, minus the unit pin (nobody here is fighting anyone).
+    internal static void MaybeBeginSiege(Simulation sim, TileCoord tile, IReadOnlyCollection<Unit> present)
+    {
+        var world = sim.World;
+        if (present.Count == 0 || world.CombatStates.ContainsKey(tile)) return;
+        var target = CombatRules.SiegeableStructureOn(world, tile);
+        if (target is null) return;
+        var owners = present.Select(u => u.OwnerId).Distinct().OrderBy(o => o);
+        if (!CombatRules.AnyHostileToStructure(world.Diplomacy, owners, target.OwnerId)) return;
         var state = new CombatState(tile);
         var nextTick = sim.Now + world.CombatConfig.RoundIntervalTicks;
         state.RoundNumber = 1;

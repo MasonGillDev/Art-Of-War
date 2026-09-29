@@ -611,6 +611,276 @@ public class WireV2Tests
         Assert.True(world.Royalty.AuraPowerBonus > 0);
     }
 
+    // ── P2 — fortification visibility ─────────────────────────────────────────
+
+    // Three free land tiles in a row, well inside the map: a besieger's tile, the
+    // wall's tile, and the defender's tile behind it.
+    private static (TileCoord unitAt, TileCoord wallAt, TileCoord behind) FreeRow(GameWorld world)
+    {
+        for (var y = 4; y < world.Grid.Height - 4; y++)
+            for (var x = 4; x < world.Grid.Width - 6; x++)
+            {
+                var a = new TileCoord(x, y);
+                var b = new TileCoord(x + 1, y);
+                var c = new TileCoord(x + 2, y);
+                if (world.Grid.BiomeAt(a) == Biome.Water || world.Grid.BiomeAt(b) == Biome.Water
+                    || world.Grid.BiomeAt(c) == Biome.Water) continue;
+                if (world.Structures.ContainsKey(a) || world.Structures.ContainsKey(b)
+                    || world.Structures.ContainsKey(c)) continue;
+                return (a, b, c);
+            }
+        throw new InvalidOperationException("no free land row");
+    }
+
+    private static bool IsFortKind(int kind) => (StructureKind)kind is StructureKind.Wall
+        or StructureKind.Gate or StructureKind.Tower or StructureKind.Castle;
+
+    // P2/T1 — health is own-only for ordinary kinds, public for fortifications,
+    // and 0/0 for kinds the catalog makes indestructible.
+    [Fact]
+    public void StructureHealth_OwnAlways_FortificationsPublic_OtherEnemyKindsPrivate()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var world = sim.World;
+        var (_, wallAt, behind) = FreeRow(world);
+        var wall = world.AddStructure(new Wall(wallAt) { OwnerId = 1 });   // enemy wall
+        wall.Health = 123;                                                 // damaged: exact, not max
+        // An enemy store: destructible, not a fortification, so it must stay private.
+        world.AddStructure(new Stockpile(behind) { OwnerId = 1 });
+        Assert.True(StructureCatalog.Spec(StructureKind.Stockpile).BaseHealth > 0);
+
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
+        Assert.NotEmpty(v2.Structures);
+        var sawOwn = false; var sawEnemyOther = false;
+        foreach (var st in v2.Structures)
+        {
+            var spec = StructureCatalog.Spec((StructureKind)st.Kind);
+            if (spec.BaseHealth == 0)
+            {
+                Assert.Equal(0, st.Health); Assert.Equal(0, st.MaxHealth);
+                continue;
+            }
+            if (st.OwnerId == 0 || IsFortKind(st.Kind))
+            {
+                Assert.Equal(spec.BaseHealth, st.MaxHealth);
+                Assert.Equal(world.Structures[new TileCoord(st.X, st.Y)].Health, st.Health);
+                Assert.True(st.Health > 0);
+                if (st.OwnerId == 0) sawOwn = true;
+            }
+            else
+            {
+                Assert.Equal(-1, st.Health); Assert.Equal(-1, st.MaxHealth);
+                sawEnemyOther = true;
+            }
+        }
+        Assert.True(sawOwn, "no own structure on the wire");
+        Assert.True(sawEnemyOther, "no enemy non-fortification on the wire to prove privacy");
+
+        var row = Assert.Single(v2.Structures, st => st.X == wallAt.X && st.Y == wallAt.Y);
+        Assert.Equal(1, row.OwnerId);
+        Assert.Equal(123, row.Health);
+        Assert.Equal(StructureCatalog.Spec(StructureKind.Wall).BaseHealth, row.MaxHealth);
+    }
+
+    // P2/T2 — the build menu can say what a fortification does and how much it takes.
+    [Fact]
+    public void BuildCatalog_CarriesFortificationSemanticsAndBaseHealth()
+    {
+        var (_, projector, _) = MakeWorld();
+        var options = projector.BuildWorldDto().Buildable.ToDictionary(o => (StructureKind)o.Kind);
+
+        foreach (var (kind, o) in options)
+        {
+            var spec = StructureCatalog.Spec(kind);
+            Assert.Equal(spec.BlocksMovement, o.BlocksMovement);
+            Assert.Equal(spec.AlliedPassage, o.AlliedPassage);
+            Assert.Equal(spec.BaseHealth, o.BaseHealth);
+        }
+        // The semantics the menu exists to state: a wall blocks everyone, a gate
+        // blocks everyone but allies, a farm blocks nobody.
+        Assert.True(options[StructureKind.Wall].BlocksMovement);
+        Assert.False(options[StructureKind.Wall].AlliedPassage);
+        Assert.True(options[StructureKind.Gate].BlocksMovement);
+        Assert.True(options[StructureKind.Gate].AlliedPassage);
+        Assert.False(options[StructureKind.Farm].BlocksMovement);
+        Assert.True(options[StructureKind.Wall].BaseHealth > 0);
+    }
+
+    // P2/T3 — a siege row says what it is besieging, who is at the wall, and
+    // what the next round will deal, computed by the same rule FortSiege uses.
+    [Fact]
+    public void CombatRow_CarriesSiegeState_ForAFortAndZerosForAFieldBattle()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var world = sim.World;
+        var (unitAt, wallAt, behind) = FreeRow(world);
+        world.AddStructure(new Wall(wallAt) { OwnerId = 1 });
+        var u = new Unit(9001, unitAt) { Role = UnitRole.Soldier, OwnerId = 0 };
+        world.AddUnit(u);
+        // A defender behind the wall: gives the wall's owner eyes on the siege, and
+        // must NOT be counted as a besieger (own side, not hostile to the fort).
+        world.AddUnit(new Unit(9002, behind) { Role = UnitRole.Soldier, OwnerId = 1 });
+        world.Diplomacy.SetState(Sim.Core.Diplomacy.FactionPair.Of(0, 1),
+            Sim.Core.Diplomacy.RelationshipState.Enemy);
+        Sim.Core.Fortifications.FortSiege.MaybeBeginSiegeAdjacentTo(sim, unitAt);
+        Assert.True(world.CombatStates.ContainsKey(wallAt), "siege did not open");
+
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        var row = Assert.Single(v2.Combats, c => c.X == wallAt.X && c.Y == wallAt.Y);
+        Assert.Equal((int)StructureKind.Wall, row.FortKind);
+        Assert.Equal(1, row.Besiegers);
+        var expected = Sim.Core.Combat.CombatRules.EffectivePower(world, u, sim.Now);
+        Assert.True(expected > 0);
+        Assert.Equal(expected, row.SiegePower);
+
+        // The other side sees the same numbers: the wall's owner can count who is
+        // at their gate.
+        var theirs = projector.ProjectV2(sim, sim.Now, playerId: 1, reveal: false);
+        var theirRow = Assert.Single(theirs.Combats, c => c.X == wallAt.X && c.Y == wallAt.Y);
+        Assert.Equal(row.SiegePower, theirRow.SiegePower);
+        Assert.Equal(row.Besiegers, theirRow.Besiegers);
+
+        // A combat on a tile with no standing fortification is a field battle:
+        // FortKind 0 and nothing counted.
+        Assert.DoesNotContain(v2.Combats, c => c.FortKind == 0 && (c.Besiegers != 0 || c.SiegePower != 0));
+    }
+
+    // ── P3 — combat legibility ────────────────────────────────────────────────
+
+    // P3/T1 — the unit catalog is exactly the sim's role table, so Health and
+    // cargo on the view have a denominator the client did not invent.
+    [Fact]
+    public void UnitCatalog_IsExactlyTheSimsRoleTable()
+    {
+        var (_, projector, _) = MakeWorld();
+        var rows = projector.BuildWorldDto().Units;
+
+        var expected = Enum.GetValues<UnitRole>().Where(r => r != UnitRole.None).OrderBy(r => (int)r).ToArray();
+        Assert.Equal(expected.Select(r => (int)r), rows.Select(o => o.Role));
+        foreach (var o in rows)
+        {
+            var role = (UnitRole)o.Role;
+            var spec = Sim.Core.Combat.UnitCombatCatalog.Spec(role);
+            Assert.Equal(spec.BaseHealth, o.BaseHealth);
+            Assert.Equal(spec.BasePower, o.BasePower);
+            Assert.Equal(Sim.Core.Logistics.UnitCargoCatalog.CapacityFor(role), o.CargoCapacity);
+            Assert.True(o.BaseHealth > 0, $"{role} has no health");
+        }
+        // The two rows the client most needs to be right about.
+        var hauler = Assert.Single(rows, o => o.Role == (int)UnitRole.Hauler);
+        Assert.Equal(Sim.Core.Logistics.UnitCargoCatalog.HaulerCapacity, hauler.CargoCapacity);
+        var soldier = Assert.Single(rows, o => o.Role == (int)UnitRole.Soldier);
+        Assert.True(soldier.BasePower > hauler.BasePower);
+    }
+
+    // P3/T2 — a chase is an order; the wire shows yours and never theirs, on both
+    // projection paths.
+    [Fact]
+    public void Pursuit_IsOnTheWireForOwnUnitsOnly()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var world = sim.World;
+        var (unitAt, targetAt, enemyAt) = FreeRow(world);
+        var target = new Unit(9101, targetAt) { Role = UnitRole.Bandit, OwnerId = -1 };
+        world.AddUnit(target);
+        var mine = new Unit(9102, unitAt) { Role = UnitRole.Soldier, OwnerId = 0 };
+        mine.Pursuit = new Pursuit(target.Id, unitAt, leashRadius: 4);
+        world.AddUnit(mine);
+        var theirs = new Unit(9103, enemyAt) { Role = UnitRole.Soldier, OwnerId = 1 };
+        theirs.Pursuit = new Pursuit(target.Id, enemyAt, leashRadius: 0);
+        world.AddUnit(theirs);
+
+        foreach (var reveal in new[] { true, false })
+        {
+            var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: reveal);
+            var own = Assert.Single(v2.Units, u => u.Id == mine.Id);
+            Assert.Equal(target.Id, own.PursuitTargetId);
+            Assert.Equal(unitAt.X, own.PursuitLeashX);
+            Assert.Equal(unitAt.Y, own.PursuitLeashY);
+            Assert.Equal(4, own.PursuitLeashRadius);
+
+            var foe = Assert.Single(v2.Units, u => u.Id == theirs.Id);
+            Assert.Equal(-1, foe.PursuitTargetId);
+            Assert.Equal(-1, foe.PursuitLeashX);
+            Assert.Equal(-1, foe.PursuitLeashY);
+            Assert.Equal(-1, foe.PursuitLeashRadius);
+
+            // Not chasing: the -1 sentinel, distinct from a real radius of 0.
+            var idle = Assert.Single(v2.Units, u => u.Id == target.Id);
+            Assert.Equal(-1, idle.PursuitTargetId);
+        }
+
+        // A leash of 0 ("chase while visible") is a value, not an absence.
+        var enemyView = projector.ProjectV2(sim, sim.Now, playerId: 1, reveal: true);
+        var chaser = Assert.Single(enemyView.Units, u => u.Id == theirs.Id);
+        Assert.Equal(0, chaser.PursuitLeashRadius);
+        Assert.Equal(target.Id, chaser.PursuitTargetId);
+    }
+
+    // P3/T3 — a field battle says who is on the tile, per owner, with the same
+    // power sum the sim fights with. Public, ordered by owner, embarked excluded.
+    [Fact]
+    public void CombatRow_CarriesSidesPerOwner_ForAFieldBattle()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var world = sim.World;
+        var (tile, _, _) = FreeRow(world);
+        var a1 = new Unit(9201, tile) { Role = UnitRole.Soldier, OwnerId = 0 };
+        var a2 = new Unit(9202, tile) { Role = UnitRole.Archer, OwnerId = 0 };
+        var b1 = new Unit(9203, tile) { Role = UnitRole.Soldier, OwnerId = 1 };
+        foreach (var u in new[] { a1, a2, b1 }) world.AddUnit(u);
+        world.Diplomacy.SetState(Sim.Core.Diplomacy.FactionPair.Of(0, 1),
+            Sim.Core.Diplomacy.RelationshipState.Enemy);
+        var state = new Sim.Core.Combat.CombatState(tile) { RoundNumber = 2, NextRoundTick = sim.Now + 10 };
+        world.CombatStates[tile] = state;
+
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
+        var row = Assert.Single(v2.Combats, c => c.X == tile.X && c.Y == tile.Y);
+        Assert.Equal(0, row.FortKind);   // a field battle, not a siege
+        Assert.Equal(2, row.Sides.Length);
+        Assert.Equal(new[] { 0, 1 }, row.Sides.Select(s => s.OwnerId));
+
+        var mine = row.Sides[0];
+        Assert.Equal(2, mine.Units);
+        Assert.Equal(Sim.Core.Combat.CombatRules.ForcePower(world, 0, tile, sim.Now), mine.Power);
+        var theirs = row.Sides[1];
+        Assert.Equal(1, theirs.Units);
+        Assert.Equal(Sim.Core.Combat.CombatRules.ForcePower(world, 1, tile, sim.Now), theirs.Power);
+        Assert.True(theirs.Power > 0);
+
+        // The enemy reads the same rollup: sides are public.
+        var enemyView = projector.ProjectV2(sim, sim.Now, playerId: 1, reveal: false);
+        var enemyRow = Assert.Single(enemyView.Combats, c => c.X == tile.X && c.Y == tile.Y);
+        Assert.Equal(row.Sides.Select(s => (s.OwnerId, s.Units, s.Power)),
+                     enemyRow.Sides.Select(s => (s.OwnerId, s.Units, s.Power)));
+    }
+
+    // P1/T10 — the view carries a raw ClaimFertility per extractor tile; genesis
+    // carries the band edges that turn it into a grade. Read off the world's own
+    // config so a retuned ladder can never leave the client grading against 7500/2500
+    // from memory.
+    [Fact]
+    public void FertilityRules_AreTheWorldsOwnConfig()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var cfg = sim.World.BiomeDegradationConfig;
+        var world = projector.BuildWorldDto(sim.World.PopulationConfig, sim.World.RoyaltyConfig, cfg);
+
+        Assert.Equal(cfg.ForestThreshold, world.Fertility.ForestThreshold);
+        Assert.Equal(cfg.DesertThreshold, world.Fertility.DesertThreshold);
+
+        // The ladder must be a ladder: Desert below Forest, and both above zero, or
+        // the client would grade every tile into one band.
+        Assert.True(world.Fertility.DesertThreshold > 0);
+        Assert.True(world.Fertility.ForestThreshold > world.Fertility.DesertThreshold);
+
+        // The parameterless overload (tests and tooling with no world in hand) ships
+        // the config defaults, not zeros.
+        var defaults = new Sim.Core.Biomes.BiomeDegradationConfig();
+        Assert.Equal(defaults.ForestThreshold, projector.BuildWorldDto().Fertility.ForestThreshold);
+        Assert.Equal(defaults.DesertThreshold, projector.BuildWorldDto().Fertility.DesertThreshold);
+    }
+
     // C3 — one clock, two consumers. Genesis ships the projector's own light cycle
     // and every view carries the server's evaluation of it, so the client's sky can
     // prove it agrees with what narration will read.

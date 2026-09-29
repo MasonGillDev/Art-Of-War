@@ -72,8 +72,22 @@ public static class IntentJson
         [typeof(Sim.Core.Automation.SetOrderIntent)]              = "SetOrderIntent",
         [typeof(Sim.Core.Automation.ClearOrderIntent)]            = "ClearOrderIntent",
         [typeof(Sim.Core.Automation.OrderStatusIntent)]           = "OrderStatusIntent",
+        // M36 — the haul queue (docs/hauling-queue-and-routes.md). Set/Clear
+        // are player intents; Requeue is server-internal (driver-submitted,
+        // wire-rejected) and durable so recovery keeps the queue order.
+        [typeof(Sim.Core.Hauling.SetHaulJobIntent)]              = "SetHaulJobIntent",
+        [typeof(Sim.Core.Hauling.ClearHaulJobIntent)]            = "ClearHaulJobIntent",
+        [typeof(Sim.Core.Hauling.RequeueHaulJobIntent)]          = "RequeueHaulJobIntent",
+        // M36 — named routes. Set/Clear/Add/Remove are player intents;
+        // ServeRouteStop is server-internal (driver-submitted) and durable.
+        [typeof(Sim.Core.Hauling.SetHaulRouteIntent)]            = "SetHaulRouteIntent",
+        [typeof(Sim.Core.Hauling.ClearHaulRouteIntent)]          = "ClearHaulRouteIntent",
+        [typeof(Sim.Core.Hauling.AddRouteCrewIntent)]            = "AddRouteCrewIntent",
+        [typeof(Sim.Core.Hauling.RemoveRouteCrewIntent)]         = "RemoveRouteCrewIntent",
+        [typeof(Sim.Core.Hauling.ServeRouteStopIntent)]          = "ServeRouteStopIntent",
         // M20 — scouting dispatch.
         [typeof(Sim.Core.Scouting.DispatchScoutIntent)]          = "DispatchScoutIntent",
+        [typeof(Sim.Core.Scouting.ActivateIdolIntent)]           = "ActivateIdolIntent",   // M38
         // M21 — canal digging (whole-path terrain-mutation build).
         [typeof(Sim.Core.Canals.PlaceCanalIntent)]               = "PlaceCanalIntent",
         // M23 — loot a discovered cache.
@@ -82,10 +96,15 @@ public static class IntentJson
         [typeof(Sim.Core.Fortifications.PlaceWallIntent)]        = "PlaceWallIntent",
         // M26 — reclaim razed ground (rubble → clearing job → empty tile).
         [typeof(Sim.Core.Sieges.ClearRubbleIntent)]              = "ClearRubbleIntent",
+        // Pull down your own structure, instantly, no refund (docs/demolish.md).
+        [typeof(Sim.Core.Sieges.DemolishStructureIntent)]        = "DemolishStructureIntent",
         // M29 — chase a hostile down. Player-facing (the manual "run them
         // down") AND the verb the patrol driver submits; durable either way,
         // since the whole chase unfolds from this one row on replay.
         [typeof(Sim.Core.Combat.EngageUnitIntent)]               = "EngageUnitIntent",
+        // M41 — battlefield orders and doctrine (docs/battlefield-grid.md).
+        [typeof(Sim.Core.Battlefields.SetBattleOrderIntent)]     = "SetBattleOrderIntent",
+        [typeof(Sim.Core.Battlefields.SetBattleDoctrineIntent)]  = "SetBattleDoctrineIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -130,12 +149,24 @@ public static class IntentJson
             "SetOrderIntent"               => JsonSerializer.Deserialize<Sim.Core.Automation.SetOrderIntent>(payload, Options),
             "ClearOrderIntent"             => JsonSerializer.Deserialize<Sim.Core.Automation.ClearOrderIntent>(payload, Options),
             "OrderStatusIntent"            => JsonSerializer.Deserialize<Sim.Core.Automation.OrderStatusIntent>(payload, Options),
+            "SetHaulJobIntent"             => JsonSerializer.Deserialize<Sim.Core.Hauling.SetHaulJobIntent>(payload, Options),
+            "ClearHaulJobIntent"           => JsonSerializer.Deserialize<Sim.Core.Hauling.ClearHaulJobIntent>(payload, Options),
+            "RequeueHaulJobIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.RequeueHaulJobIntent>(payload, Options),
+            "SetHaulRouteIntent"           => JsonSerializer.Deserialize<Sim.Core.Hauling.SetHaulRouteIntent>(payload, Options),
+            "ClearHaulRouteIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.ClearHaulRouteIntent>(payload, Options),
+            "AddRouteCrewIntent"           => JsonSerializer.Deserialize<Sim.Core.Hauling.AddRouteCrewIntent>(payload, Options),
+            "RemoveRouteCrewIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.RemoveRouteCrewIntent>(payload, Options),
+            "ServeRouteStopIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.ServeRouteStopIntent>(payload, Options),
             "DispatchScoutIntent"          => JsonSerializer.Deserialize<Sim.Core.Scouting.DispatchScoutIntent>(payload, Options),
+            "ActivateIdolIntent"           => JsonSerializer.Deserialize<Sim.Core.Scouting.ActivateIdolIntent>(payload, Options),
             "PlaceCanalIntent"             => JsonSerializer.Deserialize<Sim.Core.Canals.PlaceCanalIntent>(payload, Options),
             "LootCacheIntent"              => JsonSerializer.Deserialize<Sim.Core.Caches.LootCacheIntent>(payload, Options),
             "PlaceWallIntent"              => JsonSerializer.Deserialize<Sim.Core.Fortifications.PlaceWallIntent>(payload, Options),
             "ClearRubbleIntent"            => JsonSerializer.Deserialize<Sim.Core.Sieges.ClearRubbleIntent>(payload, Options),
+            "DemolishStructureIntent"      => JsonSerializer.Deserialize<Sim.Core.Sieges.DemolishStructureIntent>(payload, Options),
             "EngageUnitIntent"             => JsonSerializer.Deserialize<Sim.Core.Combat.EngageUnitIntent>(payload, Options),
+            "SetBattleOrderIntent"    => JsonSerializer.Deserialize<Sim.Core.Battlefields.SetBattleOrderIntent>(payload, Options),
+            "SetBattleDoctrineIntent" => JsonSerializer.Deserialize<Sim.Core.Battlefields.SetBattleDoctrineIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +
                 $"this binary doesn't know about, or the durable type-name was renamed " +

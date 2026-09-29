@@ -66,6 +66,9 @@ public sealed class PlaceCanalIntent : Intent
             OwnerId = PlayerId,
         };
         world.AddStructure(site);
+        // God mode (docs/god-mode.md): the canal floods on placement.
+        if (Sim.Core.Logistics.Construction.IsGodBuild(world, PlayerId))
+            Sim.Core.Logistics.Construction.Complete(sim, site);
         return IntentOutcome.Applied;
     }
 

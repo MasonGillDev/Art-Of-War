@@ -284,6 +284,9 @@ public class SubstrateRoutineTests
         var horizon = 4 * Time.Day;
 
         RunFor(sim, driver, horizon);
+        // The final Think submits at the horizon AFTER the last Run; drain
+        // those so the resolved log holds every intent the replay must see.
+        sim.Run(horizon);
 
         var replay = BuildWorld();
         foreach (var batch in sim.ResolvedLog.OfType<IntentEvent>()

@@ -39,8 +39,7 @@ public class CombatCaptureTests
         // Laden hauler from owner 0.
         var hauler = sim.World.AddUnit(new Unit(100, tile)
             { Role = UnitRole.Hauler, OwnerId = 0 });
-        hauler.CargoResource = Resource.Wood;
-        hauler.CargoAmount = 5;
+        hauler.Cargo.Add(Resource.Wood, 5);
         hauler.Health = 1;
 
         // Overwhelming ambush from owner 1.
@@ -66,8 +65,7 @@ public class CombatCaptureTests
         {
             var u = sim.World.AddUnit(new Unit(id, tile)
                 { Role = UnitRole.Hauler, OwnerId = 0 });
-            u.CargoResource = Resource.Wood;
-            u.CargoAmount = 3;
+            u.Cargo.Add(Resource.Wood, 3);
             u.Health = 1;
         }
         for (var i = 0; i < 6; i++)

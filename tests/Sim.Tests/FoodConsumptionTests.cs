@@ -447,7 +447,7 @@ public class FoodConsumptionTests
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
-            CargoResource = Resource.Food, CargoAmount = 100, BornTick = 0,
+            Cargo = { { Resource.Food, 100 } }, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
         Assert.Equal(3, sim.World.Players[0].PopulationCount);
@@ -617,7 +617,7 @@ public class FoodConsumptionPhaseCTests
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
-            CargoResource = Resource.Food, CargoAmount = 100, BornTick = 0,
+            Cargo = { { Resource.Food, 100 } }, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
 
@@ -936,7 +936,7 @@ public class FoodConsumptionPhaseDTests
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
-            CargoResource = Resource.Food, CargoAmount = 100, BornTick = 0,
+            Cargo = { { Resource.Food, 100 } }, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
         AdvanceSimNow(sim, 12 * period);
@@ -976,7 +976,7 @@ public class FoodConsumptionPhaseDTests
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
-            CargoResource = Resource.Food, CargoAmount = 5, BornTick = 0,
+            Cargo = { { Resource.Food, 5 } }, BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);
         AdvanceSimNow(sim, 12 * period);
@@ -1014,8 +1014,7 @@ public class FoodConsumptionPhaseDTests
         var hauler = sim.World.AddUnit(new Unit(99, new TileCoord(0, 0))
         {
             Role = UnitRole.Hauler, OwnerId = 0,
-            CargoResource = Resource.Food,
-            CargoAmount = debtAtDeposit + surplusMeals * 6 * perCitizen,
+            Cargo = { { Resource.Food, debtAtDeposit + surplusMeals * 6 * perCitizen } },
             BornTick = 0,
         });
         hauler.TrySetActivity(Activity.Hauling);

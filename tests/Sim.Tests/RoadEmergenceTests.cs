@@ -25,14 +25,15 @@ public class RoadEmergenceTests
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(2, 0)));
         sim.Run();   // walk completes
 
-        var midTile = new TileCoord(1, 0);
-        Assert.True(world.Roads.ContainsKey(midTile));
-        var conditionAfterWalk = world.Roads[midTile].Condition;
+        // The arc walked into the middle tile (docs/roads-on-edges.md).
+        var midArc = TileEdge.Between(new TileCoord(0, 0), new TileCoord(1, 0));
+        Assert.True(world.Roads.ContainsKey(midArc));
+        var conditionAfterWalk = world.Roads[midArc].Condition;
 
         // Now silence: advance the clock far past full decay.
         // Decay = 1 per 100 ticks; condition was BASE_GAIN = 50; 5000 ticks erases.
-        Road.CatchUpDecay(world, midTile, now: 10_000);
-        Assert.False(world.Roads.ContainsKey(midTile),
+        Road.CatchUpDecay(world, midArc, now: 10_000);
+        Assert.False(world.Roads.ContainsKey(midArc),
             $"single traversal of condition {conditionAfterWalk} should have decayed away by tick 10000");
     }
 
@@ -45,51 +46,51 @@ public class RoadEmergenceTests
         // 2 condition units. Net gain per cycle ≈ 50 (then less, diminishing).
         var grid = new TileGrid(3, 1, Biome.Grassland);
         var world = new GameWorld(grid);
-        var midTile = new TileCoord(1, 0);
+        var midArc = TileEdge.Between(new TileCoord(0, 0), new TileCoord(1, 0));
 
         long now = 0;
         for (var i = 0; i < 20; i++)
         {
             // Each "traversal" is a manual credit at the chosen tempo. This
             // sidesteps movement-time variance and pins the gain-vs-decay math.
-            Road.CreditTraffic(world, midTile, now);
+            Road.CreditTraffic(world, midArc, now);
             now += 200;
         }
         // After 20 credits with that tempo, condition should be well above
         // single-traversal level.
-        Assert.True(world.Roads.ContainsKey(midTile));
-        Assert.True(world.Roads[midTile].Condition > RoadConstants.BASE_GAIN,
-            $"sustained traffic should exceed single-traversal level; got {world.Roads[midTile].Condition}");
+        Assert.True(world.Roads.ContainsKey(midArc));
+        Assert.True(world.Roads[midArc].Condition > RoadConstants.BASE_GAIN,
+            $"sustained traffic should exceed single-traversal level; got {world.Roads[midArc].Condition}");
     }
 
     // -------- Same-tick contention (gameplay-observable ordering) --------
 
     [Fact]
-    public void TwoTraversalsOnSameTileSameTick_SecondSeesFirstsGain()
+    public void TwoTraversalsOnSameArcSameTick_SecondSeesFirstsGain()
     {
-        // Two units arrive on the same tile on the same sim tick. Each
-        // calls CreditTraffic. The second's gain reads the post-first
+        // Two units walk the same ARC on the same sim tick, one each way.
+        // Each calls CreditTraffic. The second's gain reads the post-first
         // condition (decay is a no-op since LastDecayTick == now), so the
         // second sees diminishing returns. Final state deterministic by
         // submission order.
-        var grid = new TileGrid(3, 1, Biome.Grassland);
+        var grid = new TileGrid(2, 1, Biome.Grassland);
         var world = new GameWorld(grid);
         var sim = new Simulation(world, seed: 1);
-        var tile = new TileCoord(1, 0);
+        var arc = TileEdge.Between(new TileCoord(0, 0), new TileCoord(1, 0));
 
-        // Two units at (0,0) and (2,0) — both move to (1,0). At Grassland
-        // cost 10, both arrivals fire at tick 10. Submission order decides
-        // who's processed first (lower Seq).
+        // Unit 1 at (0,0) moves to (1,0); unit 2 at (1,0) moves to (0,0).
+        // Both cross the same arc; at Grassland cost 10 both arrivals fire
+        // at tick 10. Submission order decides who's processed first.
         world.AddUnit(new Unit(1, new TileCoord(0, 0)));
-        world.AddUnit(new Unit(2, new TileCoord(2, 0)));
-        sim.SubmitIntent(0, new MoveIntent(1, tile));
-        sim.SubmitIntent(0, new MoveIntent(2, tile));
+        world.AddUnit(new Unit(2, new TileCoord(1, 0)));
+        sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(1, 0)));
+        sim.SubmitIntent(0, new MoveIntent(2, new TileCoord(0, 0)));
         sim.Run();
 
-        // The tile got TWO credits at the same tick. Final condition reflects
+        // The arc got TWO credits at the same tick. Final condition reflects
         // both (with the second's gain diminished). It must be > one credit
         // alone and < two flat credits.
-        var c = world.Roads[tile].Condition;
+        var c = world.Roads[arc].Condition;
         Assert.True(c > RoadConstants.BASE_GAIN, "second credit didn't apply");
         Assert.True(c < 2 * RoadConstants.BASE_GAIN, "diminishing returns broken");
     }

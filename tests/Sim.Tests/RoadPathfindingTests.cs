@@ -47,16 +47,20 @@ public class RoadPathfindingTests
         // each = cheaper than going around).
         var sim = new Simulation(world, seed: 1);
         var rawPath = Pathfinding.FindPath(grid, new TileCoord(0, 1), new TileCoord(7, 1),
-            costFn: tile => Road.EffectiveCost(world, tile, sim.Now));
+            (from, to) => Road.EffectiveCost(world, from, to, sim.Now));
         Assert.NotNull(rawPath);
         Assert.Contains(new TileCoord(4, 1), rawPath!);     // goes through Forest
 
-        // Now build a max-condition road along y=0 (going around the wall).
-        for (var x = 0; x < 8; x++)
-            world.Roads[new TileCoord(x, 0)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        // Now build a max-condition road along y=0 (going around the wall):
+        // every arc along the row, plus the ramps up from and down to y=1
+        // at both ends so the whole detour is road (docs/roads-on-edges.md).
+        for (var x = 0; x < 7; x++)
+            world.Roads[TileEdge.FromOwner(new TileCoord(x, 0), TileEdge.Axis.East)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        world.Roads[TileEdge.FromOwner(new TileCoord(0, 0), TileEdge.Axis.South)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        world.Roads[TileEdge.FromOwner(new TileCoord(7, 0), TileEdge.Axis.South)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
 
         var roadedPath = Pathfinding.FindPath(grid, new TileCoord(0, 1), new TileCoord(7, 1),
-            costFn: tile => Road.EffectiveCost(world, tile, sim.Now));
+            (from, to) => Road.EffectiveCost(world, from, to, sim.Now));
         Assert.NotNull(roadedPath);
         // Should prefer going up onto the road rather than through the forest.
         Assert.Contains(new TileCoord(0, 0), roadedPath!);   // uses the road row
@@ -71,14 +75,14 @@ public class RoadPathfindingTests
         var grid = new TileGrid(8, 8, Biome.Grassland);
         var world = new GameWorld(grid);
         for (var i = 0; i < 5; i++)
-            world.Roads[new TileCoord(i, i)] = new RoadState(300 + 100 * i, 7);
+            world.Roads[TileEdge.FromOwner(new TileCoord(i, i), TileEdge.Axis.East)] = new RoadState(300 + 100 * i, 7);
         var sim = new Simulation(world, seed: 1);
         var hashBefore = Snapshot.Hash(sim);
 
         for (var i = 0; i < 100; i++)
         {
             Pathfinding.FindPath(grid, new TileCoord(0, 0), new TileCoord(7, 7),
-                costFn: tile => Road.EffectiveCost(world, tile, sim.Now));
+                (from, to) => Road.EffectiveCost(world, from, to, sim.Now));
         }
 
         Assert.Equal(hashBefore, Snapshot.Hash(sim));
@@ -91,8 +95,8 @@ public class RoadPathfindingTests
         // road, no tile costs less than MIN_COST.
         var grid = new TileGrid(5, 1, Biome.Grassland);
         var world = new GameWorld(grid);
-        for (var x = 0; x < 5; x++)
-            world.Roads[new TileCoord(x, 0)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        for (var x = 0; x < 4; x++)
+            world.Roads[TileEdge.FromOwner(new TileCoord(x, 0), TileEdge.Axis.East)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
 
         var sim = new Simulation(world, seed: 1);
         world.AddUnit(new Unit(1, new TileCoord(0, 0)));
@@ -116,8 +120,8 @@ public class RoadPathfindingTests
         var grid = new TileGrid(6, 1, Biome.Grassland);
         var worldRaw = new GameWorld(grid);
         var worldRoad = new GameWorld(grid);
-        for (var x = 0; x < 6; x++)
-            worldRoad.Roads[new TileCoord(x, 0)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+        for (var x = 0; x < 5; x++)
+            worldRoad.Roads[TileEdge.FromOwner(new TileCoord(x, 0), TileEdge.Axis.East)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
 
         long Walk(GameWorld w)
         {

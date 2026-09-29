@@ -292,6 +292,24 @@ public static class StructureCatalog
             IsPlayerBuildable = false,
             StorageCapacity = 1000,
         },
+        // M39 — a bandit camp. Never built by players; raised by progression.
+        // StorageCapacity is a ceiling for the hoard (raids stop well below it,
+        // at CampConfig.HoardCap). Health 300: 17 h of uncontested siege for six
+        // bare soldiers, 8 h for six swordsmen (docs/bandit-camps.md).
+        [StructureKind.BanditCamp] = new StructureSpec
+        {
+            Kind = StructureKind.BanditCamp,
+            IsPlayerBuildable = false,
+            StorageCapacity = 1000,
+            BaseHealth = 300,
+        },
+        // M38 — Idol. Scattered in the genesis fog (IdolScatter), never built,
+        // never besieged (BaseHealth 0). See docs/scouting-secrets.md.
+        [StructureKind.Idol] = new StructureSpec
+        {
+            Kind = StructureKind.Idol,
+            IsPlayerBuildable = false,
+        },
         // M24 — Rubble. The destroyed-structure tile occupant produced when a
         // structure's Health hits 0 (CombatRoundEvent). Indestructible
         // (BaseHealth = 0), no production, no holdings — its only job is
@@ -322,6 +340,25 @@ public static class StructureCatalog
         // Stone-heavy, tough (between Barracks 200 and Castle 1000): razing
         // a segment is a real siege, and the Rubble it leaves is a permanent
         // breach (no rubble clearing yet). docs/walls-and-gates.md.
+        // A deck across a straight canal tile (docs/structure-footprints.md,
+        // 2026-09-28): the one way feet cross a canal; boats still pass under.
+        // Built ON the canal (PlaceSiteIntent's bridge rule); razed or
+        // demolished, it goes back to plain canal, not rubble. Numbers are a
+        // first cut for tuning (user): timber-heavy, a day's work, as tough as
+        // a barracks.
+        [StructureKind.Bridge] = new StructureSpec
+        {
+            Kind = StructureKind.Bridge,
+            IsPlayerBuildable = true,
+            BuildCost = new SortedDictionary<Resource, int>
+            {
+                [Resource.Wood] = 40,
+                [Resource.Stone] = 10,
+            },
+            BuildDurationTicks = 24 * Time.Hour,
+            RequiredBuilderCount = 1,
+            BaseHealth = 200,
+        },
         [StructureKind.Wall] = new StructureSpec
         {
             Kind = StructureKind.Wall,
@@ -373,9 +410,13 @@ public static class StructureCatalog
             InputCost = new SortedDictionary<Resource, int>
             {
                 [Resource.Ore] = 2,
-                [Resource.Wood] = 1,
+                // 10 wood (fuel) per ingot (user, 2026-09-23): iron is a
+                // forestry economy as much as a mining one.
+                [Resource.Wood] = 10,
             },
-            InputCap = 60,
+            // Per input. 200 keeps "a few days of feed" true at 10 wood an
+            // ingot (60 starved a two-worker smelter inside two days).
+            InputCap = 200,
             BaseRatePerWorker = 1,
             ProductionPeriodTicks = 1 * Time.Day,
             WorkerCap = 2,

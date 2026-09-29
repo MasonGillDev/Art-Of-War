@@ -63,19 +63,30 @@ public sealed class SpawnBanditPartyIntent : Intent
                 $"spawn tile {At} is {dist} tiles from player presence " +
                 $"(min {BanditConstants.MinSpawnDistance})");
 
-        for (var i = 0; i < Size; i++)
+        Materialize(sim, At, Size);
+        return IntentOutcome.Applied;
+    }
+
+    // The party appears: `size` bandits on `at`, ids ascending. Shared with
+    // an omen's raid (docs/progression.md), which validates its own tile.
+    internal static List<int> Materialize(Simulation sim, TileCoord at, int size)
+    {
+        var world = sim.World;
+        var ids = new List<int>(size);
+        for (var i = 0; i < size; i++)
         {
             var id = world.NextUnitId;
             world.NextUnitId++;
-            Sim.Core.Population.Population.OnUnitAdded(sim, new Unit(id, At)
+            Sim.Core.Population.Population.OnUnitAdded(sim, new Unit(id, at)
             {
                 Role = UnitRole.Bandit,
                 OwnerId = BanditConstants.OwnerId,
                 BornTick = sim.Now,
             });
             // No ScheduleLifespan — age-exempt by design.
+            ids.Add(id);
         }
-        return IntentOutcome.Applied;
+        return ids;
     }
 
     public override string Describe() => $"SpawnBanditParty(at={At.X},{At.Y} size={Size})";

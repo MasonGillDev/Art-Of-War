@@ -86,8 +86,7 @@ public class SnapshotRoundTripTests
 
         var u2 = world.AddUnit(new Unit(2, new TileCoord(5, 5)) { Role = UnitRole.Hauler });
         u2.TrySetActivity(Activity.Hauling);
-        u2.CargoResource = Resource.Wood;
-        u2.CargoAmount = 6;
+        u2.Cargo.Add(Resource.Wood, 6);
 
         world.AddUnit(new Unit(4, new TileCoord(0, 0)) { Role = UnitRole.None });
         // Player-1 unit to exercise non-zero OwnerId on units.

@@ -34,6 +34,20 @@ public sealed class Player
     // would make that check O(N) and the rollup O(N^2). One int buys O(1).
     public int? KingUnitId { get; internal set; }
 
+    // God mode (docs/god-mode.md) — a TEST harness switch: this player's
+    // placements complete on the spot, unpaid and unbuilt (the site never
+    // enters the pending state). Genesis-set from FactionStartSpec.GodMode
+    // and snapshotted (v34) so a replayed or recovered god game rebuilds the
+    // same world; never flipped mid-game. Read only by Construction.IsGodBuild.
+    public bool GodMode { get; internal set; }
+
+    // M37 — progress (docs/progression.md): counters that only go up and the
+    // milestones that have fired. Null = not enrolled (AI seats): nothing is
+    // counted and nothing fires. Genesis-set from FactionStartSpec.Progression,
+    // never flipped mid-game, snapshotted (v36). Mutated only by
+    // Sim.Core.Progression.Progression.
+    public Sim.Core.Progression.ProgressLedger? Progress { get; internal set; }
+
     public Player(int id) { Id = id; }
 
     internal void IncrementPopulation() => PopulationCount++;

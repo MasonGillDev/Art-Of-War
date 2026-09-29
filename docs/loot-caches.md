@@ -140,3 +140,12 @@ can be gated to caches only.
 - `Sim.Core/Caches/*` (CacheConstants, CacheConfig, CacheScatter,
   LootCacheIntent), `Sim.Core/World/Structure.cs` (`Cache`),
   `Sim.Core/Logistics/LoadCargoIntent.cs` (the cargo atom it mirrors).
+
+## Update 2026-09-23 — one removal path for an emptied cache
+
+A cache is consumed when emptied, whichever verb empties it. Until now only the loot
+verb (`CacheLooting.TryLoot`) removed it; plain loading (`LoadCargoIntent`, the bandits'
+stealing verb) and hauls (`HaulPickupEvent`, which accepts any structure as a source)
+emptied it and left it standing. `CacheLooting.RemoveIfEmptied` is now the single
+removal path and all three call it. It also ends a progression rumour about that ruin
+(docs/progression.md). `TryLoot` takes the `Simulation` for the tick.

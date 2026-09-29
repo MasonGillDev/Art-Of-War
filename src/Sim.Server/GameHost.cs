@@ -27,21 +27,54 @@ public sealed class GameHost : IDisposable
     // PACING IS NOT SIMULATION. This is the wall-clock rate at which the host feeds
     // ticks to a sim that has no idea time is passing unevenly — pausing stops the
     // host asking for ticks, it does not stop or alter a single sim rule. The tick
-    // stream is byte-identical whatever the player does with these controls, which is
-    // why they are safe to expose and why they never appear in the replay log.
+    // stream is byte-identical whatever the pace, which is why pace never appears in
+    // the replay log.
     //
-    // Volatile double is not a thing in C#, so the rate rides an Interlocked-friendly
-    // long via BitConverter. The clock thread reads it every iteration; the HTTP
-    // thread writes it. No lock, because a torn read here would be one frame of
-    // slightly-wrong pace, and taking _gate would block the HTTP thread behind a
-    // whole tick's worth of AI thinking.
-    private long _paceBits;
+    // TWO-ACT PACING (docs/two-act-pacing.md): the pace is SCHEDULED. It is fast in
+    // the prelude and drops at the world's landing tick (Sim.Core LandingConfig),
+    // for everyone at once. Players do not set it. The /v2/pace endpoint remains a
+    // dev/admin tool: it can pause, and it can hold an override rate until cleared.
+    //
+    // The schedule is replaced only before Start (PreludeTicksPerSecond). The
+    // override is written by the HTTP thread and read by the clock thread;
+    // volatile double is not a thing in C#, so it rides an Interlocked long via
+    // BitConverter, NaN meaning "follow the schedule". No lock: a torn read would be
+    // one frame of slightly-wrong pace, and taking _gate would block the HTTP thread
+    // behind a whole tick's worth of AI thinking.
+    private volatile PaceSchedule _schedule;
+    private long _overrideBits = BitConverter.DoubleToInt64Bits(double.NaN);
     private volatile bool _paused;
 
-    private double TicksPerSecond
+    private double OverrideTicksPerSecond
     {
-        get => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _paceBits));
-        set => Interlocked.Exchange(ref _paceBits, BitConverter.DoubleToInt64Bits(value));
+        get => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _overrideBits));
+        set => Interlocked.Exchange(ref _overrideBits, BitConverter.DoubleToInt64Bits(value));
+    }
+
+    /// The pace schedule this host runs (fixed before Start). Rides genesis to the
+    /// client so its countdown and its clock use the same numbers as the host.
+    public PaceSchedule Schedule => _schedule;
+
+    /// The prelude pace. Set before Start(); defaults to the constructor's pace, so a
+    /// host nobody configures runs one pace throughout even in a world with a landing.
+    public double PreludeTicksPerSecond
+    {
+        get => _schedule.PreludeTicksPerSecond;
+        set => _schedule = _schedule with
+        {
+            PreludeTicksPerSecond = Math.Clamp(value, MinTicksPerSecond, MaxTicksPerSecond),
+        };
+    }
+
+    /// The pace right now: the dev override if one is held, else the schedule at the
+    /// current tick.
+    public double CurrentTicksPerSecond
+    {
+        get
+        {
+            var over = OverrideTicksPerSecond;
+            return double.IsNaN(over) ? _schedule.TicksPerSecondAt(Volatile.Read(ref _virtualTick)) : over;
+        }
     }
 
     /// Host pacing bounds. The floor is above zero because "paused" is its own flag —
@@ -53,6 +86,9 @@ public sealed class GameHost : IDisposable
     private readonly Bandits.BanditDriver? _bandits;
     private readonly List<Ai.AiPlayerDriver> _ais = new();
     private readonly Automation.SubstrateDriver? _automation;
+    // M36 — the haul queue (docs/hauling-queue-and-routes.md). Always on: a
+    // world with no haul jobs makes Think a cheap no-op.
+    private readonly Hauling.HaulingDriver _hauling = new();
 
     // M25 — observability seam: which faction runs which brain (read-only;
     // the assignment test and smoke tooling read Kind/PlayerId off each
@@ -88,14 +124,22 @@ public sealed class GameHost : IDisposable
 
     public GameHost(WorldBuild build, ulong seed, double ticksPerSecond,
         Bandits.BanditConfig? banditConfig = null, Ai.AiConfig? aiConfig = null,
-        Automation.AutomationConfig? automationConfig = null)
+        Automation.AutomationConfig? automationConfig = null,
+        Action<Simulation>? setup = null)
     {
         // Spec-aware ctor: builds the world via Genesis AND rolls each genesis unit's
         // lifespan (death-by-age). The plain (GameWorld, seed) ctor would skip that and
         // leave starting units immortal.
         _sim = new Simulation(build.Spec, seed);
+        // M41 — the battle test bed's scenario setup (Scenarios/ScenarioHost):
+        // what a GenesisSpec can't say (gear, health, wars, doctrine, orders),
+        // applied before tick 0 and before anything below reads the world.
+        setup?.Invoke(_sim);
         _projector = new ViewProjector(build);
-        TicksPerSecond = Math.Clamp(ticksPerSecond, MinTicksPerSecond, MaxTicksPerSecond);
+        // `ticksPerSecond` is the pace from the landing on (or throughout, with no
+        // landing). The prelude starts equal to it; PreludeTicksPerSecond changes that.
+        var pace = Math.Clamp(ticksPerSecond, MinTicksPerSecond, MaxTicksPerSecond);
+        _schedule = new PaceSchedule(pace, pace, _sim.World.LandingConfig.Tick);
         // M16 — the bandit brain rides the clock loop (same thread, same
         // lock); null when disabled.
         if (banditConfig is { Enabled: true })
@@ -152,6 +196,7 @@ public sealed class GameHost : IDisposable
         // lets a client's order dashboard say "waiting for a free hand"
         // instead of guessing from an empty crew list. Presentation-only.
         _projector.OrderSource = _automation?.Journal;
+        _projector.HaulSource = _hauling;
     }
 
     public void Start()
@@ -176,12 +221,46 @@ public sealed class GameHost : IDisposable
             // Paused: advance `last` but not `accum`. Doing both is what keeps a
             // resume from time-warping — the sim never owes catch-up for wall-clock
             // that elapsed while it was stopped.
-            if (!_paused) accum += (now - last) * TicksPerSecond;
+            //
+            // The schedule advances THROUGH the landing: a span that crosses it runs
+            // at the prelude pace up to the landing tick and at the slow pace after,
+            // so the drop lands on exactly that tick however long this loop slept.
+            if (!_paused)
+            {
+                var over = OverrideTicksPerSecond;
+                accum = double.IsNaN(over)
+                    ? _schedule.Advance(accum, now - last)
+                    : accum + (now - last) * over;
+            }
             last = now;
             lock (_gate)
             {
-                _virtualTick = (long)accum;
+                // M41 — the battle test bed's clock tools (dev only). A step
+                // jumps a paused clock to the next beat; holding at beats stops
+                // the clock on every beat while a battle is open (and when one
+                // opens), so both sides can plan without the turn running out.
+                // Host pace rules: the sim never knows.
+                if (_paused && _stepTarget is { } step)
+                {
+                    if (step > _virtualTick) accum = step;
+                    _stepTarget = null;
+                }
+                var target = (long)accum;
+                if (HoldAtBeats && target > _virtualTick)
+                {
+                    var rt = _sim.World.CombatConfig.RoundIntervalTicks;
+                    var nextBeat = (_virtualTick / rt + 1) * rt;
+                    if (_sim.World.Battlefields.Count > 0 && target >= nextBeat)
+                    {
+                        target = nextBeat;
+                        accum = nextBeat;
+                        _paused = true;
+                    }
+                }
+                _virtualTick = target;
                 _sim.Run(until: _virtualTick);
+                if (HoldAtBeats && _sim.World.Battlefields.Count > _battlesSeen) _paused = true;
+                _battlesSeen = _sim.World.Battlefields.Count;
                 // M16/M17 — the NPC brains read the freshly-advanced world and
                 // submit their intents (they resolve on the next Run). Same
                 // thread, under the lock: their pure reads can never race the sim.
@@ -190,6 +269,7 @@ public sealed class GameHost : IDisposable
                 // M18 — player standing orders: same contract as the NPC
                 // brains (pure reads + ordinary intents, under the lock).
                 _automation?.Think(_sim, _virtualTick);
+                _hauling.Think(_sim, _virtualTick);
                 // Graves BEFORE rejections: the tracker reads the same
                 // resolved-log window that HarvestRejections consumes (it
                 // advances _resolvedCursor; the tracker's scan must not).
@@ -201,18 +281,49 @@ public sealed class GameHost : IDisposable
         }
     }
 
-    /// Current host pacing. Read by GET /v2/pace so the client's controls show the
-    /// server's truth rather than what the client last asked for.
-    public (bool Paused, double TicksPerSecond) GetPace() => (_paused, TicksPerSecond);
+    // ---- M41 battle test bed: clock tools (dev only; Scenarios/ScenarioHost) ----
+    private long? _stepTarget;
+    private int _battlesSeen;
 
-    /// Set host pacing. Returns the pace actually adopted, which may differ from the
-    /// request because the rate is clamped — the client renders what came back.
-    public (bool Paused, double TicksPerSecond) SetPace(bool paused, double ticksPerSecond)
+    /// Stop the clock on every beat while a battle is open, and whenever one opens.
+    public volatile bool HoldAtBeats;
+
+    /// Run a paused clock on to the next beat (one battle turn), then stay paused.
+    public void StepTurn()
     {
-        TicksPerSecond = Math.Clamp(ticksPerSecond, MinTicksPerSecond, MaxTicksPerSecond);
+        lock (_gate)
+        {
+            var rt = _sim.World.CombatConfig.RoundIntervalTicks;
+            _stepTarget = (_virtualTick / rt + 1) * rt;
+            _paused = true;
+        }
+    }
+
+    /// Resume a clock that a beat (or a new battle) stopped.
+    public void Resume() => _paused = false;
+
+    public bool IsPaused => _paused;
+    public long VirtualTick => _virtualTick;
+
+    /// Current host pacing: paused, and the pace right now (the override, else the
+    /// schedule at the current tick). Read by GET /v2/pace.
+    public (bool Paused, double TicksPerSecond) GetPace() => (_paused, CurrentTicksPerSecond);
+
+    /// Dev/admin pacing (players have no pace control: docs/two-act-pacing.md).
+    /// A rate HOLDS an override, clamped, until cleared; null clears it and the
+    /// schedule resumes. Returns the pace actually adopted, which may differ from
+    /// the request because the rate is clamped.
+    public (bool Paused, double TicksPerSecond) SetPace(bool paused, double? ticksPerSecond)
+    {
+        OverrideTicksPerSecond = ticksPerSecond is { } tps
+            ? Math.Clamp(tps, MinTicksPerSecond, MaxTicksPerSecond)
+            : double.NaN;
         _paused = paused;
         return GetPace();
     }
+
+    /// Is a dev override holding the pace off its schedule?
+    public bool PaceOverridden => !double.IsNaN(OverrideTicksPerSecond);
 
     // POST /intent: parse the {typeName,payload} envelope, rebuild the Intent via the
     // engine's registry, queue it. Validation is at resolution time, so this ack only
@@ -246,6 +357,14 @@ public sealed class GameHost : IDisposable
             // dodge arbitration. docs/automation-substrate.md, Layer 0.
             if (intent is Sim.Core.Automation.ClaimUnitIntent)
                 return Ack(false, "claim intents are server-internal");
+            // M36 — the haul queue's order is the driver's to move: a client
+            // that could requeue would jump its own jobs to the front.
+            if (intent is Sim.Core.Hauling.RequeueHaulJobIntent)
+                return Ack(false, "haul-queue moves are server-internal");
+            // A client serving its own stop could trade at a stop its crew
+            // never reached.
+            if (intent is Sim.Core.Hauling.ServeRouteStopIntent)
+                return Ack(false, "route stops are served by the server");
             lock (_gate)
             {
                 var at = Math.Max(_sim.Now, _virtualTick);
@@ -285,10 +404,20 @@ public sealed class GameHost : IDisposable
     // Genesis is immutable generation-time data, so this stays lock-free — but the
     // world's PopulationConfig is a readonly record struct set once at genesis, so
     // reading it here races nothing.
-    public string BuildWorldJson() =>
-        JsonSerializer.Serialize(
-            _projector.BuildWorldDto(_sim.World.PopulationConfig, _sim.World.RoyaltyConfig),
-            ServerJson.Options);
+    public string BuildWorldJson()
+    {
+        var dto = _projector.BuildWorldDto(_sim.World.PopulationConfig, _sim.World.RoyaltyConfig, _sim.World.BiomeDegradationConfig);
+        // The host's pace schedule (docs/two-act-pacing.md): static for the life of
+        // the world, so it rides genesis. The client's countdown and clock read it.
+        var s = _schedule;
+        dto.Pace = new PaceScheduleDto
+        {
+            LandingTick = s.LandingTick,
+            PreludeTicksPerSecond = s.PreludeTicksPerSecond,
+            TicksPerSecond = s.TicksPerSecond,
+        };
+        return JsonSerializer.Serialize(dto, ServerJson.Options);
+    }
 
     // GET /v2/view/{playerId}: the slim per-tick view. Identical lock discipline and
     // notice/report attachment to BuildViewJson — only the tile encoding differs.
@@ -300,6 +429,10 @@ public sealed class GameHost : IDisposable
             dto = _projector.ProjectV2(_sim, _sim.Now, playerId, reveal);
             if (_notices.TryGetValue(playerId, out var list)) dto.Notices = list.ToArray();
             if (_scoutReports.TryGetValue(playerId, out var reps)) dto.ScoutReports = reps.ToArray();
+            // The pace this view was produced at, so the client's clock runs at the
+            // host's truth on every poll rather than a number read once at startup.
+            dto.TicksPerSecond = CurrentTicksPerSecond;
+            dto.Paused = _paused;
         }
         return JsonSerializer.Serialize(dto, ServerJson.Options);
     }
@@ -319,15 +452,20 @@ public sealed class GameHost : IDisposable
             // headless run's only window). Diplomatic state is public
             // knowledge (docs/diplomacy-model.md), so broadcasting leaks
             // nothing. Fenced no-ops (peace voided the telegraph) carry a
-            // Reject outcome and stay silent; applied consequence events
-            // leave Outcome null.
+            // Reject outcome and stay silent; applied events carry Applied.
+            // (Until 2026-09-25 these two cases tested `Outcome is null`,
+            // which never holds — Outcome defaults to Applied — so neither
+            // broadcast ever fired.)
             switch (log[_resolvedCursor])
             {
-                case Sim.Core.Diplomacy.WarBecomesEffectiveEvent w when w.Outcome is null:
+                case Sim.Core.Diplomacy.WarBecomesEffectiveEvent w when w.Outcome.IsApplied:
                     Broadcast(w.At, $"WAR: factions {w.Pair.Lo} and {w.Pair.Hi} are now at war.");
                     continue;
-                case Sim.Core.Sieges.PlayerDefeatedEvent pd when pd.Outcome is null:
+                case Sim.Core.Sieges.PlayerDefeatedEvent pd when pd.Outcome.IsApplied:
                     Broadcast(pd.At, $"Faction {pd.OwnerId}'s castle has FALLEN — they are out of the game.");
+                    continue;
+                case Sim.Core.Landing.LandingEvent landing when landing.Outcome.IsApplied:
+                    AnnounceLanding(landing.At);
                     continue;
                 case Sim.Core.Sieges.GameOverEvent over:
                     Broadcast(over.At, over.WinnerId is { } w2
@@ -441,6 +579,38 @@ public sealed class GameHost : IDisposable
         var names = new[] { "Maddox", "Ren", "Coll", "Brannon", "Hew", "Garrick", "Tam", "Osric", "Wat", "Joss" };
         return names[((scoutId % names.Length) + names.Length) % names.Length];
     }
+
+    // Two-act pacing — day X (docs/two-act-pacing.md). World news for everyone,
+    // then each kingdom's own warning: which sides its war bands come from, and
+    // when they strike. The sides are the fiction's sails on the horizon; the
+    // bands themselves stay in the fog until someone sees them. Called under _gate.
+    private void AnnounceLanding(long tick)
+    {
+        Broadcast(tick, "THE LANDING: war bands have come out of the fog. They march on every kingdom.");
+        foreach (var (target, host) in _sim.World.LandingHosts)
+        {
+            var sides = host.Fronts.Select(f => SideOf(host.Seat, f.Approach)).ToList();
+            var list = sides.Count switch
+            {
+                1 => sides[0],
+                _ => string.Join(", ", sides.Take(sides.Count - 1)) + " and " + sides[^1],
+            };
+            var days = (host.AssaultTick - tick) / (double)Sim.Core.Time.Day;
+            AddNotice(target, tick,
+                $"{host.Fronts.Count} war band{(host.Fronts.Count == 1 ? "" : "s")} march on your castle from the {list}. " +
+                $"They will gather in sight of your walls and strike together in {days:0.#} day{(days == 1 ? "" : "s")}.");
+        }
+    }
+
+    // The compass side `approach` lies on, seen from `seat` (y grows north).
+    private static string SideOf(Sim.Core.World.TileCoord seat, Sim.Core.World.TileCoord approach) =>
+        (approach.X - seat.X, approach.Y - seat.Y) switch
+        {
+            (0, > 0) => "north",
+            (> 0, 0) => "east",
+            (0, < 0) => "south",
+            _ => "west",
+        };
 
     // M25 — world news goes to every real faction's notice feed (negative
     // sentinel owners have no clients) and the console. Called under _gate.

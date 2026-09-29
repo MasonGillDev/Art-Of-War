@@ -170,7 +170,7 @@ public class BanditFactionTests
         sim.World.AddUnit(new Unit(50, new TileCoord(8, 8))
         {
             Role = UnitRole.Soldier, OwnerId = BanditConstants.OwnerId, BornTick = 0,
-            CargoResource = Resource.Wood, CargoAmount = 7,
+            Cargo = { { Resource.Wood, 7 } },
         });
 
         var bytes = Snapshot.Serialize(sim);

@@ -261,8 +261,8 @@ public class RefiningTests
         world.AddStructure(new Smithy(new TileCoord(1, 6)) { OwnerId = 0 }).Deposit(Resource.Iron, 3);
         var sim = new Simulation(world, seed: 7);
 
-        armed.DepositInput(Resource.Ore, 8);
-        armed.DepositInput(Resource.Wood, 4);
+        armed.DepositInput(Resource.Ore, 4 * SmelterSpec.InputCost[Resource.Ore]);
+        armed.DepositInput(Resource.Wood, 4 * SmelterSpec.InputCost[Resource.Wood]);
         // A Farmer, not a Miner: base rate 1, so exactly one batch per period.
         world.AddUnit(new Unit(1, armedAt) { Role = UnitRole.Farmer, OwnerId = 0 });
         sim.SubmitIntent(0, new AssignWorkersIntent(armedAt, new[] { 1 }));
@@ -277,8 +277,8 @@ public class RefiningTests
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
 
         var rArmed = Assert.IsType<Extractor>(restored.World.Structures[armedAt]);
-        Assert.Equal(8, rArmed.InputOf(Resource.Ore));
-        Assert.Equal(4, rArmed.InputOf(Resource.Wood));
+        Assert.Equal(4 * SmelterSpec.InputCost[Resource.Ore], rArmed.InputOf(Resource.Ore));
+        Assert.Equal(4 * SmelterSpec.InputCost[Resource.Wood], rArmed.InputOf(Resource.Wood));
         Assert.True(rArmed.TickArmed);
         Assert.Equal(armed.NextProductionTickSeq, rArmed.NextProductionTickSeq);
         var rDormant = Assert.IsType<Extractor>(restored.World.Structures[dormantAt]);

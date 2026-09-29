@@ -140,8 +140,7 @@ public class BanditSpawnTests
         // Hand them stolen goods.
         foreach (var id in ids)
         {
-            sim.World.Units[id].CargoResource = Resource.Wood;
-            sim.World.Units[id].CargoAmount = 10;
+            sim.World.Units[id].Cargo.Add(Resource.Wood, 10);
         }
 
         var outcome = new DespawnBanditPartyIntent(ids)

@@ -161,3 +161,32 @@ flipped with TicksPerYear retunes).
 
 `--tps` is now a pure pace dial: it changes how fast the whole game
 plays, never the relationships inside it.
+
+## Update 2026-09-24 — the pace is scheduled, in two acts
+
+The scale audit (`Art Of War(prod)/docs/scale-audit-2026-09-24.md`)
+found that no single pace serves the whole game:
+
+- At 4 tps the opening is full, but a night's sleep is 80 game-days and
+  the strategic band ends inside one absence.
+- At 1 tps or slower the long game works, but the opening has nothing
+  to do.
+
+The user chose a two-act clock (`docs/two-act-pacing.md`). All players
+spawn together. The host runs a fast prelude (proposed 4 tps) until a
+fixed day X that everyone sees counting down. At day X it drops to a
+slow pace (proposed 1 tps) for the rest of the game, and a bandit force
+marches on every kingdom.
+
+What still holds from above:
+
+- `Sim.Core` never reads tps. Day X is a tick in the world's config, and
+  the host switches its pace when the sim reaches it.
+- The ratios inside the sim are untouched.
+
+What changes:
+
+- The dial is set by the game's schedule, not by players.
+- Anything that must outlast a player's absence is sized against the
+  Act II pace, where a night's sleep is 20 game-days at 1 tps, not
+  against the prelude's.

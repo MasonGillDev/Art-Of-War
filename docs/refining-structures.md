@@ -258,3 +258,27 @@ sibling client repo.
 Launch numbers as shipped (all knobs): Smelter 2 Ore + 1 Wood → 1 Iron per
 worker per day, WorkerCap 2, Miner preferred at 2×, InputCap 60, BufferCap
 20, build 40 Wood + 30 Stone. Sword 3 Iron + 2 Wood.
+
+## Update 2026-09-19 — the AI learned the chain
+
+The "SmeltRung" deferral above is paid: `ForgeRung` (Smithy → Mine on known
+Hills → Smelter, staffed fewest-hands-first behind the Fortify surplus
+gates) and `ArmRung` (forge to need, equip by the goal-shaped walk) in both
+brains, with the ore/fuel/iron feed lines in `LogisticsLayer` and a
+smithy-aware enemy estimate in `EnemyIntel`. Doctrine, lab findings and the
+three new arbitration lessons are in `docs/ai-players.md` (2026-09-19
+update); pins in `ArmTests`. Still each its own call: Miner training, the
+Workshop cart for AI haulers, iron in fortifications.
+
+## Update 2026-09-23 — fuel is 10 wood an ingot
+
+User call after playing: the Smelter's recipe is now **2 ore + 10 wood → 1 iron**
+(was 2 + 1), so iron leans on forestry as much as mining. `InputCap` rises from 60
+to **200 per input**: at 10 wood an ingot, 60 wood was about a day and a half of
+feed for a two-worker smelter, which broke "a few days of feed" above. A sword
+(3 iron + 2 wood) now costs 6 ore and 32 wood end to end. Refining tests derive
+their batches from `InputCost`, so they follow future retunes.
+
+Related fix (M36): `PredicateEvaluator.StoredAmount` now counts a refiner's
+**input** store for its input resources, so a supply line or haul job that keeps
+ore at a smelter can read as satisfied instead of pushing ore into a full store.

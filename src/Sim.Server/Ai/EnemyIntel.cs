@@ -65,16 +65,49 @@ public static class EnemyIntel
     // AssumedGarrisonPower floor absorb the underestimate). Civilians
     // count too: in M7 combat every unit on the tile fights at its
     // catalog power.
+    //
+    // ARMS ARE INFERRED FROM THE FORGE (2026-09-19): a faction whose Smithy
+    // the brain has SEEN (visible now, or remembered — structures are
+    // physical land use, revealed by scouting) is priced as if every
+    // soldier carries the catalog's best power item for its role. The
+    // loadout itself stays private; the smithy is the tell. Without this
+    // an armed defender reads as bare and the Rival's overmatch gate
+    // launches campaigns it loses (docs/manned-towers.md names the same
+    // failure for towers: "the Rival must learn X or it will suicide
+    // into it").
     public static int EstimateVisiblePower(ThinkContext ctx, int ownerId, TileCoord near, int radius)
     {
+        var armed = HasKnownSmithy(ctx, ownerId);
         var power = 0;
         foreach (var u in ctx.View.Units)
         {
             if (u.OwnerId != ownerId) continue;
             if (Math.Max(Math.Abs(u.X - near.X), Math.Abs(u.Y - near.Y)) > radius) continue;
-            power += Sim.Core.Combat.UnitCombatCatalog.Spec((UnitRole)u.Role).BasePower;
+            var role = (UnitRole)u.Role;
+            power += Sim.Core.Combat.UnitCombatCatalog.Spec(role).BasePower;
+            if (armed) power += AssumedArmsPower(role);
         }
         return power;
+    }
+
+    public static bool HasKnownSmithy(ThinkContext ctx, int ownerId) =>
+        ctx.View.Structures.Any(s => s.OwnerId == ownerId
+            && (StructureKind)s.Kind == StructureKind.Smithy)
+        || ctx.Mem.KnownEnemyStructures.Values.Any(k =>
+            k.OwnerId == ownerId && (StructureKind)k.Kind == StructureKind.Smithy);
+
+    // The strongest PowerModifier the equipment catalog offers this role
+    // (0 for civilians). A rule-catalog read, like BasePower.
+    private static int AssumedArmsPower(UnitRole role)
+    {
+        var best = 0;
+        foreach (var item in new[] { Resource.Sword, Resource.Bow, Resource.Shield })
+        {
+            var spec = Sim.Core.Equipment.EquipmentCatalog.Spec(item);
+            if (spec.AllowedRoles.Contains(role) && spec.PowerModifier > best)
+                best = spec.PowerModifier;
+        }
+        return best;
     }
 
     // The war ledger's enemy estimate (shared by WarRung's gates and

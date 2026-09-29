@@ -103,8 +103,7 @@ public class PopulationDeathTests
             LifespanMinYears: 10, LifespanMaxYears: 10);
         var sim = new Simulation(MakeSpec(unitCount: 1, startingAge: 0, config: cfg), seed: 0xA8E);
         var u = sim.World.Units[1];
-        u.CargoResource = Resource.Wood;
-        u.CargoAmount = 3;
+        u.Cargo.Add(Resource.Wood, 3);
         var tile = u.Position;
 
         sim.Run(until: u.DeathTick!.Value);

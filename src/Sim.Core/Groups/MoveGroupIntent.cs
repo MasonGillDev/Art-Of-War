@@ -53,11 +53,14 @@ public sealed class MoveGroupIntent : Intent
         // A* avoids visibly-crowded tiles but cannot route around fog'd
         // congestion. See docs/movement-cost.md.
         var visibleTiles = View.VisibleTiles(world, group.OwnerId);
-        var path = Pathfinding.FindPath(
-            world.Grid,
-            group.Position,
-            Destination,
-            MovementCost.Planner(world, group.OwnerId, visibleTiles, now));
+        var (path, dest) = PlanGroup(world, group, Destination, visibleTiles, now);
+        if (path is not null && path.Count == 1)
+        {
+            // Aimed at water right beside it: the nearest land is where it stands.
+            ClearMovementAnchors(group);
+            group.State = GroupState.Idle;
+            return IntentOutcome.Applied;
+        }
         if (path is null || path.Count < 2)
             return IntentOutcome.Reject(
                 $"no path for group {GroupId} from {group.Position.X},{group.Position.Y} " +
@@ -67,7 +70,7 @@ public sealed class MoveGroupIntent : Intent
         // chain no-ops on fire. Fresh chain captures the bumped epoch.
         group.BumpEpoch();
         group.PathRemaining = path.Skip(1).ToList();
-        group.PathFinalDest = Destination;
+        group.PathFinalDest = dest;
         group.State = GroupState.Moving;
         ScheduleNextHop(sim, group);
 
@@ -88,19 +91,34 @@ public sealed class MoveGroupIntent : Intent
         var world = sim.World;
         var now = sim.Now;
         var visibleTiles = View.VisibleTiles(world, group.OwnerId);
-        var path = Pathfinding.FindPath(
-            world.Grid,
-            group.Position,
-            dest,
-            MovementCost.Planner(world, group.OwnerId, visibleTiles, now));
+        var (path, to) = PlanGroup(world, group, dest, visibleTiles, now);
         if (path is null || path.Count < 2)
         {
             ClearMovementAnchors(group);
             return;
         }
         group.PathRemaining = path.Skip(1).ToList();
-        group.PathFinalDest = dest;
+        group.PathFinalDest = to;
         ScheduleNextHop(sim, group);
+    }
+
+    // The group's plan to `dest`, fog-aware, following tile shapes; aimed at
+    // water, it plans to the nearest reachable land instead (MovementCost.LandNear)
+    // and says where it ends. A one-tile path: the nearest land is where it is.
+    private static (List<TileCoord>? Path, TileCoord Dest) PlanGroup(
+        GameWorld world, Group group, TileCoord dest, HashSet<TileCoord> visibleTiles, long now)
+    {
+        var cost = MovementCost.Planner(world, group.OwnerId, visibleTiles, now);
+        var rule = CrossingRule.Applies(world) ? CrossingRule.Planning(world, group.OwnerId, visibleTiles) : null;
+        if (!MovementCost.FeetKeepOffWater(world, dest))
+            return (Pathfinding.FindPath(world.Grid, group.Position, dest, cost, rule, null), dest);
+        foreach (var land in MovementCost.LandNear(world, dest))
+        {
+            if (land == group.Position) return (new List<TileCoord> { land }, land);
+            var path = Pathfinding.FindPath(world.Grid, group.Position, land, cost, rule, null);
+            if (path is not null) return (path, land);
+        }
+        return (null, dest);
     }
 
     // Schedules the next per-hop GroupArrivalEvent based on PathRemaining[0].
@@ -117,7 +135,10 @@ public sealed class MoveGroupIntent : Intent
         // see (fog) or one that completed mid-march stops the whole column
         // here. Yield-idle + epoch bump (fences any queued arrival), then
         // open a siege if the blocker is hostile. docs/walls-and-gates.md.
-        if (Fortification.BlocksMover(sim.World, next, group.OwnerId))
+        if (Fortification.BlocksMover(sim.World, next, group.OwnerId)
+            || (CrossingRule.Applies(sim.World) && !CrossingRule.GroundTruth(sim.World, group.OwnerId).AllowsHop(
+                group.Position, null, next, final: next == group.PathFinalDest))
+            || MovementCost.ExecutionCost(sim.World, group.Position, next, sim.Now) >= Sim.Core.World.Biomes.Impassable)
         {
             ClearMovementAnchors(group);
             group.State = GroupState.Idle;

@@ -521,15 +521,15 @@ public class GoalShapedIntentsTests
         // restore would resume the walk and then train the wrong thing.
         var sim = BuildWorld(out _);
         sim.World.AddStructure(new School(SchoolAt) { OwnerId = 0 });
-        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Scout, SchoolAt) { PlayerId = 0 });
+        sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Miner, SchoolAt) { PlayerId = 0 });
         sim.Run(0);
 
         var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 11);
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
-        Assert.Equal((int)UnitRole.Scout, restored.World.Units[1].Goal!.Arg);
+        Assert.Equal((int)UnitRole.Miner, restored.World.Units[1].Goal!.Arg);
 
         restored.Run(10 * Time.Day);
-        Assert.Equal(UnitRole.Scout, restored.World.Units[1].Role);
+        Assert.Equal(UnitRole.Miner, restored.World.Units[1].Role);
     }
 
     // ---- the composite ------------------------------------------------------

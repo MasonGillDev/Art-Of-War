@@ -410,8 +410,7 @@ public class BoatsPhaseCTests
         var boat = sim.World.Units.Values.First(u => u.Role == UnitRole.Boat);
         boat.Passengers.Add(99);
         boat.Passengers.Add(7);
-        boat.CargoResource = Resource.Food;
-        boat.CargoAmount = 25;
+        boat.Cargo.Add(Resource.Food, 25);
 
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 0xC012);

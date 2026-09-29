@@ -10,11 +10,14 @@ namespace Sim.Tests;
 // silent remainder-drop desync. Everything else here is structural.
 public class RoadDecayTests
 {
+    // M34: the road under test is the arc (1,1)-(2,1) (docs/roads-on-edges.md).
+    private static readonly TileEdge Arc = TileEdge.FromOwner(new TileCoord(1, 1), TileEdge.Axis.East);
+
     private static GameWorld MakeRoadWorld(int condition, long lastDecayTick)
     {
         var grid = new TileGrid(4, 4, Biome.Grassland);
         var world = new GameWorld(grid);
-        world.Roads[new TileCoord(1, 1)] = new RoadState(condition, lastDecayTick);
+        world.Roads[Arc] = new RoadState(condition, lastDecayTick);
         return world;
     }
 
@@ -30,7 +33,7 @@ public class RoadDecayTests
         // way to T. Final stored condition AND LastDecayTick must be identical.
         const int startCondition = 500;
         const long T = 1234;
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
 
         var w1 = MakeRoadWorld(startCondition, lastDecayTick: 0);
         Road.CatchUpDecay(w1, tile, T);
@@ -57,7 +60,7 @@ public class RoadDecayTests
         // The remainder carry must keep this identical to a single jump.
         const int startCondition = 500;
         const long T = 1234;
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
 
         var w1 = MakeRoadWorld(startCondition, lastDecayTick: 0);
         Road.CatchUpDecay(w1, tile, T);
@@ -82,7 +85,7 @@ public class RoadDecayTests
     {
         // For any (start, now), the pure read ConditionAt(now) must equal
         // the value that CatchUpDecay would have written at the same now.
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
         foreach (var now in new long[] { 0, 50, 99, 100, 101, 500, 999, 1000, 1234, 5000 })
         {
             var wRead  = MakeRoadWorld(condition: 500, lastDecayTick: 0);
@@ -104,7 +107,7 @@ public class RoadDecayTests
         var hashBefore = Snapshot.Hash(sim);
 
         for (var i = 0; i < 100; i++)
-            Road.ConditionAt(world, new TileCoord(1, 1), now: 100_000);
+            Road.ConditionAt(world, Arc, now: 100_000);
 
         Assert.Equal(hashBefore, Snapshot.Hash(sim));
     }
@@ -115,14 +118,14 @@ public class RoadDecayTests
         // Tile starts at full road. After decay-equivalent ticks, effective
         // cost should reflect the decayed condition.
         var world = MakeRoadWorld(RoadConstants.CONDITION_MAX, lastDecayTick: 0);
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
 
         // No decay yet: max-condition cost, derived from the constants
         // (biome cost reduced by MAX_REDUCTION_PERCENT).
-        var biome = world.Grid.TerrainCost(tile);
+        var biome = world.Grid.TerrainCost(Arc.B);
         var capCost = System.Math.Max(RoadConstants.MIN_COST,
             biome - (int)((long)biome * RoadConstants.MAX_REDUCTION_PERCENT / 100L));
-        Assert.Equal(capCost, Road.EffectiveCost(world, tile, now: 0));
+        Assert.Equal(capCost, Road.EffectiveCost(world, Arc.A, Arc.B, now: 0));
 
         // After enough decay for condition to reach 0: cost back to 10.
         // Decay rate = 1 per 100 ticks; CONDITION_MAX = 1000; so 100_000 ticks
@@ -130,8 +133,8 @@ public class RoadDecayTests
         var fullyDecayedAt = (long)RoadConstants.CONDITION_MAX
                              * RoadConstants.DECAY_PERIOD
                              / RoadConstants.DECAY_PER_PERIOD;
-        Assert.Equal(world.Grid.TerrainCost(tile),
-                     Road.EffectiveCost(world, tile, now: fullyDecayedAt));
+        Assert.Equal(world.Grid.TerrainCost(Arc.B),
+                     Road.EffectiveCost(world, Arc.A, Arc.B, now: fullyDecayedAt));
     }
 
     // ====================================================================
@@ -142,7 +145,7 @@ public class RoadDecayTests
     public void DecayToZero_RemovesTileFromRoadSet()
     {
         var world = MakeRoadWorld(condition: 10, lastDecayTick: 0);
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
         Assert.Single(world.Roads);
 
         // Enough decay to wipe condition 10: ceil(10 / per) periods, each DECAY_PERIOD ticks.
@@ -156,7 +159,7 @@ public class RoadDecayTests
     public void DecayPastZero_RemovesTile_NoUnderflow()
     {
         var world = MakeRoadWorld(condition: 5, lastDecayTick: 0);
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
 
         Road.CatchUpDecay(world, tile, now: 1_000_000_000);
 
@@ -167,7 +170,7 @@ public class RoadDecayTests
     public void ConditionAt_ReturnsZero_PastFullDecay()
     {
         var world = MakeRoadWorld(condition: 5, lastDecayTick: 0);
-        Assert.Equal(0, Road.ConditionAt(world, new TileCoord(1, 1), now: 1_000_000));
+        Assert.Equal(0, Road.ConditionAt(world, Arc, now: 1_000_000));
     }
 
     // ====================================================================
@@ -178,7 +181,7 @@ public class RoadDecayTests
     public void CatchUpDecay_SubPeriod_LeavesConditionUnchanged_AdvancesNothing()
     {
         var world = MakeRoadWorld(condition: 100, lastDecayTick: 0);
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
         // 50 ticks elapsed; one period = 100 ticks; no boundary crossed.
         Road.CatchUpDecay(world, tile, now: 50);
 
@@ -191,7 +194,7 @@ public class RoadDecayTests
     public void CatchUpDecay_BoundaryCrossed_AdvancesByCompletedPeriodsOnly()
     {
         var world = MakeRoadWorld(condition: 100, lastDecayTick: 0);
-        var tile = new TileCoord(1, 1);
+        var tile = Arc;
         var period = RoadConstants.DECAY_PERIOD;
         var per = RoadConstants.DECAY_PER_PERIOD;
         // 2 completed periods + a half-period remainder that must NOT advance the clock.
@@ -209,7 +212,7 @@ public class RoadDecayTests
         var sim = new Simulation(world, seed: 1);
         var hashBefore = Snapshot.Hash(sim);
 
-        Road.CatchUpDecay(world, new TileCoord(1, 1), now: 1000);
+        Road.CatchUpDecay(world, Arc, now: 1000);
 
         Assert.Equal(hashBefore, Snapshot.Hash(sim));
         Assert.Empty(world.Roads);

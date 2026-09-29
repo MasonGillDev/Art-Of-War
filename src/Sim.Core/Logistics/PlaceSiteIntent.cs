@@ -27,14 +27,44 @@ public sealed class PlaceSiteIntent : Intent
     // can't support a full claim). Ignored for non-claiming kinds.
     public List<TileCoord>? ClaimTiles { get; }
 
+    // Which way the building faces (docs/structure-footprints.md): 0 North,
+    // 1 East, 2 South, 3 West, as the player turned it in the placement preview.
+    // -1 = no opinion: a wall, gate or tower faces away from the owner's castle,
+    // anything else North. A dock ignores it (it faces its slip).
+    public int Facing { get; }
+
     [System.Text.Json.Serialization.JsonConstructor]
     public PlaceSiteIntent(TileCoord tile, StructureKind kind, TileCoord? dockSlip = null,
-        List<TileCoord>? claimTiles = null)
+        List<TileCoord>? claimTiles = null, int facing = -1)
     {
         Tile = tile;
         Kind = kind;
         DockSlip = dockSlip;
         ClaimTiles = claimTiles;
+        Facing = facing;
+    }
+
+    // A bridge's placement: the tile must be one of the player's own canal
+    // tiles, and straight (its channel joins two opposite sides), so the deck
+    // has two banks to join. The site takes the canal's place; the canal comes
+    // back if the site or the bridge is ever torn down.
+    private IntentOutcome PlaceBridge(Simulation sim)
+    {
+        var world = sim.World;
+        if (!world.Grid.InBounds(Tile))
+            return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} out of bounds");
+        if (!world.Structures.TryGetValue(Tile, out var canal) || canal.Kind != StructureKind.Canal)
+            return IntentOutcome.Reject($"a bridge goes on a canal, and {Tile.X},{Tile.Y} isn't one");
+        if (canal.OwnerId != PlayerId)
+            return IntentOutcome.Reject($"the canal at {Tile.X},{Tile.Y} isn't yours");
+        var joins = Sim.Core.Battlefields.Footprints.JoinsOf(world, canal);
+        var straight = joins.Count == 2 && joins[0] == Sim.Core.Battlefields.Headings.Opposite(joins[1]);
+        if (!straight)
+            return IntentOutcome.Reject($"a bridge needs a straight stretch of canal; {Tile.X},{Tile.Y} bends or branches");
+        world.Structures.Remove(Tile);
+        var site = world.AddStructure(new ConstructionSite(Tile, Kind) { OwnerId = PlayerId });
+        if (Construction.IsGodBuild(world, PlayerId)) Construction.Complete(sim, site);
+        return IntentOutcome.Applied;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
@@ -59,8 +89,19 @@ public sealed class PlaceSiteIntent : Intent
         if (Kind == StructureKind.Rubble)
             return IntentOutcome.Reject("Rubble is cleared via ClearRubbleIntent, not built");
 
+        // M37 — a building a milestone has not yet taught this player
+        // (docs/progression.md). God mode is a test harness and knows all.
+        if (Sim.Core.Progression.Progression.IsLocked(sim.World, PlayerId, Kind)
+            && !Construction.IsGodBuild(sim.World, PlayerId))
+            return IntentOutcome.Reject($"your people do not yet know how to build a {Kind}");
+
         if (!sim.World.Grid.InBounds(Tile))
             return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} out of bounds");
+
+        // A bridge is built ON a canal (docs/structure-footprints.md): its own
+        // straight canal tile, which the site replaces until the deck stands.
+        if (Kind == StructureKind.Bridge)
+            return PlaceBridge(sim);
 
         if (sim.World.Structures.ContainsKey(Tile))
             return IntentOutcome.Reject($"tile {Tile.X},{Tile.Y} already has a structure");
@@ -156,13 +197,21 @@ public sealed class PlaceSiteIntent : Intent
 
         // OwnerId carried from the issuing player via the base Intent.PlayerId.
         // The built structure (when BuildCompleteEvent fires) inherits this.
+        if (Facing is < -1 or > 3)
+            return IntentOutcome.Reject($"facing {Facing} is not -1 (auto) or 0..3");
         var site = new ConstructionSite(Tile, Kind)
         {
             OwnerId = PlayerId,
             DockSlip = Kind == StructureKind.Dock ? DockSlip : null,
+            Facing = Facing >= 0
+                ? (Sim.Core.Battlefields.Heading)Facing
+                : Sim.Core.Battlefields.Footprints.DefaultFacing(sim.World, Kind, PlayerId, Tile),
         };
         if (claim is not null) site.ClaimTiles.AddRange(claim);
         sim.World.AddStructure(site);
+        // God mode (docs/god-mode.md): same validation, same site, no wait.
+        if (Construction.IsGodBuild(sim.World, PlayerId))
+            Construction.Complete(sim, site);
         return IntentOutcome.Applied;
     }
 

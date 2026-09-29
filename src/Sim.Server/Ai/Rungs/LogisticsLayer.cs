@@ -166,6 +166,106 @@ public static class LogisticsLayer
             }
         }
 
+        // ARMOURY FEED LINES (2026-09-19, ForgeRung/ArmRung) — the lowest
+        // priority hauls: food and construction always claim carriers
+        // first. Three lines, one delivery in flight per destination (the
+        // site rule — a 25-load over a 20-target strands cargo):
+        //   castle -> smelter  (Ore + Wood inputs, below ArmFeedFloor)
+        //   smelter -> smithy  (Iron output; castle when no smithy stands)
+        //   castle -> smithy   (Wood / Stone / Iron working stock)
+        // The castle keeps ArmCastleReserve of wood and stone back —
+        // hafts and fuel never outbid a farm's ten planks (lesson #10).
+        if (ctx.Cfg.Arm || ctx.Cfg.Carts)
+            FeedArmoury(ctx, intents);
+
         return intents;
+    }
+
+    private static void FeedArmoury(ThinkContext ctx, List<Intent> intents)
+    {
+        var castle = ctx.Castle!;
+        var smithy = ctx.Cfg.Arm ? ctx.OwnStructure(StructureKind.Smithy) : null;
+        var swordSpec = Sim.Core.Equipment.EquipmentCatalog.Spec(Resource.Sword);
+        var ironPerSword = swordSpec.CraftCost.TryGetValue(Resource.Iron, out var ips) ? ips : 0;
+
+        bool InFlightTo(TileCoord dest) => ctx.OwnUnits.Any(u =>
+            u.DestX == dest.X && u.DestY == dest.Y
+            && (u.Activity == (int)Activity.Hauling || u.CargoAmount > 0));
+        // What the castle can spare of `r`: everything for ore/iron, the
+        // reserve held back for construction's wood and stone.
+        int Spare(Resource r)
+        {
+            var held = ThinkContext.AmountOf(castle.Holdings, r);
+            return r is Resource.Wood or Resource.Stone ? held - ctx.Cfg.ArmCastleReserve : held;
+        }
+        bool Haul(TileCoord from, TileCoord to, Resource r)
+        {
+            if (ctx.TakeIdleCarrier() is not { } carrier) return false;
+            intents.Add(new HaulIntent(carrier.Id, from, to, r) { PlayerId = ctx.PlayerId });
+            return true;
+        }
+
+        foreach (var furnace in ctx.Own.Where(s => ctx.Cfg.Arm && (StructureKind)s.Kind == StructureKind.Smelter)
+                     .OrderBy(s => s.Y).ThenBy(s => s.X))
+        {
+            var spec = StructureCatalog.Spec(StructureKind.Smelter);
+            var tile = ThinkContext.TileOf(furnace);
+            // Iron out first (frees the buffer, so the furnace never idles at cap).
+            var iron = ThinkContext.AmountOf(furnace.Holdings, spec.OutputResource);
+            var dest = smithy is not null ? ThinkContext.TileOf(smithy) : ctx.CastleTile;
+            var smithyShort = smithy is not null
+                && ThinkContext.AmountOf(smithy.Holdings, Resource.Iron) < ironPerSword;
+            if ((iron >= ctx.Cfg.HaulBufferThreshold || (smithyShort && iron >= ironPerSword))
+                && !InFlightTo(dest)
+                && !Haul(tile, dest, spec.OutputResource)) return;
+            // Inputs in: one per think, the recipe line that covers the
+            // FEWEST batches first (ore is 2 a batch, fuel 1 — a furnace
+            // with 20 wood and no ore is starving, not half-fed).
+            if (InFlightTo(tile)) continue;
+            var shortest = spec.InputCost
+                .Where(kv => ThinkContext.AmountOf(furnace.Holdings, kv.Key) < ctx.Cfg.ArmFeedFloor)
+                .Where(kv => Spare(kv.Key) > 0)
+                .OrderBy(kv => ThinkContext.AmountOf(furnace.Holdings, kv.Key) / kv.Value)
+                .ThenBy(kv => kv.Key)
+                .Select(kv => (Resource?)kv.Key)
+                .FirstOrDefault();
+            if (shortest is { } input && !Haul(ctx.CastleTile, tile, input)) return;
+        }
+
+        // Craft stores' working stock: the smithy (iron, wood, stone) and —
+        // CartRung — the workshop (wood, stone). One delivery in flight
+        // per store; the lowest line first.
+        var stores = new List<(StructDto Store, Resource[] Lines)>();
+        if (smithy is not null)
+            stores.Add((smithy, new[] { Resource.Iron, Resource.Wood, Resource.Stone }));
+        if (ctx.Cfg.Carts && ctx.OwnStructure(StructureKind.Workshop) is { } workshop)
+            stores.Add((workshop, new[] { Resource.Wood, Resource.Stone }));
+        foreach (var (store, lines) in stores)
+        {
+            var storeTile = ThinkContext.TileOf(store);
+            if (InFlightTo(storeTile)) continue;
+            // Fill to the TARGET, never less than the store's costliest
+            // recipe for that line: a 5-load citizen topping a workshop to
+            // "half of twenty" left it at ten wood forever against a
+            // twenty-wood cart (the first cart lab forged nothing).
+            var line = lines
+                .Where(r => ThinkContext.AmountOf(store.Holdings, r) < StockTarget(ctx, (StructureKind)store.Kind, r))
+                .Where(r => Spare(r) > 0)
+                .OrderBy(r => ThinkContext.AmountOf(store.Holdings, r)).ThenBy(r => r)
+                .Select(r => (Resource?)r).FirstOrDefault();
+            if (line is { } r && !Haul(ctx.CastleTile, storeTile, r)) return;
+        }
+    }
+
+    private static int StockTarget(ThinkContext ctx, StructureKind store, Resource line)
+    {
+        var target = ctx.Cfg.ArmSmithyStockTarget;
+        foreach (var item in new[] { Resource.Sword, Resource.Bow, Resource.Shield, Resource.Cart })
+        {
+            var spec = Sim.Core.Equipment.EquipmentCatalog.Spec(item);
+            if (spec.CraftedAt == store && spec.CraftCost.TryGetValue(line, out var need) && need > target)
+                target = need;
+        }
+        return target;
     }
 }

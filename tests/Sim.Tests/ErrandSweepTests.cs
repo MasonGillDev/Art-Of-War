@@ -273,12 +273,15 @@ public class ErrandSweepTests
     }
 
     [Fact]
-    public void ALadenCarrier_IsRefusedBeforeItWalks()
+    public void AFullCarrier_IsRefusedBeforeItWalks()
     {
+        // M36: cargo can be mixed, so carrying stone no longer blocks looting
+        // wood. A carrier with no space left still can't, and is refused
+        // before it sets off.
         var sim = BuildWorld();
         AddCache(sim, wood: 5);
-        sim.World.Units[1].CargoResource = Resource.Stone;
-        sim.World.Units[1].CargoAmount = 1;
+        var carrier = sim.World.Units[1];
+        carrier.Cargo.Add(Resource.Stone, carrier.CargoCapacity);
 
         sim.SubmitIntent(0, new LootCacheIntent(1, Resource.Wood, CacheAt) { PlayerId = 0 });
         sim.Run(0);

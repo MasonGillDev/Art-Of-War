@@ -22,14 +22,23 @@ public sealed class HaulIntent : Intent
     public TileCoord SourceTile { get; }
     public TileCoord DestTile { get; }
     public Resource Resource { get; }
+    // M36 — the most this trip picks up; 0 = a full load. The haul queue
+    // sizes the last trip to the remaining need (docs/hauling-queue-and-routes.md).
+    public int Amount { get; }
+    // M36 — the haul-queue job this trip serves (0 = a manual haul). Must be
+    // the submitter's own job, so no one can credit deliveries to another's.
+    public int JobId { get; }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public HaulIntent(int haulerId, TileCoord sourceTile, TileCoord destTile, Resource resource)
+    public HaulIntent(int haulerId, TileCoord sourceTile, TileCoord destTile, Resource resource,
+        int amount = 0, int jobId = 0)
     {
+        JobId = jobId;
         HaulerId = haulerId;
         SourceTile = sourceTile;
         DestTile = destTile;
         Resource = resource;
+        Amount = amount;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
@@ -50,8 +59,25 @@ public sealed class HaulIntent : Intent
         if (hauler.CargoAmount > 0)
             return IntentOutcome.Reject(
                 $"hauler {HaulerId} is carrying {hauler.CargoAmount} {hauler.CargoResource} — unload first");
-        if (Resource == Resource.None)
+        // M40 — a salvage trip names no resource (it takes everything).
+        var salvage = JobId != 0 && world.HaulJobs.TryGetValue(JobId, out var sj)
+            && sj.Kind == Sim.Core.Hauling.HaulJobKind.Salvage;
+        if (Resource == Resource.None && !salvage)
             return IntentOutcome.Reject("resource is None");
+        if (Amount < 0)
+            return IntentOutcome.Reject($"amount {Amount} is negative");
+        if (JobId != 0
+            && (!world.HaulJobs.TryGetValue(JobId, out var job) || job.OwnerId != PlayerId))
+            return IntentOutcome.Reject($"haul job {JobId} is not one of player {PlayerId}'s jobs");
+        // M36 — a QUEUE trip takes only a genuinely free body: not marching, not
+        // claimed by an automation order, not on a route, not bound to a goal.
+        // The queue driver and the substrate think in the same tick and neither
+        // sees the other's pending claims, so both can pick one hauler; checked
+        // here, at resolution, whichever resolves second is refused cleanly
+        // instead of the two tearing the unit between them. A manual haul
+        // (JobId 0) is the player's word and keeps the plain Idle rule.
+        if (JobId != 0 && (!Sim.Core.Automation.ClaimLedger.IsDormant(world, hauler) || hauler.Goal is not null))
+            return IntentOutcome.Reject($"hauler {HaulerId} is spoken for (claimed, marching, or on another errand)");
         if (!world.Grid.InBounds(SourceTile))
             return IntentOutcome.Reject($"source {SourceTile.X},{SourceTile.Y} out of bounds");
         if (!world.Grid.InBounds(DestTile))
@@ -61,7 +87,9 @@ public sealed class HaulIntent : Intent
         var hasStructureSource = world.Structures.ContainsKey(SourceTile);
         var hasGroundSource = world.GroundResources.TryGetValue(SourceTile, out var srcPile)
             && srcPile.ContainsKey(Resource);
-        if (!hasStructureSource && !hasGroundSource)
+        // M40 — a salvage trip goes to LOOK: whether anything is still there is
+        // learned on arrival (knowledge from presence), not checked here.
+        if (!salvage && !hasStructureSource && !hasGroundSource)
             return IntentOutcome.Reject(
                 $"no source for {Resource} at {SourceTile.X},{SourceTile.Y} (no structure, no ground pile)");
         if (!world.Structures.ContainsKey(DestTile))
@@ -86,7 +114,7 @@ public sealed class HaulIntent : Intent
         // M4 Phase A: state-anchored haul orchestration. HaulPlan carries the
         // route shape; MoveArrivalEvent dispatches pickup/deposit on final
         // arrival by reading the plan. No OnFinalArrival event field.
-        hauler.HaulPlan = new HaulPlan(SourceTile, DestTile, Resource, HaulPhase.ToSource);
+        hauler.HaulPlan = new HaulPlan(SourceTile, DestTile, Resource, HaulPhase.ToSource, Amount, JobId);
 
         if (HaulStops.AtStop(world, hauler, SourceTile))
         {

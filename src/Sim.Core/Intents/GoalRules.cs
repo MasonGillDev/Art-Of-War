@@ -192,13 +192,25 @@ public static class GoalRules
                 // No waiting branch, and that is the difference between treasure
                 // and trade: a cache never refills. Either it still holds what
                 // the player sent this body for, or the errand is over.
-                if (Sim.Core.Caches.CacheLooting.TryLoot(sim.World, unit, res) > 0) Complete(unit);
+                if (Sim.Core.Caches.CacheLooting.TryLoot(sim, unit, res) > 0) Complete(unit);
                 else Dissolve(sim, unit, "nothing left in the cache");
                 return;
             }
 
             case GoalKind.Embark:
                 Sim.Core.Boats.EmbarkGoal.OnArrival(sim, unit);
+                return;
+
+            case GoalKind.ActivateIdol:
+                // M38 — first come, first served: someone may have woken it
+                // already, and then it is dust.
+                if (structure is not Idol idol)
+                {
+                    Dissolve(sim, unit, "the idol is gone");
+                    return;
+                }
+                Complete(unit);
+                Sim.Core.Scouting.Idols.Activate(sim, unit, idol);
                 return;
 
             default:
@@ -221,7 +233,8 @@ public static class GoalRules
     // with "target no longer ours". Tests missed it because their fixtures
     // built caches with a default OwnerId of 0, which happened to match player
     // zero — the bug needed a live run to surface.
-    private static bool RequiresOwnership(GoalKind kind) => kind != GoalKind.Loot;
+    // M38 — the same for an IDOL: nobody's, first come, first served.
+    private static bool RequiresOwnership(GoalKind kind) => kind is not (GoalKind.Loot or GoalKind.ActivateIdol);
 
     // The goal did what it was fired to do. The anchor clears; the unit keeps
     // whatever activity the completion put it in (Working, Building, …).

@@ -518,3 +518,15 @@ starvation deaths and no one alive; the lab asserts only `births > 0` and
 this change at cap 6 the same colony ends alive (15 births, 29 starved,
 population 15). Re-pinning the lab to its original zero-starvation claim is
 open work, and the numbers above are the baseline to beat.
+
+## Update 2026-09-23 — human hauling moves to a queue and named routes
+
+After playing, the user reversed three things above for hauling:
+the priority ladder, the pull line's held hands (and `MaxPulledHands`),
+and the rejection of a shared pool of haulers. Human hauling is rebuilt as
+a round-robin haul queue plus named routes that pick up and drop by
+percentage of capacity. See `docs/hauling-queue-and-routes.md` for the
+rules and the reasons.
+
+This substrate keeps running unchanged **for the AI only** until the user
+decides to move the AI over. Breed, Train and Staff are not affected.

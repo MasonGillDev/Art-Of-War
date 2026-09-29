@@ -75,6 +75,85 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void Footprints_ABuildOrderCarriesItsFacing_OrNone()
+    {
+        // The client's PlaceSite payload, with and without the Facing field
+        // (docs/structure-footprints.md): absent = -1 (work it out).
+        var turned = Assert.IsType<Sim.Core.Logistics.PlaceSiteIntent>(IntentJson.Deserialize("PlaceSiteIntent",
+            "{\"Tile\":{\"X\":4,\"Y\":5},\"Kind\":9,\"Facing\":2,\"PlayerId\":0}"));
+        Assert.Equal(2, turned.Facing);
+        var plain = Assert.IsType<Sim.Core.Logistics.PlaceSiteIntent>(IntentJson.Deserialize("PlaceSiteIntent",
+            "{\"Tile\":{\"X\":4,\"Y\":5},\"Kind\":9,\"PlayerId\":0}"));
+        Assert.Equal(-1, plain.Facing);
+        var (name, payload) = IntentJson.Serialize(turned);
+        Assert.Equal(2, Assert.IsType<Sim.Core.Logistics.PlaceSiteIntent>(IntentJson.Deserialize(name, payload)).Facing);
+
+        // The combined place-and-staff order the client actually sends.
+        var build = Assert.IsType<Sim.Core.Logistics.BuildIntent>(IntentJson.Deserialize("BuildIntent",
+            "{\"Tile\":{\"X\":4,\"Y\":5},\"Kind\":9,\"BuilderId\":0,\"WorkerToManId\":0,\"Facing\":3,\"PlayerId\":0}"));
+        Assert.Equal(3, build.Facing);
+    }
+
+    [Fact]
+    public void M41_TheClientsBattleOrderPayloads_Parse()
+    {
+        // The EXACT bytes Unity's JsonUtility writes for the prod client's battle
+        // orders (Net/HttpServerLink IntentFactory.BattleOrder / BattleRoute /
+        // BattleDoctrine).
+        var move = Assert.IsType<Sim.Core.Battlefields.SetBattleOrderIntent>(IntentJson.Deserialize("SetBattleOrderIntent",
+            "{\"UnitId\":5000,\"Kind\":2,\"Target\":{\"X\":1,\"Y\":2},\"Waypoints\":[],\"SwapWith\":0,\"PlayerId\":1}"));
+        Assert.Equal(5000, move.UnitId);
+        Assert.Equal(2, move.Kind);
+        Assert.Equal(new Sim.Core.Battlefields.Subtile(1, 2), move.Target);
+        Assert.Equal(1, move.PlayerId);
+
+        var route = Assert.IsType<Sim.Core.Battlefields.SetBattleOrderIntent>(IntentJson.Deserialize("SetBattleOrderIntent",
+            "{\"UnitId\":7,\"Kind\":3,\"Target\":{\"X\":0,\"Y\":0},\"Waypoints\":[{\"X\":0,\"Y\":1},{\"X\":1,\"Y\":1}],\"SwapWith\":0,\"PlayerId\":0}"));
+        Assert.Equal(2, route.Waypoints.Count);
+        Assert.Equal(new Sim.Core.Battlefields.Subtile(1, 1), route.Waypoints[1]);
+
+        var doctrine = Assert.IsType<Sim.Core.Battlefields.SetBattleDoctrineIntent>(IntentJson.Deserialize("SetBattleDoctrineIntent",
+            "{\"UnitId\":7,\"Behaviour\":1,\"WithdrawBelow\":2,\"PlayerId\":0}"));
+        Assert.Equal(1, doctrine.Behaviour);
+        Assert.Equal(2, doctrine.WithdrawBelow);
+
+        // And the round trip the durable log relies on.
+        var (name, payload) = IntentJson.Serialize(route);
+        var back = Assert.IsType<Sim.Core.Battlefields.SetBattleOrderIntent>(IntentJson.Deserialize(name, payload));
+        Assert.Equal(route.Waypoints, back.Waypoints);
+    }
+
+    [Fact]
+    public void M40_TheClientsSalvagePayload_Parses()
+    {
+        // The EXACT bytes the prod client sends for a salvage (SetHaulJob, kind 3,
+        // no resource, target = the crew).
+        var job = Assert.IsType<Sim.Core.Hauling.SetHaulJobIntent>(IntentJson.Deserialize("SetHaulJobIntent",
+            "{\"Source\":{\"X\":5,\"Y\":30},\"Dest\":{\"X\":5,\"Y\":5},\"Resource\":0,\"Kind\":3,\"Target\":2,\"PlayerId\":0}"));
+        Assert.Equal(Sim.Core.Hauling.HaulJobKind.Salvage, job.Kind);
+        Assert.Equal(Resource.None, job.Resource);
+        Assert.Equal(2, job.Target);
+        Assert.Equal(new TileCoord(5, 30), job.Source);
+    }
+
+    [Fact]
+    public void M38_TheClientsScoutAndIdolPayloads_Parse()
+    {
+        // The EXACT bytes the prod client sends (Net/HttpServerLink IntentFactory).
+        var dispatch = Assert.IsType<Sim.Core.Scouting.DispatchScoutIntent>(IntentJson.Deserialize("DispatchScoutIntent",
+            "{\"ScoutUnitId\":5,\"Waypoints\":[{\"X\":10,\"Y\":20},{\"X\":30,\"Y\":40}],\"ReturnRule\":1,\"ElapsedLimitTicks\":0,\"PlayerId\":0}"));
+        Assert.Equal(5, dispatch.ScoutUnitId);
+        Assert.Equal(new[] { new TileCoord(10, 20), new TileCoord(30, 40) }, dispatch.Waypoints);
+        Assert.Equal(Sim.Core.Scouting.ScoutReturnRule.WaypointsExhausted, dispatch.ReturnRule);
+
+        var walk = Assert.IsType<Sim.Core.Scouting.ActivateIdolIntent>(IntentJson.Deserialize("ActivateIdolIntent",
+            "{\"UnitId\":3,\"IdolTile\":{\"X\":4,\"Y\":14},\"PlayerId\":0}"));
+        Assert.Equal(new TileCoord(4, 14), walk.IdolTile);
+        Assert.Null(Assert.IsType<Sim.Core.Scouting.ActivateIdolIntent>(IntentJson.Deserialize("ActivateIdolIntent",
+            "{\"UnitId\":3,\"PlayerId\":0}")).IdolTile);
+    }
+
+    [Fact]
     public void TheClientsStandingTherePayloads_LeaveTheTargetNull()
     {
         // The field is ABSENT, not null — that is how the client says "no
@@ -191,6 +270,130 @@ public class IntentJsonTests
 
         Assert.Equal(new TileCoord(6, 9), replay.BarracksTile);
         Assert.Equal(Resource.Sword, replay.Item);
+    }
+
+    // ---- M36 — mixed cargo + the haul queue ------------------------------
+
+    [Fact]
+    public void CargoIntents_OldClientShapes_KeepTheirMeaning()
+    {
+        // The client's existing payloads carry no Amount / Resource / JobId.
+        // Absent must mean what these intents meant before M36: a full load,
+        // unload everything, a manual haul.
+        var unload = Assert.IsType<UnloadCargoIntent>(IntentJson.Deserialize("UnloadCargoIntent",
+            "{\"UnitId\":7,\"PlayerId\":0}"));
+        Assert.Equal(Resource.None, unload.Resource);
+        Assert.Equal(0, unload.Amount);
+
+        var load = Assert.IsType<LoadCargoIntent>(IntentJson.Deserialize("LoadCargoIntent",
+            "{\"UnitId\":7,\"Resource\":1,\"PlayerId\":0}"));
+        Assert.Equal(0, load.Amount);
+
+        var haul = Assert.IsType<HaulIntent>(IntentJson.Deserialize("HaulIntent",
+            "{\"HaulerId\":7,\"SourceTile\":{\"X\":1,\"Y\":2},\"DestTile\":{\"X\":3,\"Y\":4},\"Resource\":1,\"PlayerId\":0}"));
+        Assert.Equal(0, haul.Amount);
+        Assert.Equal(0, haul.JobId);
+    }
+
+    [Fact]
+    public void HaulQueueIntents_RoundTrip()
+    {
+        var set = new Sim.Core.Hauling.SetHaulJobIntent(new TileCoord(1, 2), new TileCoord(3, 4),
+            Resource.Iron, Sim.Core.Hauling.HaulJobKind.Once, 40) { PlayerId = 1 };
+        var (tn, pl) = IntentJson.Serialize(set);
+        Assert.Equal("SetHaulJobIntent", tn);
+        var s2 = Assert.IsType<Sim.Core.Hauling.SetHaulJobIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((new TileCoord(1, 2), new TileCoord(3, 4), Resource.Iron, Sim.Core.Hauling.HaulJobKind.Once, 40, 1),
+            (s2.Source, s2.Dest, s2.Resource, s2.Kind, s2.Target, s2.PlayerId));
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ClearHaulJobIntent(9) { PlayerId = 1 });
+        Assert.Equal("ClearHaulJobIntent", tn);
+        Assert.Equal(9, Assert.IsType<Sim.Core.Hauling.ClearHaulJobIntent>(IntentJson.Deserialize(tn, pl)).JobId);
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.RequeueHaulJobIntent(9) { PlayerId = 1 });
+        Assert.Equal("RequeueHaulJobIntent", tn);
+        Assert.Equal(9, Assert.IsType<Sim.Core.Hauling.RequeueHaulJobIntent>(IntentJson.Deserialize(tn, pl)).JobId);
+
+        (tn, pl) = IntentJson.Serialize(new HaulIntent(3, new TileCoord(1, 1), new TileCoord(2, 2),
+            Resource.Wood, amount: 12, jobId: 9) { PlayerId = 1 });
+        var h = Assert.IsType<HaulIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((12, 9), (h.Amount, h.JobId));
+
+        (tn, pl) = IntentJson.Serialize(new UnloadCargoIntent(3, Resource.Ore, amount: 4) { PlayerId = 1 });
+        var u = Assert.IsType<UnloadCargoIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((Resource.Ore, 4), (u.Resource, u.Amount));
+    }
+
+    [Fact]
+    public void RouteIntents_RoundTrip_WithEveryStopAndRule()
+    {
+        // The stop list is nested collections of a record struct: exactly the
+        // shape that round-trips as EMPTY if a collection is get-only (the
+        // SetOrderIntent lesson). A route that replays with no stops would be
+        // silently deleted by recovery.
+        var set = new Sim.Core.Hauling.SetHaulRouteIntent(new()
+        {
+            new() { Tile = new TileCoord(1, 2), Rules = new()
+            {
+                new(Resource.Ore, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
+                new(Resource.Wood, Sim.Core.Hauling.StopRuleOp.Drop, 25),
+            } },
+            new() { Tile = new TileCoord(5, 6) },
+        }) { PlayerId = 1 };
+
+        var (tn, pl) = IntentJson.Serialize(set);
+        Assert.Equal("SetHaulRouteIntent", tn);
+        var back = Assert.IsType<Sim.Core.Hauling.SetHaulRouteIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal(2, back.Stops.Count);
+        Assert.Equal(new TileCoord(1, 2), back.Stops[0].Tile);
+        Assert.Equal(set.Stops[0].Rules, back.Stops[0].Rules);
+        Assert.Empty(back.Stops[1].Rules);
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.AddRouteCrewIntent(3, new() { 9, 4 }, 1) { PlayerId = 1 });
+        var add = Assert.IsType<Sim.Core.Hauling.AddRouteCrewIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((3, 1), (add.RouteId, add.StartStop));
+        Assert.Equal(new[] { 9, 4 }, add.Members);
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ServeRouteStopIntent(3, 2, 5) { PlayerId = 1 });
+        var serve = Assert.IsType<Sim.Core.Hauling.ServeRouteStopIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((3, 2, 5), (serve.RouteId, serve.CrewId, serve.ExpectedStop));
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.RemoveRouteCrewIntent(3, 2) { PlayerId = 1 });
+        Assert.Equal(2, Assert.IsType<Sim.Core.Hauling.RemoveRouteCrewIntent>(IntentJson.Deserialize(tn, pl)).CrewId);
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ClearHaulRouteIntent(3) { PlayerId = 1 });
+        Assert.Equal(3, Assert.IsType<Sim.Core.Hauling.ClearHaulRouteIntent>(IntentJson.Deserialize(tn, pl)).RouteId);
+    }
+
+    [Fact]
+    public void TheClientsHaulPayloads_DeserializeVerbatim()
+    {
+        // Aow.Net.IntentFactory's JsonUtility output, verbatim: PascalCase, enums
+        // as ints, lists as arrays. If a name drifts on either side, a queued job
+        // or a drawn route would silently arrive empty.
+        var job = Assert.IsType<Sim.Core.Hauling.SetHaulJobIntent>(IntentJson.Deserialize("SetHaulJobIntent",
+            "{\"Source\":{\"X\":4,\"Y\":5},\"Dest\":{\"X\":9,\"Y\":7},\"Resource\":4,\"Kind\":1,\"Target\":120,\"PlayerId\":0}"));
+        Assert.Equal((new TileCoord(4, 5), new TileCoord(9, 7), Resource.Food, Sim.Core.Hauling.HaulJobKind.Standing, 120),
+            (job.Source, job.Dest, job.Resource, job.Kind, job.Target));
+
+        var route = Assert.IsType<Sim.Core.Hauling.SetHaulRouteIntent>(IntentJson.Deserialize("SetHaulRouteIntent",
+            "{\"Stops\":[{\"Tile\":{\"X\":1,\"Y\":2},\"Rules\":[{\"Resource\":3,\"Op\":1,\"Percent\":40}]}," +
+            "{\"Tile\":{\"X\":6,\"Y\":2},\"Rules\":[]}],\"Crew\":[11,12],\"PlayerId\":0}"));
+        Assert.Equal(2, route.Stops.Count);
+        Assert.Equal(new Sim.Core.Hauling.StopRule(Resource.Ore, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
+            Assert.Single(route.Stops[0].Rules));
+        Assert.Equal(new[] { 11, 12 }, route.Crew);
+
+        var crew = Assert.IsType<Sim.Core.Hauling.AddRouteCrewIntent>(IntentJson.Deserialize("AddRouteCrewIntent",
+            "{\"RouteId\":3,\"Members\":[7],\"StartStop\":2,\"PlayerId\":0}"));
+        Assert.Equal((3, 2), (crew.RouteId, crew.StartStop));
+        Assert.Equal(7, Assert.Single(crew.Members));
+
+        Assert.Equal(5, Assert.IsType<Sim.Core.Hauling.ClearHaulJobIntent>(IntentJson.Deserialize("ClearHaulJobIntent",
+            "{\"JobId\":5,\"PlayerId\":0}")).JobId);
+        Assert.Equal(3, Assert.IsType<Sim.Core.Hauling.ClearHaulRouteIntent>(IntentJson.Deserialize("ClearHaulRouteIntent",
+            "{\"RouteId\":3,\"PlayerId\":0}")).RouteId);
+        Assert.Equal(2, Assert.IsType<Sim.Core.Hauling.RemoveRouteCrewIntent>(IntentJson.Deserialize("RemoveRouteCrewIntent",
+            "{\"RouteId\":3,\"CrewId\":2,\"PlayerId\":0}")).CrewId);
     }
 
     [Fact]

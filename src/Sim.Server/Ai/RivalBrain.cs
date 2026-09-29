@@ -38,6 +38,9 @@ public sealed class RivalBrain : IBrain
             new EatRung(),
             new BuildRung(),
             new TrainRung(),
+            // Carts (2026-09-19) — same slot as the Homesteader: the belt
+            // before the war chest; a Rival's campaigns eat off it too.
+            new CartRung(),
             // War ABOVE Muster (inverting the spec sketch): declaring
             // flips AtWarOrMobilizing, which is what tells Muster's
             // drawdown that the surplus is a WAR CHEST — the other order
@@ -64,6 +67,11 @@ public sealed class RivalBrain : IBrain
             // above Scout), so the peacetime curves stay identical (the
             // Sparta pin) — even conquerors wall their own keep.
             new FortifyRung(),
+            // Arming (2026-09-19) — same slot as the Homesteader. A Rival's
+            // campaign power is read off its own units' Power, so a sword
+            // forged here is counted by Conquer's overmatch gate for free.
+            new ForgeRung(),
+            new ArmRung(),
             // M27 — and water their fields (same slot as the Homesteader).
             new IrrigateRung(),
             new ScoutRung(),

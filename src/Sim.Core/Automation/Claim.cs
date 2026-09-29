@@ -63,6 +63,7 @@ public static class ClaimLedger
     //   * not embarked           — aboard a boat is not available
     //   * not breeding           — locked in a house for the gestation
     //   * not claimed            — someone already committed to them
+    //   * not on a haul route    — M36: a route crew belongs to its loop
     //
     // "Alive" is NOT a clause, because PRESENCE IN world.Units IS LIVENESS:
     // every death path (age, combat, starvation) removes the unit from the
@@ -85,6 +86,8 @@ public static class ClaimLedger
         && unit.GroupId is null
         && !unit.IsEmbarked
         && !world.Claims.ContainsKey(unit.Id)
+        && unit.RouteId is null   // M36: a route crew is never idle between stops
+        && unit.HaulPlan is null  // M36: mid-trip is not available, whatever Activity says
         && Sim.Core.Population.Population.GetActiveBreedingFor(world, unit.Id) is null;
 
     // Is this unit spoken for by any order?

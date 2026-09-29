@@ -14,12 +14,27 @@ namespace Sim.Core.Logistics;
 //   * Unit is carrying cargo (CargoAmount > 0).
 //   * Unit is Idle (retask before unloading — same discipline as TrainUnitIntent).
 //   * Unit is not in a group / embarked.
+//
+// M36 — cargo can be mixed, and the unload can be TARGETED:
+//   * Resource = None (the default): empty everything, as above. Each
+//     resource is offered to the structure in enum order; the rest drops.
+//   * Resource named: unload up to `Amount` of it (0 = all of it). What the
+//     structure can't take STAYS ABOARD — a partial unload is a choice of
+//     how much to hand over, not a request to dump. With no accepting
+//     structure on the tile it drops to the ground pile instead.
 public sealed class UnloadCargoIntent : Intent
 {
     public int UnitId { get; }
+    public Resource Resource { get; }
+    public int Amount { get; }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public UnloadCargoIntent(int unitId) { UnitId = unitId; }
+    public UnloadCargoIntent(int unitId, Resource resource = Resource.None, int amount = 0)
+    {
+        UnitId = unitId;
+        Resource = resource;
+        Amount = amount;
+    }
 
     public override IntentOutcome Resolve(Simulation sim)
     {
@@ -34,37 +49,59 @@ public sealed class UnloadCargoIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} is embarked");
         if (unit.Activity != Activity.Idle)
             return IntentOutcome.Reject($"unit {UnitId} is not Idle (current: {unit.Activity})");
-        if (unit.CargoAmount <= 0 || unit.CargoResource == Resource.None)
+        if (unit.CargoAmount <= 0)
             return IntentOutcome.Reject($"unit {UnitId} is not carrying anything");
+        if (Amount < 0)
+            return IntentOutcome.Reject($"amount {Amount} is negative");
+        if (Resource != Resource.None && unit.Cargo.AmountOf(Resource) <= 0)
+            return IntentOutcome.Reject($"unit {UnitId} is not carrying {Resource}");
 
         var tile = unit.Position;
-        var resource = unit.CargoResource;
-        var amount = unit.CargoAmount;
 
-        // Deposit into an own structure on this tile if there is one; the remainder
-        // (capacity/need overflow, or the whole load when there's no structure) goes
-        // to the ground.
+        // Deposit into an own structure on this tile if there is one.
         //
         // M28 — a laden BOAT parked on an own dock's slip empties into that
         // dock (the quay warehouse): boats never stand on a structure tile,
         // and this is the recovery path for a stranded water haul.
-        var deposited = 0;
+        Structure? dest = null;
         if (world.Structures.TryGetValue(tile, out var s) && s.OwnerId == PlayerId)
-            deposited = CargoTransfer.DepositInto(sim, s, resource, amount);
+            dest = s;
         else if (unit.Traversal == Traversal.Water
                  && HaulStops.OwnDockBySlip(world, tile, PlayerId) is { } quay)
-            deposited = CargoTransfer.DepositInto(sim, quay, resource, amount);
+            dest = quay;
 
-        var leftover = amount - deposited;
-        if (leftover > 0)
-            CargoTransfer.DropToGround(world, tile, resource, leftover);
+        if (Resource == Resource.None)
+        {
+            // Empty everything: whatever the structure can't take (or all of
+            // it, with no structure) goes to the ground. Never destroyed.
+            foreach (var (r, held) in new List<KeyValuePair<Resource, int>>(unit.Cargo.Items))
+            {
+                var deposited = dest is null ? 0 : CargoTransfer.DepositInto(sim, dest, r, held);
+                CargoTransfer.DropToGround(world, tile, r, held - deposited);
+            }
+            unit.Cargo.Clear();
+        }
+        else
+        {
+            var want = unit.Cargo.AmountOf(Resource);
+            if (Amount > 0) want = Math.Min(want, Amount);
+            if (dest is null)
+            {
+                CargoTransfer.DropToGround(world, tile, Resource, want);
+                unit.Cargo.Take(Resource, want);
+            }
+            else
+            {
+                unit.Cargo.Take(Resource, CargoTransfer.DepositInto(sim, dest, Resource, want));
+            }
+        }
 
-        unit.CargoAmount = 0;
-        unit.CargoResource = Resource.None;
         unit.BumpEpoch();   // defensive: fence any latent per-unit event (Idle had none)
 
         return IntentOutcome.Applied;
     }
 
-    public override string Describe() => $"Unload(unit={UnitId})";
+    public override string Describe() => Resource == Resource.None
+        ? $"Unload(unit={UnitId})"
+        : $"Unload(unit={UnitId} {(Amount > 0 ? Amount.ToString() : "all")} {Resource})";
 }

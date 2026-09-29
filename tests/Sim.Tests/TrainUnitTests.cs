@@ -174,12 +174,12 @@ public class TrainUnitTests
     public void School_SnapshotRoundTrip_Preserved()
     {
         var (sim, school, citizen) = MakeSchoolAndCitizen();
-        new TrainUnitIntent(citizen.Id, UnitRole.Scout) { PlayerId = 0 }.Resolve(sim);
+        new TrainUnitIntent(citizen.Id, UnitRole.Miner) { PlayerId = 0 }.Resolve(sim);
 
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 0x5C00);
         Assert.IsType<School>(restored.World.Structures[school.At]);
-        Assert.Equal(UnitRole.Scout, restored.World.Units[1].Role);
+        Assert.Equal(UnitRole.Miner, restored.World.Units[1].Role);
     }
 
     [Fact]

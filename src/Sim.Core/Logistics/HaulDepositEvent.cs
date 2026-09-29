@@ -70,20 +70,50 @@ public sealed class HaulDepositEvent : ScheduledEvent
             return;
         }
 
-        var resource = hauler.CargoResource;
-        var amount = hauler.CargoAmount;
-
         // Deposit via the shared primitive — it owns the Castle food catch-up /
         // famine re-eval (M13) and the construction-site start hook. Overflow that
         // doesn't fit stays on the hauler (unchanged from before the refactor).
-        var deposited = CargoTransfer.DepositInto(sim, dest, resource, amount);
-
-        hauler.CargoAmount -= deposited;
-        if (hauler.CargoAmount == 0) hauler.CargoResource = Resource.None;
+        //
+        // M36 — cargo can be mixed, so the trip delivers only ITS resource
+        // (the plan's). A deposit with no plan (a hand-scheduled event)
+        // delivers everything aboard, which is what it did when a unit could
+        // carry only one resource.
+        if (hauler.HaulPlan is { Resource: Resource.None })
+        {
+            // M40 — a salvage trip delivers everything aboard (a mixed load).
+            foreach (var r in new List<Resource>(hauler.Cargo.Items.Keys))
+                DeliverAll(sim, hauler, dest, r);
+        }
+        else if (hauler.HaulPlan is { } plan)
+        {
+            var delivered = DeliverAll(sim, hauler, dest, plan.Resource);
+            CreditJob(sim.World, hauler, plan, delivered);
+        }
+        else
+            foreach (var r in new List<Resource>(hauler.Cargo.Items.Keys))
+                DeliverAll(sim, hauler, dest, r);
 
         // M4 Phase A: haul complete; clear the on-unit anchor.
         hauler.HaulPlan = null;
         hauler.TrySetActivity(Activity.Idle);
+    }
+
+    private static int DeliverAll(Simulation sim, Unit hauler, Structure dest, Resource resource)
+    {
+        var deposited = CargoTransfer.DepositInto(sim, dest, resource, hauler.Cargo.AmountOf(resource));
+        return hauler.Cargo.Take(resource, deposited);
+    }
+
+    // M36 — a trip for a Once job counts toward its total; the job leaves the
+    // queue when the total is met. A cleared job (or one that changed hands)
+    // simply isn't credited: the trip still delivered, the job is just gone.
+    private static void CreditJob(GameWorld world, Unit hauler, HaulPlan plan, int delivered)
+    {
+        if (plan.JobId == 0 || delivered <= 0) return;
+        if (!world.HaulJobs.TryGetValue(plan.JobId, out var job)) return;
+        if (job.OwnerId != hauler.OwnerId || job.Kind != Sim.Core.Hauling.HaulJobKind.Once) return;
+        job.Delivered += delivered;
+        if (job.Delivered >= job.Target) world.HaulJobs.Remove(job.JobId);
     }
 
     public override string Describe() =>

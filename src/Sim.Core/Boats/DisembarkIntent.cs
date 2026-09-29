@@ -55,7 +55,9 @@ public sealed class DisembarkIntent : Intent
                 // boat's list and continue with the rest.
                 continue;
             }
-            p.Position = landingTile;
+            // The per-side cap: a passenger the dock tile has no room for lands on
+            // the nearest tile that has (Movement.TileCapacity).
+            p.Position = Sim.Core.Movement.TileCapacity.RoomNear(world, landingTile, p.OwnerId);
             p.EmbarkedOn = null;
             p.PathRemaining = null;
             p.PathFinalDest = null;
@@ -65,7 +67,8 @@ public sealed class DisembarkIntent : Intent
             // defensive) fences. Idle stays Idle.
             p.BumpEpoch();
             // Reveal vision for the now-on-tile unit.
-            Sight.Reveal(world, p.OwnerId, landingTile, Sight.RadiusFor(p.Role), sim.Now);
+            Sight.Reveal(world, p.OwnerId, p.Position, Sight.RadiusFor(p.Role), sim.Now);
+            Sight.AfterReveal(sim, p.OwnerId, p.Position, Sight.RadiusFor(p.Role));   // M37/M38
         }
         boat.Passengers.Clear();
 

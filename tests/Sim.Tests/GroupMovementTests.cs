@@ -196,14 +196,15 @@ public class GroupMovementTests
         // Diminishing returns naturally stack inside the burst.
         var (sim, world) = MakeWorld();
         var gid = FormAt(sim, world, new TileCoord(2, 2), 1, 2, 3);
+        var from = new TileCoord(2, 2);
         var tile = new TileCoord(3, 2);
 
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, new TileCoord(5, 2)));
-        sim.Run(until: sim.Now + Road.EffectiveCost(world, tile, sim.Now));
+        sim.Run(until: sim.Now + Road.EffectiveCost(world, from, tile, sim.Now));
 
-        // The first hop credited the tile 3 times. With three members,
+        // The first hop credited its arc 3 times. With three members,
         // condition should be > one member's worth of gain.
-        var cond = Road.ConditionAt(world, tile, sim.Now);
+        var cond = Road.ConditionAt(world, TileEdge.Between(from, tile), sim.Now);
         Assert.True(cond > RoadConstants.BASE_GAIN,
             $"3-member group should credit more than one member alone; got {cond}");
     }

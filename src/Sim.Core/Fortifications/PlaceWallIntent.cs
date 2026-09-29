@@ -59,11 +59,19 @@ public sealed class PlaceWallIntent : Intent
         // Expand: one ordinary ConstructionSite per segment, each priced at
         // the per-tile catalog numbers (no scaling — N sites IS the
         // multiplication). Materials haul and builders gather per segment.
+        var god = Sim.Core.Logistics.Construction.IsGodBuild(world, PlayerId);
         foreach (var t in Path)
-            world.AddStructure(new ConstructionSite(t, StructureKind.Wall)
+        {
+            // Each segment faces away from the owner's castle: its outer side,
+            // which sets how its line turns at a corner (docs/structure-footprints.md).
+            var site = world.AddStructure(new ConstructionSite(t, StructureKind.Wall)
             {
                 OwnerId = PlayerId,
+                Facing = Sim.Core.Battlefields.Footprints.DefaultFacing(world, StructureKind.Wall, PlayerId, t),
             });
+            // God mode (docs/god-mode.md): each segment stands as it is placed.
+            if (god) Sim.Core.Logistics.Construction.Complete(sim, site);
+        }
         return IntentOutcome.Applied;
     }
 

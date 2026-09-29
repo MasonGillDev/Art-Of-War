@@ -52,10 +52,15 @@ public sealed class BuildIntent : Intent
     public TileCoord? DockSlip { get; }
     public List<TileCoord>? ClaimTiles { get; }
 
+    // Which way the building faces: as PlaceSiteIntent.Facing (-1 = work it out).
+    public int Facing { get; }
+
     [System.Text.Json.Serialization.JsonConstructor]
     public BuildIntent(TileCoord tile, StructureKind kind, int? builderId = null,
-        int? workerToManId = null, TileCoord? dockSlip = null, List<TileCoord>? claimTiles = null)
+        int? workerToManId = null, TileCoord? dockSlip = null, List<TileCoord>? claimTiles = null,
+        int facing = -1)
     {
+        Facing = facing;
         Tile = tile;
         Kind = kind;
         BuilderId = builderId;
@@ -71,7 +76,7 @@ public sealed class BuildIntent : Intent
         // Placement validation is DELEGATED, not copied: one implementation of
         // "may this go here", so the composite can never drift from the plain
         // placement it is built on.
-        var placement = new PlaceSiteIntent(Tile, Kind, DockSlip, ClaimTiles) { PlayerId = PlayerId };
+        var placement = new PlaceSiteIntent(Tile, Kind, DockSlip, ClaimTiles, Facing) { PlayerId = PlayerId };
         var outcome = placement.Resolve(sim);
         if (outcome.IsRejected) return outcome;
 

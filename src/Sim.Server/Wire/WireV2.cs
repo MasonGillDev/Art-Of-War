@@ -56,6 +56,12 @@ public sealed class WorldDto
     // only the sim says whether this tile, right now, will take it.
     public BuildOptionDto[] Buildable { get; set; } = [];
 
+    // Each structure kind's 4×4 footprint facing North, joining nothing
+    // (docs/structure-footprints.md): what the build preview turns as the
+    // player rotates. Static and public, like the build catalogue. Kinds not
+    // listed are plain ground.
+    public FootprintPatternDto[] Footprints { get; set; } = [];
+
     /// The demographic rules, straight off the world's PopulationConfig.
     ///
     /// SAME ARGUMENT AS THE BUILD CATALOGUE. A breeding UI has to tell the player why
@@ -106,6 +112,11 @@ public sealed class WorldDto
     /// LightPhase so it can check that it did.
     public LightCycleDto LightCycle { get; set; } = new();
 
+    /// Two-act pacing (docs/two-act-pacing.md): the host's pace schedule. Fast
+    /// until the landing, slow after. Static for the life of the world, so it rides
+    /// genesis; the client computes its real-time countdown to the landing from it.
+    public PaceScheduleDto Pace { get; set; } = new();
+
     /// P1/T10 — the fertility band edges, straight off the world's
     /// BiomeDegradationConfig.
     ///
@@ -117,6 +128,23 @@ public sealed class WorldDto
     ///
     /// Static and public: where the bands fall is common knowledge, not intelligence.
     public FertilityRulesDto Fertility { get; set; } = new();
+
+    /// P3 — the unit catalog, one row per role, straight off UnitCombatCatalog and
+    /// UnitCargoCatalog. Same argument as the build and craft catalogues: the view
+    /// sends a unit's Health and its cargo AMOUNT, and without the role's maximum
+    /// neither is a fraction — the client would hard-code "a soldier has 30" and
+    /// lie the first time the roster is retuned. Static and public: what a soldier
+    /// is made of is common knowledge, not intelligence about anyone's soldier.
+    public UnitOptionDto[] Units { get; set; } = [];
+}
+
+/// What a role IS: the maxima the per-unit view fields are fractions of.
+public sealed class UnitOptionDto
+{
+    public int Role { get; set; }
+    public int BaseHealth { get; set; }
+    public int BasePower { get; set; }
+    public int CargoCapacity { get; set; }
 }
 
 /// The fertility ladder's band edges (docs/biome-degradation.md):
@@ -147,6 +175,15 @@ public sealed class LightCycleDto
 {
     public long TicksPerCycle { get; set; }
     public long PhaseOffsetTicks { get; set; }
+}
+
+/// The host's pace schedule (Sim.Server/PaceSchedule.cs). LandingTick 0 = no
+/// landing: the world runs at TicksPerSecond throughout.
+public sealed class PaceScheduleDto
+{
+    public long LandingTick { get; set; }
+    public double PreludeTicksPerSecond { get; set; }
+    public double TicksPerSecond { get; set; }
 }
 
 /// One forgeable item.
@@ -356,6 +393,23 @@ public sealed class CombatDto
     public int FortKind { get; set; }
     public int Besiegers { get; set; }
     public int SiegePower { get; set; }
+
+    // P3 — who is fighting, per owner, for the units standing ON this tile:
+    // headcount and summed EffectivePower, ordered by owner id. PUBLIC: the units
+    // are already on the wire with owner and role because the tile is visible, so
+    // the rollup adds convenience, not information (docs/p3-status.md). Individual
+    // enemy health stays private. A siege tile normally has nobody on it (a wall is
+    // un-enterable), so a siege row's forces are in Besiegers/SiegePower instead.
+    // Last-round DAMAGE is not here: CombatState retains none (discovery W16).
+    public CombatSideDto[] Sides { get; set; } = [];
+}
+
+/// One owner's force on a contested tile.
+public sealed class CombatSideDto
+{
+    public int OwnerId { get; set; }
+    public int Units { get; set; }
+    public int Power { get; set; }
 }
 
 // GET /v2/view/{playerId} — the per-tick payload.
@@ -378,8 +432,18 @@ public sealed class ViewV2Dto : ViewDto
     public BaselineOverrideDto[] BaselineOverrides { get; set; } = [];   // M35
     public CombatDto[] Combats { get; set; } = [];
 
+    // M41 — open battlefields the player can see (BattlefieldWire.cs).
+    public BattlefieldDto[] Battlefields { get; set; } = [];
+
     /// The world's time of day at Tick, in [0, 1) — the server's own evaluation of
     /// WorldClock.Phase. The client interpolates between ticks from genesis
     /// LightCycle and uses this to prove its sky and the chronicle agree.
     public double LightPhase { get; set; }
+
+    /// The host's pace when this view was produced: ticks per real second, and
+    /// whether it is paused. On every view (not read once at startup) because the
+    /// pace drops at the landing, and a dev override can change it at any time.
+    /// The client's clock runs at this rate between polls.
+    public double TicksPerSecond { get; set; }
+    public bool Paused { get; set; }
 }

@@ -38,7 +38,7 @@ public static class UnitCombatCatalog
         // tank (dies last under lowest-Health-first), Archer the glass
         // cannon. Both numbers are balance knobs.
         [UnitRole.Soldier]    = new UnitCombatSpec { Role = UnitRole.Soldier,    BaseHealth = 30, BasePower = 3 },
-        [UnitRole.Archer]     = new UnitCombatSpec { Role = UnitRole.Archer,     BaseHealth = 15, BasePower = 5 },
+        [UnitRole.Archer]     = new UnitCombatSpec { Role = UnitRole.Archer,     BaseHealth = 15, BasePower = 5, Ranged = true },
         // M16 — Bandit: between a Soldier and a citizen. A lone citizen
         // loses to one, a Soldier beats one, a party is a real threat.
         [UnitRole.Bandit]     = new UnitCombatSpec { Role = UnitRole.Bandit,     BaseHealth = 25, BasePower = 3 },

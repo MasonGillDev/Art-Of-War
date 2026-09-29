@@ -60,6 +60,11 @@ public sealed class HomesteaderBrain : IBrain
             new EatRung(),
             new BuildRung(),
             new TrainRung(),
+            // Carts (2026-09-19, the food-wall fix): organs, then tools.
+            // The haul belt is what the colony grows on, so the workshop
+            // and its carts outrank the garrison and the nursery. Gated
+            // on CartPopulationFloor: the opening curve is untouched.
+            new CartRung(),
             new MusterRung(),
             // Scavenging dead kingdoms (2026-07-13): a fallen neighbor's
             // ruins are anyone's — even a homesteader hauls a dead
@@ -77,6 +82,13 @@ public sealed class HomesteaderBrain : IBrain
             // (mouths before masonry) and above Scout (whose budget
             // already bounds it from starving).
             new FortifyRung(),
+            // Arming (2026-09-19) — walls, then weapons: the armoury
+            // industry (Smithy, Mine, Smelter) and the forge-and-equip
+            // loop that spends it. Same slot in both ladders; both gate
+            // on the Fortify population floor, so the small-colony curves
+            // are untouched.
+            new ForgeRung(),
+            new ArmRung(),
             // M27 — irrigation after safety: canals shorten the farm rest
             // cycle (docs/canals.md update); the longest-horizon spend
             // takes the quietest thinks.

@@ -209,6 +209,16 @@ public static class FoodConsumption
         return Math.Max(0, pop - housed);
     }
 
+    // PURE READ — food this home's residents eat per game day at the current
+    // headcount. The consumption period divides a day, so this is exact; it
+    // is the unit a farm's output is stated in, so the two can be compared.
+    public static int DemandPerDay(GameWorld world, IFoodHome home) =>
+        ResidentsOf(world, home) * DemandPerDayPerCitizen;
+
+    // One citizen's meals in a game day.
+    public const int DemandPerDayPerCitizen = FoodConsumptionConstants.FoodPerCitizenPerPeriod
+        * (Time.Day / FoodConsumptionConstants.FoodConsumptionPeriod);
+
     // The sink a unit's meals come from: their Home house when it still
     // stands and is still theirs, else the owner's castle. Null only
     // for the castle-less (a lost faction, bandits).

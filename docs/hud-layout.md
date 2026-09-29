@@ -86,3 +86,34 @@ verdict was "essentially the same", and it was right. The skin is now:
   card; dimmed verbs explain themselves on hover.
 - Clicking the minimap or a log line that names a tile flies the camera there.
 - No number on screen is derived from anything but the wire.
+
+## Update 2026-09-17 — the hotbar, top centre
+
+A row of eight slots between the two top strips. Each slot binds a KIND of thing — a
+role of person or a kind of building — never a specific one. Its number key, or a
+click, selects the nearest thing of that kind to the camera and flies there; idle people
+are preferred over busy ones, and pressing again skips what is already selected, so
+repeated presses walk outward through everything you own of that kind. Ctrl+number
+binds the current selection's kind, clicking an empty slot opens a picker, right-click
+clears. Bindings live in PlayerPrefs (a per-player convenience, not game state).
+
+Why kinds rather than control groups: the substrate makes people interchangeable
+within a role — "a builder" is the unit of thought, not "builder #17" — and what the
+player keeps asking is "where is a free one". A classic control group would go stale
+every time the sim retasked or replaced someone.
+
+Caveats: the number row belongs to the strategic view's layers while that view is up
+(1–4), so the hotbar is inert then. Boats are not offered, since the pivot cannot sit on
+water yet. The bar reads the view and moves the camera; it never sends an intent.
+`Hud/Hotbar.cs`.
+
+## Update 2026-09-17 — the Machine page
+
+A seventh dock page, *Machine* (K), for standing orders: list plus form on one page, form-first by the user's call. Details in `docs/automation-substrate.md` (update of the same date).
+
+## Update 2026-09-17 — superseded in progress by the World UI
+
+The corner-fixtures-plus-one-card layout is being replaced by an in-place radial
+interface with no fixed chrome: see `docs/world-ui.md`. That work is a separate layer
+and this HUD stays untouched and playable until the new layer covers every verb the
+card offers. Nothing above is edited; the history stands.

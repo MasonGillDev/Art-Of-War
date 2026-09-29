@@ -61,6 +61,10 @@ public static class ScoutMissionRunner
             if (m.State == ScoutMissionState.Returning)
             {
                 m.State = ScoutMissionState.Returned;
+                // M38 — home alive: what the scout found goes on the owner's
+                // chart (docs/scouting-secrets.md). The only way a chart entry
+                // is born.
+                Charts.Deliver(sim, m);
                 return;
             }
             if (m.WaypointCursor >= m.Waypoints.Count - 1 || RecallRuleFired(sim, m))

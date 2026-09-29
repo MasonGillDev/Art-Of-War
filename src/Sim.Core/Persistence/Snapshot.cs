@@ -135,7 +135,41 @@ public static class Snapshot
     //       bonus, dry-edge penalty, forest-depth rings / bonus). The per-
     //       tile baseline itself is DERIVED from the grid, so nothing else
     //       changes shape; the sparse Fertility dict is untouched.
-    public const int FormatVersion = 33;
+    // v34 — god mode (docs/god-mode.md): the Player block gains a GodMode
+    //       bool after KingUnitId. Genesis-set, so a recovered god game keeps
+    //       completing placements on the spot.
+    // v35 — mixed cargo (docs/hauling-queue-and-routes.md): a unit's cargo
+    //       is a count followed by (resource byte, amount) rows in enum
+    //       order, replacing the single resource byte + amount; HaulPlan
+    //       gains its Amount cap and JobId after Phase; a trailing haul-
+    //       queue block (NextHaulJobId, NextHaulStamp, jobs in id order);
+    //       Unit.RouteId after Protected; a haul-route block after the jobs.
+    // v36 — progression (docs/progression.md): the Player block gains a
+    //       ledger after GodMode: a has-ledger bool, then (stat byte, sub
+    //       int, count long) rows in key order and the fired milestone ids
+    //       in ascending order.
+    // v37 — omens (docs/progression.md): a trailing progression block
+    //       (ProgressionConfig knobs, NextOmenId, omens in id order with
+    //       their chest, state, anchor, slips, plunder/escape flags, resolve
+    //       tick and raid party). Resolved omens stay, with their outcome.
+    // v38 — scouting secrets (docs/scouting-secrets.md): a trailing block of
+    //       charts (players in id order, entries in (y, x) order: tile, hint,
+    //       seen tick, state, gone tick), then the IdolConfig knobs,
+    //       NextVisionGrantId and the live vision grants; the Idol structure
+    //       payload is its grade byte.
+    // v39 — bandit camps (docs/bandit-camps.md): the BanditCamp structure
+    //       payload (hoard storage, target, source, raiders, departed flag,
+    //       last raid / recruit ticks, tick anchor); the CampConfig block after the idol
+    //       grants; ProgressionConfig gains SmokePopulation and CampCaptives
+    //       after RumourAreaRadius.
+    // v40 — two-act pacing (docs/two-act-pacing.md): a trailing landing block —
+    //       the LandingConfig knobs (tick first; 0 = a one-act world), the
+    //       pending LandingEvent's Seq (has-flag + long), then the hosts in target
+    //       id order (target, seat, assault tick, fronts: landed, approach,
+    //       staging, living unit ids ascending).
+    // v42 — structure footprints (docs/structure-footprints.md): every
+    //       structure row gains a Facing byte after Health.
+    public const int FormatVersion = 42;
 
     public static string Hash(Simulation sim)
     {
@@ -168,6 +202,11 @@ public static class Snapshot
             WriteClaims(bw, sim.World);
             WriteScoutMissions(bw, sim.World);
             WriteRoyalty(bw, sim.World);        // M31 (v28)
+            WriteHaulJobs(bw, sim.World);       // M36 (v35)
+            WriteOmens(bw, sim.World);          // M37 (v37)
+            WriteCharts(bw, sim.World);         // M38 (v38)
+            WriteLanding(bw, sim.World);        // two-act pacing (v40)
+            WriteBattlefields(bw, sim.World);   // M41 battlefield grid (v41)
         }
         return ms.ToArray();
     }
@@ -207,6 +246,11 @@ public static class Snapshot
         ReadClaims(br, world);
         ReadScoutMissions(br, world);
         ReadRoyalty(br, world);             // M31 (v28)
+        ReadHaulJobs(br, world);            // M36 (v35)
+        ReadOmens(br, world);               // M37 (v37)
+        ReadCharts(br, world);              // M38 (v38)
+        ReadLanding(br, world);             // two-act pacing (v40)
+        ReadBattlefields(br, world);        // M41 battlefield grid (v41)
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -215,6 +259,556 @@ public static class Snapshot
         // next-event anchors. See Persistence/RegenerateQueue.cs.
         RegenerateQueue.From(sim);
         return sim;
+    }
+
+    // ----- battlefield grid (M41, v41) --------------------------------------
+    //
+    // The combat model and its morale knob (the rest of CombatConfig is in
+    // WriteCombat), every open battlefield's turn anchor, and each unit's
+    // battle state. Units are already restored when this runs, so unit rows
+    // key by id. LastTurn is presentation only and is not written.
+
+    private static void WriteBattlefields(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write((byte)world.CombatConfig.Model);
+        bw.Write(world.CombatConfig.LineSupport);
+
+        bw.Write(world.Battlefields.Count);
+        foreach (var bf in world.Battlefields.Values)   // (y, x) order by construction
+        {
+            bw.Write(bf.Tile.X);
+            bw.Write(bf.Tile.Y);
+            bw.Write(bf.OpenedTick);
+            bw.Write(bf.TurnNumber);
+            bw.Write(bf.NextTurnTick);
+            bw.Write(bf.NextTurnSeq);
+            bw.Write(bf.Suspended);
+        }
+
+        var rows = world.Units.Values
+            .Where(u => u.Board is not null || u.Doctrine is not null || u.EnteredFrom is not null || u.LeavingBoard is not null)
+            .ToList();
+        bw.Write(rows.Count);
+        foreach (var u in rows)
+        {
+            bw.Write(u.Id);
+            WriteNullableTileCoord(bw, u.EnteredFrom);
+            bw.Write(u.EnteredTick);
+            WriteNullableTileCoord(bw, u.LeavingBoard);
+            bw.Write(u.Doctrine is not null);
+            if (u.Doctrine is { } d)
+            {
+                bw.Write((byte)d.Behaviour);
+                bw.Write(d.WithdrawBelow);
+            }
+            bw.Write(u.Board is not null);
+            if (u.Board is { } s)
+            {
+                bw.Write(s.Tile.X);
+                bw.Write(s.Tile.Y);
+                bw.Write(s.At.X);
+                bw.Write(s.At.Y);
+                bw.Write(s.Sheltered);
+                bw.Write((byte)s.LastNote);
+                bw.Write(s.CameFrom is not null);
+                if (s.CameFrom is { } cf) { bw.Write(cf.X); bw.Write(cf.Y); }
+                WriteBattleOrder(bw, s.Order);
+            }
+        }
+    }
+
+    private static void WriteBattleOrder(BinaryWriter bw, Sim.Core.Battlefields.BattleOrder? o)
+    {
+        bw.Write(o is null ? (byte)0 : (byte)o.Kind);
+        if (o is null) return;
+        bw.Write(o.Destination.X);
+        bw.Write(o.Destination.Y);
+        bw.Write(o.Waypoints.Count);
+        foreach (var w in o.Waypoints) { bw.Write(w.X); bw.Write(w.Y); }
+        bw.Write(o.NextWaypoint);
+        bw.Write(o.SwapWith);
+    }
+
+    private static Sim.Core.Battlefields.BattleOrder? ReadBattleOrder(BinaryReader br)
+    {
+        var kind = (Sim.Core.Battlefields.BattleOrderKind)br.ReadByte();
+        if (kind == 0) return null;
+        var dest = new Sim.Core.Battlefields.Subtile(br.ReadInt32(), br.ReadInt32());
+        var n = br.ReadInt32();
+        var waypoints = new List<Sim.Core.Battlefields.Subtile>(n);
+        for (var i = 0; i < n; i++) waypoints.Add(new Sim.Core.Battlefields.Subtile(br.ReadInt32(), br.ReadInt32()));
+        var next = br.ReadInt32();
+        var swap = br.ReadInt32();
+        return Sim.Core.Battlefields.BattleOrder.Restore(kind, dest, waypoints, next, swap);
+    }
+
+    private static void ReadBattlefields(BinaryReader br, GameWorld world)
+    {
+        var model = (Sim.Core.Combat.CombatModel)br.ReadByte();
+        var lineSupport = br.ReadInt32();
+        world.RestoreCombatConfig(world.CombatConfig with { Model = model, LineSupport = lineSupport });
+
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+            var bf = new Sim.Core.Battlefields.Battlefield(tile, br.ReadInt64())
+            {
+                TurnNumber = br.ReadInt32(),
+                NextTurnTick = br.ReadInt64(),
+                NextTurnSeq = br.ReadInt64(),
+                Suspended = br.ReadBoolean(),
+            };
+            world.Battlefields[tile] = bf;
+        }
+
+        var rows = br.ReadInt32();
+        for (var i = 0; i < rows; i++)
+        {
+            var u = world.Units[br.ReadInt32()];
+            u.EnteredFrom = ReadNullableTileCoord(br);
+            u.EnteredTick = br.ReadInt64();
+            u.LeavingBoard = ReadNullableTileCoord(br);
+            if (br.ReadBoolean())
+                u.Doctrine = new Sim.Core.Battlefields.BattleDoctrine(
+                    (Sim.Core.Battlefields.DoctrineBehaviour)br.ReadByte(), br.ReadInt32());
+            if (br.ReadBoolean())
+            {
+                var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                var at = new Sim.Core.Battlefields.Subtile(br.ReadInt32(), br.ReadInt32());
+                var slot = new Sim.Core.Battlefields.BoardSlot(tile, at, sheltered: br.ReadBoolean())
+                {
+                    LastNote = (Sim.Core.Battlefields.StepNote)br.ReadByte(),
+                };
+                if (br.ReadBoolean()) slot.CameFrom = new Sim.Core.Battlefields.Subtile(br.ReadInt32(), br.ReadInt32());
+                slot.Order = ReadBattleOrder(br);
+                u.Board = slot;
+            }
+        }
+    }
+
+    // ----- landing (two-act pacing, v40) -----------------------------------
+
+    private static void WriteLanding(BinaryWriter bw, GameWorld world)
+    {
+        var c = world.LandingConfig;
+        bw.Write(c.Tick);
+        bw.Write(c.BandSize);
+        bw.Write(c.Fronts);
+        bw.Write(c.MinDistance);
+        bw.Write(c.MaxDistance);
+        bw.Write(c.StagingDistance);
+        bw.Write(c.AssaultDelayTicks);
+
+        bw.Write(world.LandingSeq.HasValue);
+        if (world.LandingSeq is { } seq) bw.Write(seq);
+
+        bw.Write(world.LandingHosts.Count);
+        foreach (var (_, host) in world.LandingHosts)   // target id order
+        {
+            bw.Write(host.TargetOwnerId);
+            WriteTile(bw, host.Seat);
+            bw.Write(host.AssaultTick);
+            bw.Write(host.Fronts.Count);
+            foreach (var f in host.Fronts)                // raised order
+            {
+                WriteTile(bw, f.Landed);
+                WriteTile(bw, f.Approach);
+                WriteTile(bw, f.Staging);
+                bw.Write(f.UnitIds.Count);
+                foreach (var id in f.UnitIds) bw.Write(id);   // ascending (materialized in order)
+            }
+        }
+
+        static void WriteTile(BinaryWriter w, TileCoord t) { w.Write(t.X); w.Write(t.Y); }
+    }
+
+    private static void ReadLanding(BinaryReader br, GameWorld world)
+    {
+        world.RestoreLandingConfig(new Sim.Core.Landing.LandingConfig(
+            Tick: br.ReadInt64(),
+            BandSize: br.ReadInt32(),
+            Fronts: br.ReadInt32(),
+            MinDistance: br.ReadInt32(),
+            MaxDistance: br.ReadInt32(),
+            StagingDistance: br.ReadInt32(),
+            AssaultDelayTicks: br.ReadInt64()));
+
+        world.LandingSeq = br.ReadBoolean() ? br.ReadInt64() : null;
+
+        var hosts = br.ReadInt32();
+        for (var i = 0; i < hosts; i++)
+        {
+            var host = new Sim.Core.Landing.LandingHost
+            {
+                TargetOwnerId = br.ReadInt32(),
+                Seat = ReadTile(br),
+                AssaultTick = br.ReadInt64(),
+            };
+            var fronts = br.ReadInt32();
+            for (var j = 0; j < fronts; j++)
+            {
+                var front = new Sim.Core.Landing.LandingFront
+                {
+                    Landed = ReadTile(br),
+                    Approach = ReadTile(br),
+                    Staging = ReadTile(br),
+                };
+                var n = br.ReadInt32();
+                for (var k = 0; k < n; k++) front.UnitIds.Add(br.ReadInt32());
+                host.Fronts.Add(front);
+            }
+            world.LandingHosts[host.TargetOwnerId] = host;
+        }
+
+        static TileCoord ReadTile(BinaryReader r) => new(r.ReadInt32(), r.ReadInt32());
+    }
+
+    // ----- haul queue + named routes (M36) -------------------------------
+    //
+    // Counters, then jobs in id order (SortedDictionary). The queue ORDER is
+    // not written: it is the stamps, so restoring the jobs restores the line.
+    // ----- charts (M38, v38) ----------------------------------------------
+
+    private static void WriteCharts(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.Charts.Count);
+        foreach (var (playerId, chart) in world.Charts)   // id order
+        {
+            bw.Write(playerId);
+            bw.Write(chart.Count);
+            foreach (var (_, e) in chart)                  // (y, x) order
+            {
+                bw.Write(e.Tile.X);
+                bw.Write(e.Tile.Y);
+                bw.Write((byte)e.Hint);
+                bw.Write(e.SeenTick);
+                bw.Write((byte)e.State);
+                bw.Write(e.GoneTick);
+            }
+        }
+
+        var c = world.IdolConfig;
+        bw.Write(c.Count);
+        bw.Write(c.GreaterEvery);
+        bw.Write(c.LesserTicks);
+        bw.Write(c.LesserRadius);
+        bw.Write(c.GreaterTicks);
+        bw.Write(c.GreaterRadius);
+        bw.Write(c.MinDistanceFromCastle);
+        bw.Write(c.MinSpacing);
+        bw.Write(world.NextVisionGrantId);
+        bw.Write(world.VisionGrants.Count);
+        foreach (var (_, g) in world.VisionGrants)   // id order
+        {
+            bw.Write(g.GrantId);
+            bw.Write(g.OwnerId);
+            bw.Write(g.Center.X);
+            bw.Write(g.Center.Y);
+            bw.Write(g.Radius);
+            bw.Write(g.EndsTick);
+            bw.Write(g.EndSeq);
+        }
+
+        // M39 (v39) — the camp knobs.
+        var cc = world.CampConfig;
+        bw.Write(cc.GarrisonStart);
+        bw.Write(cc.GarrisonCap);
+        bw.Write(cc.RecruitPeriodTicks);
+        bw.Write(cc.RaidPeriodTicks);
+        bw.Write(cc.RaidSize);
+        bw.Write(cc.MinHome);
+        bw.Write(cc.FirstRaidDelayTicks);
+        bw.Write(cc.HoardCap);
+        bw.Write(cc.HoardStartIron);
+        bw.Write(cc.HoardStartOre);
+        bw.Write(cc.MinDistance);
+        bw.Write(cc.MaxDistance);
+        bw.Write(cc.TickPeriodTicks);
+    }
+
+    private static void ReadCharts(BinaryReader br, GameWorld world)
+    {
+        var players = br.ReadInt32();
+        for (var i = 0; i < players; i++)
+        {
+            var playerId = br.ReadInt32();
+            var chart = new SortedDictionary<TileCoord, Sim.Core.Scouting.ChartEntry>(TileOrder.Instance);
+            var n = br.ReadInt32();
+            for (var j = 0; j < n; j++)
+            {
+                var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
+                chart[tile] = new Sim.Core.Scouting.ChartEntry
+                {
+                    Tile = tile,
+                    Hint = (Sim.Core.Scouting.SecretHint)br.ReadByte(),
+                    SeenTick = br.ReadInt64(),
+                    State = (Sim.Core.Scouting.ChartState)br.ReadByte(),
+                    GoneTick = br.ReadInt64(),
+                };
+            }
+            world.Charts[playerId] = chart;
+        }
+
+        world.RestoreIdolConfig(new Sim.Core.Scouting.IdolConfig(
+            Count: br.ReadInt32(),
+            GreaterEvery: br.ReadInt32(),
+            LesserTicks: br.ReadInt64(),
+            LesserRadius: br.ReadInt32(),
+            GreaterTicks: br.ReadInt64(),
+            GreaterRadius: br.ReadInt32(),
+            MinDistanceFromCastle: br.ReadInt32(),
+            MinSpacing: br.ReadInt32()));
+        world.NextVisionGrantId = br.ReadInt32();
+        var grants = br.ReadInt32();
+        for (var i = 0; i < grants; i++)
+        {
+            var g = new Sim.Core.Scouting.VisionGrant
+            {
+                GrantId = br.ReadInt32(),
+                OwnerId = br.ReadInt32(),
+                Center = new TileCoord(br.ReadInt32(), br.ReadInt32()),
+                Radius = br.ReadInt32(),
+                EndsTick = br.ReadInt64(),
+            };
+            g.EndSeq = br.ReadInt64();
+            world.VisionGrants[g.GrantId] = g;
+        }
+
+        world.RestoreCampConfig(new Sim.Core.Bandits.CampConfig(
+            GarrisonStart: br.ReadInt32(),
+            GarrisonCap: br.ReadInt32(),
+            RecruitPeriodTicks: br.ReadInt64(),
+            RaidPeriodTicks: br.ReadInt64(),
+            RaidSize: br.ReadInt32(),
+            MinHome: br.ReadInt32(),
+            FirstRaidDelayTicks: br.ReadInt64(),
+            HoardCap: br.ReadInt32(),
+            HoardStartIron: br.ReadInt32(),
+            HoardStartOre: br.ReadInt32(),
+            MinDistance: br.ReadInt32(),
+            MaxDistance: br.ReadInt32(),
+            TickPeriodTicks: br.ReadInt64()));
+    }
+
+    // ----- progression (M37, v37) -----------------------------------------
+    //
+    // The config knobs, then the omens. The milestone rows are code and are
+    // rebuilt from the config on restore; the ledgers ride in the player rows.
+
+    private static void WriteOmens(BinaryWriter bw, GameWorld world)
+    {
+        var c = world.ProgressionConfig;
+        bw.Write(c.ReprisalTrained);
+        bw.Write(c.ReprisalWarningTicks);
+        bw.Write(c.ReprisalRaidSize);
+        bw.Write((byte)c.ReprisalChestResource);
+        bw.Write(c.ReprisalChestAmount);
+        bw.Write(c.WordSpreadsRefugees);
+        bw.Write(c.WordSpreadsWarningTicks);
+        bw.Write(c.FarHorizonsTiles);
+        bw.Write(c.FarHorizonsIron);
+        bw.Write(c.FarHorizonsSwords);
+        bw.Write(c.RumourAreaRadius);
+        bw.Write(c.SmokePopulation);
+        bw.Write(c.CampCaptives);
+        bw.Write(c.GoodHomeHouses);
+        bw.Write(c.GoodHomeSettlers);
+        bw.Write(c.GoodHomeWarningTicks);
+        bw.Write(c.OmenSpawnMinDistance);
+        bw.Write(c.OmenSpawnMaxDistance);
+        bw.Write(c.OmenSlipTicks);
+        bw.Write(c.OmenMaxSlips);
+
+        bw.Write(world.NextOmenId);
+        bw.Write(world.Omens.Count);
+        foreach (var (_, o) in world.Omens)   // SortedDictionary → id order
+        {
+            bw.Write(o.OmenId);
+            bw.Write(o.OwnerId);
+            bw.Write((byte)o.Kind);
+            bw.Write(o.SourceMilestoneId);
+            bw.Write(o.Target.X);
+            bw.Write(o.Target.Y);
+            bw.Write((byte)o.From);
+            bw.Write(o.Size);
+            bw.Write((byte)o.ChestResource);
+            bw.Write(o.ChestAmount);
+            bw.Write(o.AreaCenter.X);
+            bw.Write(o.AreaCenter.Y);
+            bw.Write(o.AreaRadius);
+            bw.Write((byte)o.State);
+            bw.Write(o.DueTick);
+            bw.Write(o.DueSeq);
+            bw.Write(o.Slips);
+            bw.Write(o.Plundered);
+            bw.Write(o.Escaped);
+            bw.Write(o.ResolvedTick);
+            bw.Write(o.PartyIds.Count);
+            foreach (var id in o.PartyIds) bw.Write(id);
+        }
+    }
+
+    private static void ReadOmens(BinaryReader br, GameWorld world)
+    {
+        world.RestoreProgressionConfig(new Sim.Core.Progression.ProgressionConfig(
+            ReprisalTrained: br.ReadInt32(),
+            ReprisalWarningTicks: br.ReadInt64(),
+            ReprisalRaidSize: br.ReadInt32(),
+            ReprisalChestResource: (Resource)br.ReadByte(),
+            ReprisalChestAmount: br.ReadInt32(),
+            WordSpreadsRefugees: br.ReadInt32(),
+            WordSpreadsWarningTicks: br.ReadInt64(),
+            FarHorizonsTiles: br.ReadInt32(),
+            FarHorizonsIron: br.ReadInt32(),
+            FarHorizonsSwords: br.ReadInt32(),
+            RumourAreaRadius: br.ReadInt32(),
+            SmokePopulation: br.ReadInt32(),
+            CampCaptives: br.ReadInt32(),
+            GoodHomeHouses: br.ReadInt32(),
+            GoodHomeSettlers: br.ReadInt32(),
+            GoodHomeWarningTicks: br.ReadInt64(),
+            OmenSpawnMinDistance: br.ReadInt32(),
+            OmenSpawnMaxDistance: br.ReadInt32(),
+            OmenSlipTicks: br.ReadInt64(),
+            OmenMaxSlips: br.ReadInt32()));
+
+        world.NextOmenId = br.ReadInt32();
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var omen = new Sim.Core.Progression.Omen
+            {
+                OmenId = br.ReadInt32(),
+                OwnerId = br.ReadInt32(),
+                Kind = (Sim.Core.Progression.OmenKind)br.ReadByte(),
+                SourceMilestoneId = br.ReadInt32(),
+                Target = new TileCoord(br.ReadInt32(), br.ReadInt32()),
+                From = (Sim.Core.Progression.Bearing)br.ReadByte(),
+                Size = br.ReadInt32(),
+                ChestResource = (Resource)br.ReadByte(),
+                ChestAmount = br.ReadInt32(),
+                AreaCenter = new TileCoord(br.ReadInt32(), br.ReadInt32()),
+                AreaRadius = br.ReadInt32(),
+            };
+            omen.State = (Sim.Core.Progression.OmenState)br.ReadByte();
+            omen.DueTick = br.ReadInt64();
+            omen.DueSeq = br.ReadInt64();
+            omen.Slips = br.ReadInt32();
+            omen.Plundered = br.ReadBoolean();
+            omen.Escaped = br.ReadBoolean();
+            omen.ResolvedTick = br.ReadInt64();
+            var party = br.ReadInt32();
+            for (var p = 0; p < party; p++) omen.PartyIds.Add(br.ReadInt32());
+            world.Omens[omen.OmenId] = omen;
+        }
+    }
+
+    private static void WriteHaulJobs(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.NextHaulJobId);
+        bw.Write(world.NextHaulStamp);
+        bw.Write(world.HaulJobs.Count);
+        foreach (var (_, j) in world.HaulJobs)
+        {
+            bw.Write(j.JobId);
+            bw.Write(j.OwnerId);
+            bw.Write(j.Source.X); bw.Write(j.Source.Y);
+            bw.Write(j.Dest.X);   bw.Write(j.Dest.Y);
+            bw.Write((byte)j.Resource);
+            bw.Write((byte)j.Kind);
+            bw.Write(j.Target);
+            bw.Write(j.Delivered);
+            bw.Write(j.QueueStamp);
+            bw.Write(j.QueuedAtTick);
+        }
+
+        // Routes: id order; stops, rules and crews in their list order (the
+        // rules' order is the order they apply in; crews are ascending id).
+        bw.Write(world.NextHaulRouteId);
+        bw.Write(world.HaulRoutes.Count);
+        foreach (var (_, route) in world.HaulRoutes)
+        {
+            bw.Write(route.RouteId);
+            bw.Write(route.OwnerId);
+            bw.Write(route.NextCrewId);
+            bw.Write(route.Stops.Count);
+            foreach (var stop in route.Stops)
+            {
+                bw.Write(stop.Tile.X); bw.Write(stop.Tile.Y);
+                bw.Write(stop.Rules.Count);
+                foreach (var rule in stop.Rules)
+                {
+                    bw.Write((byte)rule.Resource);
+                    bw.Write((byte)rule.Op);
+                    bw.Write(rule.Percent);
+                }
+            }
+            bw.Write(route.Crews.Count);
+            foreach (var crew in route.Crews)
+            {
+                bw.Write(crew.CrewId);
+                bw.Write(crew.CurrentStop);
+                bw.Write(crew.Members.Count);
+                foreach (var id in crew.Members) bw.Write(id);
+            }
+        }
+    }
+
+    private static void ReadHaulJobs(BinaryReader br, GameWorld world)
+    {
+        world.NextHaulJobId = br.ReadInt32();
+        world.NextHaulStamp = br.ReadInt64();
+        var count = br.ReadInt32();
+        for (var i = 0; i < count; i++)
+        {
+            var job = new Sim.Core.Hauling.HaulJob
+            {
+                JobId = br.ReadInt32(),
+                OwnerId = br.ReadInt32(),
+                Source = new TileCoord(br.ReadInt32(), br.ReadInt32()),
+                Dest = new TileCoord(br.ReadInt32(), br.ReadInt32()),
+                Resource = (Resource)br.ReadByte(),
+                Kind = (Sim.Core.Hauling.HaulJobKind)br.ReadByte(),
+                Target = br.ReadInt32(),
+                Delivered = br.ReadInt32(),
+                QueueStamp = br.ReadInt64(),
+                QueuedAtTick = br.ReadInt64(),
+            };
+            world.HaulJobs.Add(job.JobId, job);
+        }
+
+        // Routes follow the jobs (same block, same version).
+        world.NextHaulRouteId = br.ReadInt32();
+        var routes = br.ReadInt32();
+        for (var i = 0; i < routes; i++)
+        {
+            var route = new Sim.Core.Hauling.HaulRoute
+            {
+                RouteId = br.ReadInt32(),
+                OwnerId = br.ReadInt32(),
+                NextCrewId = br.ReadInt32(),
+            };
+            var stops = br.ReadInt32();
+            for (var s = 0; s < stops; s++)
+            {
+                var stop = new Sim.Core.Hauling.RouteStop { Tile = new TileCoord(br.ReadInt32(), br.ReadInt32()) };
+                var rules = br.ReadInt32();
+                for (var r = 0; r < rules; r++)
+                    stop.Rules.Add(new Sim.Core.Hauling.StopRule(
+                        (Resource)br.ReadByte(), (Sim.Core.Hauling.StopRuleOp)br.ReadByte(), br.ReadInt32()));
+                route.Stops.Add(stop);
+            }
+            var crews = br.ReadInt32();
+            for (var c = 0; c < crews; c++)
+            {
+                var crew = new Sim.Core.Hauling.RouteCrew { CrewId = br.ReadInt32(), CurrentStop = br.ReadInt32() };
+                var members = br.ReadInt32();
+                for (var m = 0; m < members; m++) crew.Members.Add(br.ReadInt32());
+                route.Crews.Add(crew);
+            }
+            world.HaulRoutes.Add(route.RouteId, route);
+        }
     }
 
     // ----- royalty (M31) -------------------------------------------------
@@ -302,6 +896,8 @@ public static class Snapshot
             // the line is extinct; both are legitimate long-lived states, so
             // both must survive a restart.
             WriteNullableInt(bw, p.KingUnitId);
+            bw.Write(p.GodMode);   // v34
+            WriteProgress(bw, p.Progress);   // v36
         }
     }
 
@@ -313,11 +909,46 @@ public static class Snapshot
             var id = br.ReadInt32();
             var defeated = br.ReadBoolean();
             var kingUnitId = ReadNullableInt(br);   // M31 (v28)
+            var godMode = br.ReadBoolean();         // v34
             var p = new Player(id);
             if (defeated) p.Defeated = true;
             p.KingUnitId = kingUnitId;
+            p.GodMode = godMode;
+            p.Progress = ReadProgress(br);          // v36
             world.Players[id] = p;
         }
+    }
+
+    // M37 (v36) — one player's progress ledger, or a false byte for none.
+    private static void WriteProgress(BinaryWriter bw, Sim.Core.Progression.ProgressLedger? ledger)
+    {
+        bw.Write(ledger is not null);
+        if (ledger is null) return;
+        bw.Write(ledger.Counts.Count);
+        foreach (var (key, n) in ledger.Counts)   // SortedDictionary → key order
+        {
+            bw.Write((byte)key.Stat);
+            bw.Write(key.Sub);
+            bw.Write(n);
+        }
+        bw.Write(ledger.Fired.Count);
+        foreach (var id in ledger.Fired) bw.Write(id);   // SortedSet → ascending
+    }
+
+    private static Sim.Core.Progression.ProgressLedger? ReadProgress(BinaryReader br)
+    {
+        if (!br.ReadBoolean()) return null;
+        var ledger = new Sim.Core.Progression.ProgressLedger();
+        var counts = br.ReadInt32();
+        for (var i = 0; i < counts; i++)
+        {
+            var stat = (Sim.Core.Progression.ProgressStat)br.ReadByte();
+            var sub = br.ReadInt32();
+            ledger.Counts[new Sim.Core.Progression.ProgressKey(stat, sub)] = br.ReadInt64();
+        }
+        var fired = br.ReadInt32();
+        for (var i = 0; i < fired; i++) ledger.Fired.Add(br.ReadInt32());
+        return ledger;
     }
 
     // ----- units (id-sorted) --------------------------------------------
@@ -344,8 +975,7 @@ public static class Snapshot
             {
                 bw.Write((byte)0);
             }
-            bw.Write((byte)u.CargoResource);
-            bw.Write(u.CargoAmount);
+            WriteCargo(bw, u.Cargo);
             bw.Write(u.AssignmentEpoch);
             bw.Write(u.OwnerId);
             // M4: in-flight movement anchor.
@@ -379,6 +1009,7 @@ public static class Snapshot
             WriteNullableTileCoord(bw, u.Home);
             // v22: automation substrate — sacred-from-conscription flag.
             bw.Write(u.Protected);
+            WriteNullableInt(bw, u.RouteId);         // M36 (v35)
             // M30 (v27): in-flight GOAL anchor. A unit walking to a job -- or
             // standing in a house waiting for food -- must wake from a restart
             // still doing it, or the player's one decision quietly evaporates
@@ -466,6 +1097,28 @@ public static class Snapshot
         bw.Write(plan.DestTile.X);   bw.Write(plan.DestTile.Y);
         bw.Write((byte)plan.Resource);
         bw.Write((byte)plan.Phase);
+        bw.Write(plan.Amount);           // M36 (v35)
+        bw.Write(plan.JobId);
+    }
+
+    // M36 (v35) — the cargo bag, ascending by Resource (CargoHold keeps a
+    // SortedDictionary, so this is canonical with no sort here).
+    private static void WriteCargo(BinaryWriter bw, CargoHold cargo)
+    {
+        bw.Write(cargo.Items.Count);
+        foreach (var (r, a) in cargo.Items)
+        {
+            bw.Write((byte)r);
+            bw.Write(a);
+        }
+    }
+
+    private static List<(Resource Resource, int Amount)> ReadCargo(BinaryReader br)
+    {
+        var count = br.ReadInt32();
+        var rows = new List<(Resource, int)>(count);
+        for (var i = 0; i < count; i++) rows.Add(((Resource)br.ReadByte(), br.ReadInt32()));
+        return rows;
     }
 
     private static void WritePursuit(BinaryWriter bw, Pursuit? chase)
@@ -513,7 +1166,9 @@ public static class Snapshot
         var dest  = new TileCoord(br.ReadInt32(), br.ReadInt32());
         var res   = (Resource)br.ReadByte();
         var phase = (HaulPhase)br.ReadByte();
-        return new HaulPlan(src, dest, res, phase);
+        var amount = br.ReadInt32();     // M36 (v35)
+        var jobId = br.ReadInt32();
+        return new HaulPlan(src, dest, res, phase, amount, jobId);
     }
 
     private static void ReadUnits(BinaryReader br, GameWorld world)
@@ -528,8 +1183,7 @@ public static class Snapshot
             TileCoord? assignment = br.ReadByte() == 1
                 ? new TileCoord(br.ReadInt32(), br.ReadInt32())
                 : null;
-            var cargoR = (Resource)br.ReadByte();
-            var cargoA = br.ReadInt32();
+            var cargo = ReadCargo(br);          // M36 (v35)
             var epoch = br.ReadByte();
             var ownerId = br.ReadInt32();
             var pathRem = ReadPathRemaining(br);
@@ -552,6 +1206,7 @@ public static class Snapshot
             var embarkedOn = ReadNullableInt(br);
             var home = ReadNullableTileCoord(br);   // M19 (v13)
             var isProtected = br.ReadBoolean();     // v22 automation substrate
+            var routeId = ReadNullableInt(br);      // M36 (v35)
             var goal = ReadGoal(br);                // M30 (v27)
             var parentA = ReadNullableInt(br);      // M31 (v28)
             var parentB = ReadNullableInt(br);
@@ -559,10 +1214,10 @@ public static class Snapshot
             var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap, ParentAId = parentA, ParentBId = parentB };
             u.Home = home;   // ResidentCount restores from the House payload; no recompute
             u.Protected = isProtected;
+            u.RouteId = routeId;
             foreach (var pid in passengers) u.Passengers.Add(pid);
             u.EmbarkedOn = embarkedOn;
-            u.CargoResource = cargoR;
-            u.CargoAmount = cargoA;
+            foreach (var (r, a) in cargo) u.Cargo.Add(r, a);
 
             u.PathRemaining = pathRem;
             u.PathFinalDest = pathDest;
@@ -609,6 +1264,8 @@ public static class Snapshot
             // payload so the common header stays uniform; restored before
             // AddStructure runs so a damaged Castle keeps its damaged HP.
             bw.Write(s.Health);
+            // v42 — the structure's facing (docs/structure-footprints.md).
+            bw.Write((byte)s.Facing);
             switch (s)
             {
                 // House must come before StorageStructure: it IS a
@@ -621,6 +1278,19 @@ public static class Snapshot
                 // M23 — Cache is a StorageStructure; its loot rides the same
                 // payload. Must precede the StorageStructure case.
                 case Cache cache:         WriteStorage(bw, cache); break;
+                // M39 — a bandit camp: its hoard, then its own fields.
+                case BanditCamp camp:
+                    WriteStorage(bw, camp);
+                    bw.Write(camp.TargetOwnerId);
+                    bw.Write(camp.SourceMilestoneId);
+                    bw.Write(camp.Raiders.Count);
+                    foreach (var id in camp.Raiders) bw.Write(id);
+                    bw.Write(camp.RaidDeparted);
+                    bw.Write(camp.LastRaidTick);
+                    bw.Write(camp.LastRecruitTick);
+                    bw.Write(camp.NextTickAt);
+                    bw.Write(camp.NextTickSeq);
+                    break;
                 // M12/M28 — Dock: slip first (the reader needs it to
                 // construct), then the quay-warehouse payload (v21), then
                 // the boat-production anchors. Must precede the
@@ -638,9 +1308,12 @@ public static class Snapshot
                 case Tower:               /* no fields */ break;
                 case School:              /* no fields */ break;
                 case Lodge:               /* no fields */ break;
+                case Idol idol:           bw.Write((byte)idol.Grade); break;   // M38
                 case Rubble:              /* no fields */ break;
                 case Wall:                /* no fields */ break;   // M26
                 case Gate:                /* no fields */ break;   // M26
+                case Canal:               /* no fields */ break;   // structure footprints
+                case Bridge:              /* no fields */ break;
                 default:
                     throw new InvalidOperationException($"No serializer for {s.GetType().Name}");
             }
@@ -660,6 +1333,7 @@ public static class Snapshot
             // there is a no-op for restored structures (matches the
             // Unit.Health restore pattern).
             var health = br.ReadInt32();
+            var facing = (Sim.Core.Battlefields.Heading)br.ReadByte();   // v42
             Structure s = kind switch
             {
                 StructureKind.Castle           => ReadCastleWithAnchors(br, at, ownerId),
@@ -676,17 +1350,44 @@ public static class Snapshot
                 StructureKind.House            => ReadHouseWithOccupation(br, at, ownerId),
                 StructureKind.School           => new School(at) { OwnerId = ownerId },
                 StructureKind.Lodge            => new Lodge(at) { OwnerId = ownerId },
+                StructureKind.Idol             => new Idol(at, (Sim.Core.Scouting.IdolKind)br.ReadByte()) { OwnerId = ownerId },
                 StructureKind.Barracks         => ReadStorage(br, new Barracks(at) { OwnerId = ownerId }),
                 StructureKind.Cache            => ReadStorage(br, new Cache(at) { OwnerId = ownerId }),
+                StructureKind.BanditCamp       => ReadCamp(br, at, ownerId),
                 StructureKind.Rubble           => new Rubble(at) { OwnerId = ownerId },
                 StructureKind.Wall             => new Wall(at) { OwnerId = ownerId },   // M26
                 StructureKind.Gate             => new Gate(at) { OwnerId = ownerId },   // M26
+                StructureKind.Canal            => new Canal(at) { OwnerId = ownerId },
+                StructureKind.Bridge           => new Bridge(at) { OwnerId = ownerId },
                 StructureKind.Dock             => ReadDock(br, at, ownerId),
                 _ => throw new InvalidDataException($"Unknown structure kind: {kind}"),
             };
             s.Health = health;
+            s.Facing = facing;
             world.AddStructure(s);
         }
+    }
+
+    // M39 (v39) — a bandit camp.
+    private static BanditCamp ReadCamp(BinaryReader br, TileCoord at, int ownerId)
+    {
+        var holdings = new BanditCamp(at) { OwnerId = ownerId };
+        ReadStorage(br, holdings);
+        var camp = new BanditCamp(at)
+        {
+            OwnerId = ownerId,
+            TargetOwnerId = br.ReadInt32(),
+            SourceMilestoneId = br.ReadInt32(),
+        };
+        foreach (var (r, n) in holdings.Holdings) camp.Deposit(r, n);
+        var raiders = br.ReadInt32();
+        for (var i = 0; i < raiders; i++) camp.Raiders.Add(br.ReadInt32());
+        camp.RaidDeparted = br.ReadBoolean();
+        camp.LastRaidTick = br.ReadInt64();
+        camp.LastRecruitTick = br.ReadInt64();
+        camp.NextTickAt = br.ReadInt64();
+        camp.NextTickSeq = br.ReadInt64();
+        return camp;
     }
 
     private static void WriteStorage(BinaryWriter bw, StorageStructure s)

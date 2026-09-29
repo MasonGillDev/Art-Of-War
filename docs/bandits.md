@@ -172,3 +172,23 @@ scrapped when camps land.
   why out-of-sim AI is determinism-safe).
 - `persistent-rts-design.md` §1 — "knowledge comes from presence," now
   also a defense mechanic.
+
+## Update 2026-09-24 — camps are built; pressure counts real factions only
+
+- **Camps shipped** as `docs/bandit-camps.md` describes, the swap this doc planned for:
+  a camp's raiders flee **home** and unload into its hoard instead of despawning, and the
+  camp (not the driver) says when a raid rides. For now camps are raised per human seat
+  by progression ("Smoke on the horizon"); world camps that would own all spawning come
+  later.
+- **Prosperity pressure counted the wrong things.** `MaybeSpawn` counted every structure
+  not the bandits' own: caches and idols (-2), rubble (-3), bandit camps. On the default
+  host map (30 caches + 20 idols + 16 kingdoms) that pinned the live-party target at the
+  cap from day 7. It now counts owners ≥ 0 only.
+
+## Update 2026-09-25 — landing bands (docs/two-act-pacing.md)
+
+On day X the sim raises war bands for every kingdom (`Sim.Core/Landing`). They are
+ordinary bandits (faction -1), but the driver keeps them out of its parties while
+their band holds: `BanditDriver.ActLanding` marches each band to its gathering
+point and sends them all onto the castle together at the assault tick. A bandit
+that reaches the castle or carries loot is released into the ordinary party FSM.

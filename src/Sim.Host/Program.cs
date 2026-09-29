@@ -125,16 +125,16 @@ static Simulation RunScenario(Action<string>? log = null)
 
 static void PrintRouteConditions(Simulation sim, Action<string> log)
 {
-    // Pure-read observation of the route tiles. ConditionAt computes any
+    // Pure-read observation of the route arcs. ConditionAt computes any
     // pending decay without writing.
-    var routeTiles = sim.World.Roads.Keys
-        .OrderBy(t => t.Y).ThenBy(t => t.X)
+    var routeArcs = sim.World.Roads.Keys
+        .OrderBy(e => e.A.Y).ThenBy(e => e.A.X).ThenBy(e => (byte)e.Direction)
         .ToList();
-    if (routeTiles.Count == 0) { log("  (no road tiles)"); return; }
-    foreach (var t in routeTiles)
+    if (routeArcs.Count == 0) { log("  (no road arcs)"); return; }
+    foreach (var e in routeArcs)
     {
-        var condition = Road.ConditionAt(sim.World, t, sim.Now);
-        log($"  ({t.X},{t.Y}): condition={condition}");
+        var condition = Road.ConditionAt(sim.World, e, sim.Now);
+        log($"  ({e.A.X},{e.A.Y})-({e.B.X},{e.B.Y}): condition={condition}");
     }
 }
 

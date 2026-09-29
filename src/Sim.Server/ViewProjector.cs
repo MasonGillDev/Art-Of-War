@@ -37,6 +37,8 @@ public sealed class ViewProjector
     // order dashboard. Null in tests and in the AI brains' own projector
     // (brains read the world, not their own paperwork).
     public Automation.OrderJournal? OrderSource { get; set; }
+    // M36 — the haul driver's last verdicts (presentation only).
+    public Hauling.HaulingDriver? HaulSource { get; set; }
 
     // The world's time of day (Atmosphere/WorldClock.cs). Presentation-only: nothing
     // in the sim reads it. Genesis ships the parameters, every v2 view the phase.
@@ -141,6 +143,7 @@ public sealed class ViewProjector
             River = river,
             Baseline = GenesisBaseline(fert),
             Buildable = BuildCatalog(),
+            Footprints = FootprintCatalog(),
             Population = new PopulationRulesDto
             {
                 TicksPerYear = population.TicksPerYear,
@@ -171,8 +174,28 @@ public sealed class ViewProjector
                 GrasslandMaxBaseline = Sim.Core.Biomes.EnvironmentalFertility.MaxBaseline(Biome.Grassland, fert),
                 ForestMaxBaseline = Sim.Core.Biomes.EnvironmentalFertility.MaxBaseline(Biome.Forest, fert),
             },
+            Units = UnitCatalog(),
         };
     }
+
+    // P3 — every role but None, ordered by id for a deterministic payload. Bandits
+    // are included: the player sees them and needs to read them.
+    private static UnitOptionDto[] UnitCatalog() =>
+        Enum.GetValues<UnitRole>()
+            .Where(r => r != UnitRole.None)
+            .OrderBy(r => (int)r)
+            .Select(r =>
+            {
+                var spec = Sim.Core.Combat.UnitCombatCatalog.Spec(r);
+                return new UnitOptionDto
+                {
+                    Role = (int)r,
+                    BaseHealth = spec.BaseHealth,
+                    BasePower = spec.BasePower,
+                    CargoCapacity = Sim.Core.Logistics.UnitCargoCatalog.CapacityFor(r),
+                };
+            })
+            .ToArray();
 
     // The forgeable items, read straight off EquipmentCatalog so the client's
     // armoury menu and the sim's validator can never disagree — the same
@@ -349,6 +372,7 @@ public sealed class ViewProjector
             Height = h,
             WaterLevel = _waterLevel,
             Tick = now,
+            LandingTick = world.LandingConfig.Tick,
             LightPhase = Atmosphere.WorldClock.Phase(now, LightCycle),
             FogRunState = runState.ToArray(),
             FogRunLength = runLen.ToArray(),
@@ -363,8 +387,8 @@ public sealed class ViewProjector
                 ? world.Units.Values.Select(u => ToUnitDto(u, playerId, world, now)).ToArray()
                 : view.VisibleUnits.Select(u => ToUnitDto(u, playerId, world, now)).ToArray(),
             Structures = reveal
-                ? world.Structures.Values.Select(s => ToStructDto(s, playerId, world, now)).ToArray()
-                : view.VisibleStructures.Select(s => ToStructDto(s, playerId, world, now)).ToArray(),
+                ? WithFootprints(world.Structures.Values.Select(s => ToStructDto(s, playerId, world, now)).ToArray(), world)
+                : WithFootprints(view.VisibleStructures.Select(s => ToStructDto(s, playerId, world, now)).ToArray(), world),
             Roads = roads.ToArray(),
         };
 
@@ -373,7 +397,11 @@ public sealed class ViewProjector
         FillFood(dto, sim, now, playerId);
         FillDiplomacy(dto, world, playerId);
         FillOrders(dto, world, playerId, OrderSource);
+        FillHauling(dto, world, now, playerId, HaulSource);
+        FillOmens(dto, world, now, playerId);
+        FillSecrets(dto, world, now, playerId);
         FillPiles(dto, world, reveal);
+        dto.Battlefields = BattlefieldProjection.Project(sim, playerId, reveal, view.Visible);
         if (GraveSource is not null)
         {
             // GraveTracker.Project reads only X/Y off this array (its visibility gate).
@@ -387,9 +415,13 @@ public sealed class ViewProjector
     {
         var dto = reveal ? ProjectRevealed(sim.World, now, playerId) : ProjectFogged(sim.World, now, playerId);
         dto.Tick = now;   // world age in ticks (= game-minutes); the client's clock reads from this
+        dto.LandingTick = sim.World.LandingConfig.Tick;   // two-act pacing: the brains' countdown too
         FillFood(dto, sim, now, playerId);
         FillDiplomacy(dto, sim.World, playerId);
         FillOrders(dto, sim.World, playerId, OrderSource);
+        FillHauling(dto, sim.World, now, playerId, HaulSource);
+        FillOmens(dto, sim.World, now, playerId);
+        FillSecrets(dto, sim.World, now, playerId);
         FillPiles(dto, sim.World, reveal);
         if (GraveSource is not null)
             dto.Graves = GraveSource.Project(playerId, reveal, dto.Visible);
@@ -472,6 +504,131 @@ public sealed class ViewProjector
         dto.Relationships = relationships.ToArray();
         dto.PendingWars = pendingWars.ToArray();
         dto.IncomingProposals = proposals.ToArray();
+    }
+
+    // M38 — the viewer's OWN chart and idol circles (docs/scouting-secrets.md).
+    // Pure read. The chart carries the hint a scout brought home, never what
+    // the secret is or holds.
+    private static void FillSecrets(ViewDto dto, GameWorld world, long now, int playerId)
+    {
+        dto.Chart = Sim.Core.Scouting.Charts.Of(world, playerId) is { } chart
+            ? chart.Values.Select(e => new ChartEntryDto
+            {
+                X = e.Tile.X, Y = e.Tile.Y,
+                Hint = (int)e.Hint,
+                State = (int)e.State,
+                SeenTick = e.SeenTick,
+                GoneTick = e.GoneTick,
+            }).ToArray()
+            : [];
+        dto.VisionGrants = world.VisionGrants.Values.Where(g => g.OwnerId == playerId)
+            .Select(g => new VisionGrantDto
+            {
+                X = g.Center.X, Y = g.Center.Y, Radius = g.Radius,
+                TicksLeft = Math.Max(0, g.EndsTick - now),
+            }).ToArray();
+    }
+
+    // M37 — the viewer's OWN omens (docs/progression.md): live ones, and the
+    // outcome of any that ended within OmenDto.RecentTicks. Pure read. A
+    // rumour's ruin tile stays off the wire (only its bearing is told).
+    private static void FillOmens(ViewDto dto, GameWorld world, long now, int playerId)
+    {
+        var rows = new List<OmenDto>();
+        foreach (var o in world.Omens.Values)
+        {
+            if (o.OwnerId != playerId) continue;
+            if (!o.IsLive && now - o.ResolvedTick > OmenDto.RecentTicks) continue;
+            var pending = o.State == Sim.Core.Progression.OmenState.Pending;
+            // A rumour's ruin and a rumoured camp tell their direction and a
+            // search circle, never their tile.
+            var told = o.Kind is not (Sim.Core.Progression.OmenKind.Rumour or Sim.Core.Progression.OmenKind.Camp);
+            // M39 — a camp's countdown is to its first raid.
+            var counting = pending || (o.Kind == Sim.Core.Progression.OmenKind.Camp && o.IsLive && o.DueTick > now);
+            rows.Add(new OmenDto
+            {
+                Id = o.OmenId,
+                Kind = (int)o.Kind,
+                State = (int)o.State,
+                From = (int)o.From,
+                Size = o.Kind == Sim.Core.Progression.OmenKind.Rumour ? 0 : o.Size,
+                DueTick = counting ? o.DueTick : 0,
+                TicksLeft = counting ? Math.Max(0, o.DueTick - now) : 0,
+                TargetX = told ? o.Target.X : -1,
+                TargetY = told ? o.Target.Y : -1,
+                AreaX = o.AreaCenter.X,
+                AreaY = o.AreaCenter.Y,
+                AreaRadius = o.AreaRadius,
+                Remaining = o.State == Sim.Core.Progression.OmenState.Arrived ? o.PartyIds.Count : 0,
+                ResolvedTick = o.ResolvedTick,
+            });
+        }
+        dto.Omens = rows.ToArray();
+        dto.LockedKinds = Sim.Core.Progression.Progression.LockedKinds(world, playerId).Select(k => (int)k).ToArray();
+    }
+
+    // M36 — the viewer's OWN haul queue (in line order) and routes, with the
+    // driver's last verdicts. Owner-only, like orders: logistics plans are
+    // private strategy.
+    private static void FillHauling(ViewDto dto, GameWorld world, long now, int playerId,
+        Hauling.HaulingDriver? driver)
+    {
+        var queue = new HaulQueueDto { FreeHaulers = Hauling.HaulingDriver.CountFree(world, playerId) };
+        var jobs = world.HaulJobs.Values.Where(j => j.OwnerId == playerId)
+            .OrderBy(j => j.QueueStamp).ThenBy(j => j.JobId);
+        var rows = new List<HaulJobDto>();
+        foreach (var j in jobs)
+        {
+            var report = driver is not null && driver.Reports.TryGetValue(j.JobId, out var r) ? r : null;
+            var row = new HaulJobDto
+            {
+                Id = j.JobId,
+                SourceX = j.Source.X, SourceY = j.Source.Y,
+                DestX = j.Dest.X, DestY = j.Dest.Y,
+                Resource = (int)j.Resource,
+                Kind = (int)j.Kind,
+                Target = j.Target,
+                Delivered = j.Delivered,
+                WaitTicks = Math.Max(0, now - j.QueuedAtTick),
+                State = report is null ? 0 : (int)report.State,
+                Need = report?.Need ?? 0,
+                OnTheWay = report?.OnTheWay ?? 0,
+                Haulers = report?.Haulers ?? 0,
+            };
+            if (report?.State == Hauling.HaulJobState.WaitingForHauler)
+            {
+                queue.Waiting++;
+                queue.LongestWaitTicks = Math.Max(queue.LongestWaitTicks, row.WaitTicks);
+            }
+            rows.Add(row);
+        }
+        queue.Jobs = rows.ToArray();
+        dto.HaulQueue = queue;
+
+        var crewStates = new Dictionary<(int, int), Hauling.RouteCrewReport>();
+        if (driver is not null)
+            foreach (var c in driver.CrewReports) crewStates[(c.RouteId, c.CrewId)] = c;
+        dto.HaulRoutes = world.HaulRoutes.Values.Where(r => r.OwnerId == playerId)
+            .Select(r => new HaulRouteDto
+            {
+                Id = r.RouteId,
+                Stops = r.Stops.Select(st => new HaulStopDto
+                {
+                    X = st.Tile.X, Y = st.Tile.Y,
+                    Rules = st.Rules.Select(rule => new HaulStopRuleDto
+                    {
+                        Resource = (int)rule.Resource, Op = (int)rule.Op, Percent = rule.Percent,
+                    }).ToArray(),
+                }).ToArray(),
+                Crews = r.Crews.Select(c => new HaulCrewDto
+                {
+                    Id = c.CrewId,
+                    Members = c.Members.ToArray(),
+                    CurrentStop = c.CurrentStop,
+                    Living = Sim.Core.Hauling.RouteCrews.Living(world, r, c).Count,
+                    State = crewStates.TryGetValue((r.RouteId, c.CrewId), out var cr) ? (int)cr.State : 0,
+                }).ToArray(),
+            }).ToArray();
     }
 
     // The viewer's OWN automation orders, definition + live status.
@@ -633,7 +790,7 @@ public sealed class ViewProjector
             Visible = tiles.ToArray(),
             Remembered = Array.Empty<TileDto>(),
             Units = world.Units.Values.Select(u => ToUnitDto(u, playerId, world, now)).ToArray(),
-            Structures = world.Structures.Values.Select(s => ToStructDto(s, playerId, world, now)).ToArray(),
+            Structures = WithFootprints(world.Structures.Values.Select(s => ToStructDto(s, playerId, world, now)).ToArray(), world),
             Roads = roads.ToArray(),
         };
     }
@@ -689,7 +846,7 @@ public sealed class ViewProjector
                 })
                 .ToArray(),
             Units = view.VisibleUnits.Select(u => ToUnitDto(u, playerId, world, now)).ToArray(),
-            Structures = view.VisibleStructures.Select(s => ToStructDto(s, playerId, world, now)).ToArray(),
+            Structures = WithFootprints(view.VisibleStructures.Select(s => ToStructDto(s, playerId, world, now)).ToArray(), world),
             Roads = roads.ToArray(),
         };
     }
@@ -710,6 +867,7 @@ public sealed class ViewProjector
             Passengers = mine ? u.Passengers.Count : 0,
             CargoResource = mine ? (int)u.CargoResource : 0,
             CargoAmount = mine ? u.CargoAmount : 0,
+            Cargo = mine ? CargoItems(u) : Array.Empty<CargoItemDto>(),
             // Loadout is private military info — same rule as Activity.
             // EffectivePower is a pure read.
             Power = mine ? Sim.Core.Combat.CombatRules.EffectivePower(world, u, now) : -1,
@@ -729,8 +887,24 @@ public sealed class ViewProjector
             GoalX = mine ? u.Goal?.TargetTile.X ?? -1 : -1,
             GoalY = mine ? u.Goal?.TargetTile.Y ?? -1 : -1,
         };
+        if (mine) FillPursuit(dto, u);
         FillHop(dto, u, world, now);
         return dto;
+    }
+
+    // P3 — the chase, own units only (the caller gates). Leaves the -1 defaults
+    // when the unit is not pursuing anyone.
+    // M36 — every resource aboard, in enum order (CargoHold is sorted).
+    private static CargoItemDto[] CargoItems(Unit u) =>
+        u.Cargo.Items.Select(kv => new CargoItemDto { Resource = (int)kv.Key, Amount = kv.Value }).ToArray();
+
+    private static void FillPursuit(UnitDto dto, Unit u)
+    {
+        if (u.Pursuit is not { } p) return;
+        dto.PursuitTargetId = p.TargetUnitId;
+        dto.PursuitLeashX = p.LeashTile.X;
+        dto.PursuitLeashY = p.LeashTile.Y;
+        dto.PursuitLeashRadius = p.LeashRadius;
     }
 
     // M31 — 1 = the reigning monarch, 2 = the heir-apparent, 0 = neither.
@@ -821,7 +995,7 @@ public sealed class ViewProjector
     {
         var activity = -1;
         var cap = 0; var pax = 0;
-        var cargoRes = 0; var cargoAmt = 0;
+        var cargoRes = 0; var cargoAmt = 0; var cargo = Array.Empty<CargoItemDto>();
         var power = -1;
         var buffs = Array.Empty<string>();
         var destX = -1; var destY = -1;
@@ -849,6 +1023,7 @@ public sealed class ViewProjector
             pax = real.Passengers.Count;
             cargoRes = (int)real.CargoResource;
             cargoAmt = real.CargoAmount;
+            cargo = CargoItems(real);
             power = Sim.Core.Combat.CombatRules.EffectivePower(world, real, now);
             buffs = real.Buffs.Select(b => b.Kind).ToArray();
             if (FinalDestOf(real, world) is { } dest) { destX = dest.X; destY = dest.Y; }
@@ -863,6 +1038,7 @@ public sealed class ViewProjector
             Passengers = pax,
             CargoResource = cargoRes,
             CargoAmount = cargoAmt,
+            Cargo = cargo,
             Power = power,
             Buffs = buffs,
             DestX = destX,
@@ -876,6 +1052,7 @@ public sealed class ViewProjector
             GoalX = goalX,
             GoalY = goalY,
         };
+        if (uv.OwnerId == viewerPlayerId && live is not null) FillPursuit(dto2, live);
         if (live is not null) FillHop(dto2, live, world, now);
         return dto2;
     }
@@ -890,6 +1067,7 @@ public sealed class ViewProjector
         {
             X = c.Tile.X, Y = c.Tile.Y,
             RoundNumber = c.RoundNumber, NextRoundTick = c.NextRoundTick,
+            Sides = SidesOn(c.Tile, world, now),
         };
         if (!world.Structures.TryGetValue(c.Tile, out var fort)
             || !Sim.Core.Fortifications.Fortification.IsStandingFortification(fort))
@@ -909,6 +1087,51 @@ public sealed class ViewProjector
             dto.SiegePower += Sim.Core.Combat.CombatRules.EffectivePower(world, u, now);
         }
         return dto;
+    }
+
+    // P3 — per-owner headcount and power for the units standing on `tile`.
+    // Ordered by owner id; embarked passengers do not fight (M12) and are not
+    // counted, matching CombatRules.ForcePower.
+    private static CombatSideDto[] SidesOn(TileCoord tile, GameWorld world, long now)
+    {
+        var sides = new SortedDictionary<int, CombatSideDto>();
+        foreach (var u in world.Units.Values)
+        {
+            if (u.Position != tile || u.IsEmbarked) continue;
+            if (!sides.TryGetValue(u.OwnerId, out var side))
+                sides[u.OwnerId] = side = new CombatSideDto { OwnerId = u.OwnerId };
+            side.Units++;
+            side.Power += Sim.Core.Combat.CombatRules.EffectivePower(world, u, now);
+        }
+        return sides.Values.ToArray();
+    }
+
+    // Every kind's footprint facing North, joining nothing: what the build
+    // preview turns (docs/structure-footprints.md). Static reference data.
+    private static FootprintPatternDto[] FootprintCatalog() =>
+        Enum.GetValues<StructureKind>()
+            .Select(k => (Kind: k, Layer: Sim.Core.Battlefields.Footprints.Pattern(k)))
+            .Where(p => p.Layer is not null)
+            .Select(p => new FootprintPatternDto { Kind = (int)p.Kind, Footprint = FootprintDto.Of(p.Layer!) })
+            .ToArray();
+
+    // Structure footprints (docs/structure-footprints.md): each structure's
+    // facing and resolved layout, joined only to neighbours in this same list
+    // (what the viewer can see), so a wall's shape never gives away a wall in
+    // the fog. A remembered structure that has since changed kind is left bare.
+    private static StructDto[] WithFootprints(StructDto[] dtos, GameWorld world)
+    {
+        var known = new HashSet<TileCoord>(dtos.Select(d => new TileCoord(d.X, d.Y)));
+        foreach (var d in dtos)
+        {
+            if (!world.Structures.TryGetValue(new TileCoord(d.X, d.Y), out var s) || (int)s.Kind != d.Kind) continue;
+            d.Facing = (int)Sim.Core.Battlefields.Footprints.FacingOf(s);
+            var layer = Sim.Core.Battlefields.Footprints.For(world, s, known.Contains);
+            if (layer.IsOpen) continue;
+            d.HasFootprint = true;
+            d.Footprint = FootprintDto.Of(layer);
+        }
+        return dtos;
     }
 
     // Reveal path: the real Structure is in hand.
@@ -938,8 +1161,10 @@ public sealed class ViewProjector
     // The kinds whose health is public. Broader than Fortification.IsStandingFortification
     // (which is "blocks movement and still stands"): a Tower and a Castle do not
     // block, but they are what a siege is FOR, so their state is public too.
+    // M39 — and a bandit camp: burning it IS a siege (docs/bandit-camps.md).
     private static bool IsFortificationKind(StructureKind kind) => kind is
-        StructureKind.Wall or StructureKind.Gate or StructureKind.Tower or StructureKind.Castle;
+        StructureKind.Wall or StructureKind.Gate or StructureKind.Tower or StructureKind.Castle
+        or StructureKind.BanditCamp;
 
     // Fogged path: the player view carries a lightweight StructureView (pos/kind/owner
     // only). For the viewer's OWN structures, look the real Structure back up by tile to
@@ -1012,6 +1237,13 @@ public sealed class ViewProjector
                 dto.Capacity = ex.Spec.BufferCap;
                 dto.Workers = ex.Workers.Count;
                 dto.WorkerCap = ex.Spec.WorkerCap;
+                // Analytics: the rate the tick would spend, per day. Pure read.
+                if (ex.Spec.OutputResource != Resource.None)
+                {
+                    dto.OutputPerDay = (int)Math.Min(int.MaxValue,
+                        Sim.Core.Logistics.ProductionRate.PerDay(world, ex, now));
+                    dto.Producing = ex.TickArmed;
+                }
                 {
                     // Output buffer first, then (refiners) the input store —
                     // the smelter's ore and fuel on hand. Empty for ordinary
@@ -1056,6 +1288,7 @@ public sealed class ViewProjector
                 dto.LocalFood = FoodConsumption.CurrentLevel(h, world, now);
                 dto.Residents = h.ResidentCount;
                 dto.LocalFamine = h.FamineStartTick.HasValue;
+                dto.EatsPerDay = FoodConsumption.DemandPerDay(world, h);
                 break;
 
             // The castle is a FOOD HOME too, and needs the same treatment a house
@@ -1071,6 +1304,7 @@ public sealed class ViewProjector
                 dto.Holdings = castle.Holdings.Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value }).ToArray();
                 dto.LocalFood = FoodConsumption.CurrentLevel(castle, world, now);
                 dto.LocalFamine = castle.FamineStartTick.HasValue;
+                dto.EatsPerDay = FoodConsumption.DemandPerDay(world, castle);
                 // Residents is left 0: the castle feeds everyone without a house,
                 // and the realm panel's Population already carries that count.
                 break;
