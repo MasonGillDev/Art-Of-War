@@ -1054,6 +1054,8 @@ public sealed class ViewProjector
             Children = g.Children.ToArray(),
             Members = g.Members.ToArray(),
             State = (int)g.State,
+            Stance = (int)g.Stance,
+            Away = g.ReturnTo is not null,
             X = g.Position.X,
             Y = g.Position.Y,
             DestX = g.PathFinalDest?.X ?? -1,

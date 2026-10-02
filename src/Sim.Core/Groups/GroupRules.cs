@@ -9,6 +9,12 @@ public static class GroupConstants
 
     // Levels in a group tree: army → regiment → company (user, 2026-10-02).
     public const int MaxDepth = 3;
+
+    // M49 stance (docs/m49-group-stance-spec.md). Defined in code; the player picks only
+    // the stance. Tiles, Chebyshev.
+    public const int AidRadius = 4;      // a company this near a fight its army is in comes to help
+    public const int EngageRadius = 3;   // an Aggressive group charges a visible hostile this near
+    public const int LeashRadius = 6;    // ... and chases no further than this from where it was
 }
 
 // The rules every group intent shares (docs/m46-groups-spec.md): who may join, the
@@ -181,5 +187,6 @@ public static class GroupRules
         group.State = GroupState.Idle;
         group.RendezvousTile = null;
         group.PathFinalDest = null;
+        GroupStances.ReturnIfDone(sim, group);   // M49: back from helping or a charge
     }
 }

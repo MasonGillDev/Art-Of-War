@@ -128,3 +128,14 @@ The engineering detail is in `docs/m46-groups-spec.md`. The shape:
 - **The AI on groups.** The Rival and Defender muster with their own code today. Moving them onto groups replaces that code with the same verbs the player uses. Deferred until the user has played with groups.
 - **Caravans and trade.** A trade caravan is a group on a route whose stop is another kingdom's post (the old M7 roadmap note). Nothing here rules it out.
 - **What would need rework:** a body in two groups at once (for example a soldier who is both "Bridge Guard" and "Night Watch"). The one-owner rule is what keeps command and saved tasks unambiguous. It is ruled out on purpose.
+
+## Update 2026-10-02: stance is three choices, defined in code (M49)
+
+The user narrowed stance and doctrine for now. **The player chooses only Passive, Defensive or
+Aggressive.** What each means is defined in code (`GroupStances`): battlefield behaviour per role,
+coming to help, charging, and the radii (aid 4, engage 3, leash 6, all `GroupConstants`).
+
+Per-role doctrine settings, and the engage and leash radii, are **not** player options yet. "When we
+expand the stances we will give the user more options." The design above (doctrine reusing the M18
+rule atoms) remains the direction for that expansion. A unit's own battlefield doctrine
+(`SetBattleDoctrineIntent`) still overrides its stance.

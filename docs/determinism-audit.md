@@ -1804,3 +1804,30 @@ walk. Pinned by `UnitAvailabilityTests.IsAPureRead`.
 
 **Behaviour change.** A unit on a battle's tile is never free. Before this, only the bandit driver
 knew it. Pinned by `UnitAvailabilityTests.AFightAtAStop_HoldsTheCrew_NoServeNoLeaving`.
+
+## M49 — group stance (2026-10-02, `docs/m49-group-stance-spec.md`)
+
+**New state on each group.** `Stance` (Passive / Defensive / Aggressive) and `ReturnTo` (where a
+group away helping or charging goes back to).
+
+**Mutation points.**
+- `Stance` is written only by `SetGroupStanceIntent` (on the whole subtree) and `Snapshot`.
+- `ReturnTo` is written only by `GroupStances`:
+  - `OnMemberEnrolled` (aid: set, from `Battlefields.Enroll`)
+  - `Charge` (set, from `ChargeGroupIntent`)
+  - `ReturnIfDone` (cleared, from `GroupRules.OneLessPending`, `GroupMarch.StopHere` and
+    `Battlefields.Close` via `ReturnAllDone`)
+  - `Snapshot`
+
+**Battlefield doctrine** is one pure read, `BattleDoctrine.Effective(world, unit)`: the unit's own,
+else its stance's for its role, else the role default. It replaced four copies (`Battlefields` ×2,
+`BattlefieldProjection` ×2).
+
+**The stance driver** (`Sim.Server/Groups/GroupStanceDriver`) is fog-fair: it computes
+`View.VisibleTiles` once per owner per think and submits only `ChargeGroupIntent`, a durable intent, so
+an intent-log replay reproduces every charge without the driver.
+
+**No global iteration on a timer in the sim.** `ReturnAllDone` walks the groups only when a board closes.
+
+**Snapshot v52.** Each group row gains `Stance` and `ReturnTo`. Pinned by
+`GroupStanceTests.TwinRun_AndMidFightRestore_EndTheSame`.

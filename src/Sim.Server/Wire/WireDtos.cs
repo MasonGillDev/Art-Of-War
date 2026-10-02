@@ -393,6 +393,8 @@ public sealed class GroupDto
     public int[] Children { get; set; } = [];    // a group of groups: its groups, ascending
     public int[] Members { get; set; } = [];     // a group of units: its units, ascending
     public int State { get; set; }               // GroupState: 1 forming, 2 idle, 3 moving, 4 dismissed
+    public int Stance { get; set; }              // M49 GroupStance: 1 passive, 2 defensive, 3 aggressive
+    public bool Away { get; set; }               // M49: gone to help in a fight or charging; it will return
     public int X { get; set; }                   // where the group is (the muster's anchor, the lead's tile)
     public int Y { get; set; }
     public int DestX { get; set; } = -1;         // where it is marching, -1 when it isn't

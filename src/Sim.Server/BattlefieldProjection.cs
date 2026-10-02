@@ -68,7 +68,7 @@ internal static class BattlefieldProjection
             if (revealOrders || u.OwnerId == playerId)
             {
                 dto.Mine = u.OwnerId == playerId;
-                var doctrine = u.Doctrine ?? BattleDoctrine.DefaultFor(u.Role);
+                var doctrine = BattleDoctrine.Effective(sim.World, u);
                 dto.Doctrine = (int)doctrine.Behaviour;
                 dto.WithdrawBelow = doctrine.WithdrawBelow;
                 dto.LastNote = (int)slot.LastNote;
@@ -115,7 +115,7 @@ internal static class BattlefieldProjection
             if (revealOrders || u.OwnerId == playerId)
             {
                 waiting.Mine = u.OwnerId == playerId;
-                var doctrine = u.Doctrine ?? BattleDoctrine.DefaultFor(u.Role);
+                var doctrine = BattleDoctrine.Effective(sim.World, u);
                 waiting.Doctrine = (int)doctrine.Behaviour;
                 waiting.WithdrawBelow = doctrine.WithdrawBelow;
             }

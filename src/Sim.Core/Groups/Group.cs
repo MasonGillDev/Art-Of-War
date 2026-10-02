@@ -65,6 +65,13 @@ public sealed class Group
     // A muster that reached a route group mid-leg: it finishes the leg (walks to its
     // stop and serves it) and then answers. Applied by ServeRouteStopIntent.
     public TileCoord? PendingMuster { get; set; }
+
+    // ---- M49 stance (docs/m49-group-stance-spec.md) ----
+    // How the group fights: the player's one choice. GroupStances defines what each means.
+    public GroupStance Stance { get; set; } = GroupStance.Defensive;
+    // Where the group goes back to once a fight it went to (aid, a charge) is over. Null
+    // when it isn't away helping or charging. GroupStances.
+    public TileCoord? ReturnTo { get; set; }
     // Members whose walk for the group's current order (the rendezvous while Forming,
     // the destination while Moving) hasn't ended. GroupRules.OneLessPending takes a
     // member off: its walk finished, was halted, or it died on the way.
@@ -101,6 +108,14 @@ public sealed class Group
     // Restore-only. Used by Snapshot.Restore to rebuild the epoch without
     // running through BumpEpoch's increment logic.
     internal void RestoreMovementEpoch(byte epoch) => MovementEpoch = epoch;
+}
+
+// Append-only enum (serialized, on the wire). How a group fights (M49).
+public enum GroupStance : byte
+{
+    Passive    = 1,
+    Defensive  = 2,
+    Aggressive = 3,
 }
 
 // Append-only enum (serialized). What a group holds.

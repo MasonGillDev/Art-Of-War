@@ -89,6 +89,8 @@ public sealed class GameHost : IDisposable
     // M36 — the haul queue (docs/hauling-queue-and-routes.md). Always on: a
     // world with no haul jobs makes Think a cheap no-op.
     private readonly Hauling.HaulingDriver _hauling = new();
+    // M49 — Aggressive groups spot and charge what their owner can see.
+    private readonly Groups.GroupStanceDriver _stances = new();
 
     // M25 — observability seam: which faction runs which brain (read-only;
     // the assignment test and smoke tooling read Kind/PlayerId off each
@@ -246,6 +248,7 @@ public sealed class GameHost : IDisposable
                 // brains (pure reads + ordinary intents, under the lock).
                 _automation?.Think(_sim, _virtualTick);
                 _hauling.Think(_sim, _virtualTick);
+                _stances.Think(_sim, _virtualTick);
                 // Graves BEFORE rejections: the tracker reads the same
                 // resolved-log window that HarvestRejections consumes (it
                 // advances _resolvedCursor; the tracker's scan must not).

@@ -212,7 +212,9 @@ public static class Snapshot
     //       its GroupId in place of a member list; the unit row loses RouteId; each
     //       group row gains RouteSuspended (bool) and PendingMuster (nullable tile)
     //       after its muster places.
-    public const int FormatVersion = 51;
+    // v52 — M49 group stance (docs/m49-group-stance-spec.md): each group row gains its
+    //       Stance (byte) and ReturnTo (nullable tile) after PendingMuster.
+    public const int FormatVersion = 52;
 
     public static string Hash(Simulation sim)
     {
@@ -2661,6 +2663,9 @@ public static class Snapshot
             // v51: the route (M47).
             bw.Write(g.RouteSuspended);
             WriteNullableTileCoord(bw, g.PendingMuster);
+            // v52: stance (M49).
+            bw.Write((byte)g.Stance);
+            WriteNullableTileCoord(bw, g.ReturnTo);
         }
     }
 
@@ -2714,6 +2719,8 @@ public static class Snapshot
                 places.Add((br.ReadInt32(), new Sim.Core.Battlefields.WorldSubtile(br.ReadInt32(), br.ReadInt32())));
             var routeSuspended = br.ReadBoolean();      // v51
             var pendingMuster = ReadNullableTileCoord(br);
+            var stance = (GroupStance)br.ReadByte();       // v52
+            var returnTo = ReadNullableTileCoord(br);
 
             var g = new Group(id) { OwnerId = ownerId, Kind = kind, Name = name, ParentId = parentId };
             foreach (var m in memberIds) g.Members.Add(m);
@@ -2733,6 +2740,8 @@ public static class Snapshot
             foreach (var (pid, place) in places) g.MusterPlaces[pid] = place;
             g.RouteSuspended = routeSuspended;
             g.PendingMuster = pendingMuster;
+            g.Stance = stance;
+            g.ReturnTo = returnTo;
 
             world.Groups[id] = g;
         }

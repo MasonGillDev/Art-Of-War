@@ -171,7 +171,7 @@ public static class GroupMarch
                 group.Position = from.Tile;
                 if (Plan(world, group, path[^1].Tile, sim.Now) is not { } again || again.Count < 2)
                 {
-                    StopHere(world, group, from.Tile);
+                    StopHere(sim, group, from.Tile);
                     return;
                 }
                 group.MarchPath = path = again;
@@ -239,12 +239,13 @@ public static class GroupMarch
             if (place is { } spot && GroupMuster.WalkToPlace(sim, m, spot)) walking++;
         }
         group.PendingArrivals = walking;
-        if (walking == 0) StopHere(world, group, dest);
+        if (walking == 0) StopHere(sim, group, dest);
     }
 
     // The march is over where it stands.
-    private static void StopHere(GameWorld world, Group group, TileCoord at)
+    private static void StopHere(Simulation sim, Group group, TileCoord at)
     {
+        var world = sim.World;
         var stillAway = group.Stragglers.Where(id => world.Units.TryGetValue(id, out var m) && GroupMuster.Busy(world, m) is not null).ToList();
         DropColumn(world, group);
         foreach (var id in stillAway) group.Stragglers.Add(id);
@@ -252,6 +253,7 @@ public static class GroupMarch
         group.PathFinalDest = null;
         group.PendingArrivals = 0;
         group.State = GroupState.Idle;
+        GroupStances.ReturnIfDone(sim, group);   // M49: back from helping or a charge
     }
 
     // A member that can't find its way to its slot walks on alone to the destination.

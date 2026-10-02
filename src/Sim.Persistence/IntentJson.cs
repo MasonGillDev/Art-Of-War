@@ -57,6 +57,9 @@ public static class IntentJson
         // M47 — route groups.
         [typeof(Sim.Core.Hauling.AssignGroupToRouteIntent)]     = "AssignGroupToRouteIntent",
         [typeof(Sim.Core.Hauling.UnassignGroupFromRouteIntent)] = "UnassignGroupFromRouteIntent",
+        // M49 — group stance.
+        [typeof(SetGroupStanceIntent)]    = "SetGroupStanceIntent",
+        [typeof(ChargeGroupIntent)]       = "ChargeGroupIntent",
         [typeof(DeclareWarIntent)]            = "DeclareWarIntent",
         [typeof(ProposeRelationshipIntent)]   = "ProposeRelationshipIntent",
         [typeof(RespondToProposalIntent)]     = "RespondToProposalIntent",
@@ -163,6 +166,8 @@ public static class IntentJson
             "SplitGroupIntent"       => JsonSerializer.Deserialize<SplitGroupIntent>(payload, Options),
             "AssignGroupToRouteIntent"     => JsonSerializer.Deserialize<Sim.Core.Hauling.AssignGroupToRouteIntent>(payload, Options),
             "UnassignGroupFromRouteIntent" => JsonSerializer.Deserialize<Sim.Core.Hauling.UnassignGroupFromRouteIntent>(payload, Options),
+            "SetGroupStanceIntent"   => JsonSerializer.Deserialize<SetGroupStanceIntent>(payload, Options),
+            "ChargeGroupIntent"      => JsonSerializer.Deserialize<ChargeGroupIntent>(payload, Options),
             "DeclareWarIntent"             => JsonSerializer.Deserialize<DeclareWarIntent>(payload, Options),
             "ProposeRelationshipIntent"    => JsonSerializer.Deserialize<ProposeRelationshipIntent>(payload, Options),
             "RespondToProposalIntent"      => JsonSerializer.Deserialize<RespondToProposalIntent>(payload, Options),

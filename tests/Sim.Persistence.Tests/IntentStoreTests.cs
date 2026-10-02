@@ -42,6 +42,8 @@ public class IntentStoreTests
         yield return new object[] { new MoveGroupIntent(groupId: 2, new TileCoord(4, 4), forRoute: true) { PlayerId = 0 } };
         yield return new object[] { new Sim.Core.Hauling.AssignGroupToRouteIntent(groupId: 2, routeId: 3, startStop: 1) { PlayerId = 0 } };
         yield return new object[] { new Sim.Core.Hauling.UnassignGroupFromRouteIntent(groupId: 2) { PlayerId = 0 } };
+        yield return new object[] { new SetGroupStanceIntent(groupId: 2, GroupStance.Aggressive) { PlayerId = 0 } };
+        yield return new object[] { new ChargeGroupIntent(groupId: 2, targetUnitId: 40) { PlayerId = 0 } };
         yield return new object[] { new TrainUnitIntent(unitId: 7, UnitRole.Builder) { PlayerId = 0 } };
         yield return new object[] { new EmbarkIntent(boatId: 50, new[] { 1, 2, 3 }) { PlayerId = 0 } };
         yield return new object[] { new DisembarkIntent(boatId: 50) { PlayerId = 0 } };
@@ -108,6 +110,12 @@ public class IntentStoreTests
                 Assert.Equal(aga.StartStop, agb.StartStop); break;
             case Sim.Core.Hauling.UnassignGroupFromRouteIntent uga when b is Sim.Core.Hauling.UnassignGroupFromRouteIntent ugb:
                 Assert.Equal(uga.GroupId, ugb.GroupId); break;
+            case SetGroupStanceIntent ssa when b is SetGroupStanceIntent ssb:
+                Assert.Equal(ssa.GroupId, ssb.GroupId);
+                Assert.Equal(ssa.Stance, ssb.Stance); break;
+            case ChargeGroupIntent cga when b is ChargeGroupIntent cgb:
+                Assert.Equal(cga.GroupId, cgb.GroupId);
+                Assert.Equal(cga.TargetUnitId, cgb.TargetUnitId); break;
             case DisbandGroupIntent da when b is DisbandGroupIntent db:
                 Assert.Equal(da.GroupId, db.GroupId); break;
             case CreateGroupIntent ca when b is CreateGroupIntent cb:

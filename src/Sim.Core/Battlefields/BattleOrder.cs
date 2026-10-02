@@ -137,6 +137,14 @@ public readonly record struct BattleDoctrine(DoctrineBehaviour Behaviour, int Wi
     // archers support, bandits advance, everyone who isn't a fighter
     // withdraws. Royalty is not a fighter: losing the king mid-battle is real.
     // A driver may set a threshold on top (the bandits' flee).
+    // THE doctrine a unit fights with this turn (the one place it is worked out): its own,
+    // set by the player (SetBattleDoctrineIntent); else what its group's stance makes of its
+    // role (M49, GroupStances.DoctrineFor); else its role's default. Pure read.
+    public static BattleDoctrine Effective(GameWorld world, Unit u) =>
+        u.Doctrine
+        ?? (Sim.Core.Groups.GroupStances.Of(world, u) is { } stance ? Sim.Core.Groups.GroupStances.DoctrineFor(stance, u.Role) : (BattleDoctrine?)null)
+        ?? DefaultFor(u.Role);
+
     public static BattleDoctrine DefaultFor(UnitRole role) => role switch
     {
         UnitRole.Soldier => Hold,

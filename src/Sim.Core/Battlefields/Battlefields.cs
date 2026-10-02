@@ -151,6 +151,7 @@ public static class Battlefields
         u.Board = new BoardSlot(tile);
         Sim.Core.Healing.Rest.Interrupt(u);   // no healing on a board (docs/unit-healing.md)
         GroupMarch.OnEnrolled(sim, u);        // its group's column waits (before AdoptRoute: drops the marker)
+        GroupStances.OnMemberEnrolled(sim, u, tile);   // M49: its army's companies nearby come to help
         AdoptRoute(u);
         // A walk that was bound for this very tile has arrived: the errand it carries still
         // runs (a hauler caught on the castle still deposits).
@@ -301,7 +302,7 @@ public static class Battlefields
         foreach (var u in slotted)
         {
             if (u.Board!.Order is { } o) orders[u.Id] = o;
-            doctrines[u.Id] = u.Doctrine ?? BattleDoctrine.DefaultFor(u.Role);
+            doctrines[u.Id] = BattleDoctrine.Effective(world, u);
             if (u.EnteredFrom is { } from && EdgeToward(tile, from) is { } h) enteredFrom[u.Id] = h;
         }
         var steps = TurnPlanner.PlanAll(board, orders, doctrines, new BoardSurroundings(Exits(sim, tile), enteredFrom, OwnersBeyond(world, tile)));
@@ -466,6 +467,7 @@ public static class Battlefields
         GroupMarch.WakeColumns(sim);
         foreach (var u in freed)
             if (world.Units.ContainsKey(u.Id)) GroupMuster.OnFreed(sim, u);
+        GroupStances.ReturnAllDone(sim);   // M49: who came to help goes back
         // Survivors standing on their own shelter start to heal (docs/unit-healing.md).
         Sim.Core.Healing.Rest.ArmAllOn(sim, bf.Tile);
         // A waiting enemy reopens the tile; attackers left alone with a
@@ -494,7 +496,7 @@ public static class Battlefields
         foreach (var u in slotted)
         {
             if (u.Board!.Order is { } o) orders[u.Id] = o;
-            doctrines[u.Id] = u.Doctrine ?? BattleDoctrine.DefaultFor(u.Role);
+            doctrines[u.Id] = BattleDoctrine.Effective(world, u);
             if (u.EnteredFrom is { } from && EdgeToward(bf.Tile, from) is { } h) enteredFrom[u.Id] = h;
         }
         return TurnPlanner.PlanAll(board, orders, doctrines, new BoardSurroundings(Exits(sim, bf.Tile), enteredFrom, OwnersBeyond(world, bf.Tile)));
