@@ -55,22 +55,22 @@ public class GroupDisbandTests
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, new TileCoord(9, 2)));
         // Run for a few ticks to put the group mid-walk.
         sim.Run(until: sim.Now + 30);
-        var midPosition = world.Groups[gid].Position;
 
         sim.SubmitIntent(sim.Now, new DisbandGroupIntent(gid));
+        sim.Run(until: sim.Now);   // the disband resolves
+        var where1 = (world.Units[1].Position, world.Units[1].Subtile);
+        var where2 = (world.Units[2].Position, world.Units[2].Subtile);
         sim.Run();
 
         Assert.False(world.Groups.ContainsKey(gid));
         Assert.Null(world.Units[1].GroupId);
         Assert.Null(world.Units[2].GroupId);
-        // Members stopped at the last arrival tile (Disband fences the next).
-        Assert.Equal(midPosition, world.Units[1].Position);
-        Assert.Equal(midPosition, world.Units[2].Position);
-        // A stale GroupArrivalEvent fenced cleanly. After Disband removes
-        // the group, the "group no longer exists" check fires before the
-        // epoch check — both are valid fail-clean paths.
-        Assert.Contains(sim.ResolvedLog.OfType<GroupArrivalEvent>(),
-            e => e.Outcome.IsRejected);
+        // Members stopped where they stood when it resolved (their walks were dropped).
+        Assert.Equal(where1, (world.Units[1].Position, world.Units[1].Subtile));
+        Assert.Equal(where2, (world.Units[2].Position, world.Units[2].Subtile));
+        // Their walks were dropped with the group: nothing carries them on.
+        Assert.False(world.Units[1].IsWalking);
+        Assert.False(world.Units[2].IsWalking);
     }
 
     [Fact]

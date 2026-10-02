@@ -129,14 +129,12 @@ public static class EmbarkGoal
         if (boat.Passengers.Count >= boat.PassengerCap) return false;
         if (!Alongside(world, passenger, boat)) return false;
 
-        passenger.PathRemaining = null;
-        passenger.PathFinalDest = null;
-        passenger.NextArrivalTick = null;
-        passenger.NextArrivalSeq = null;
+        Sim.Core.Movement.Walk.Stop(passenger);
         passenger.HaulPlan = null;
         passenger.TrySetActivity(Activity.Idle);
         boat.Passengers.Add(passenger.Id);
         passenger.EmbarkedOn = boat.Id;
+        passenger.Subtile = null;   // M42 — a passenger stands on no subtile
         return true;
     }
 }

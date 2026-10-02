@@ -66,10 +66,13 @@ public class CanalsTests
 
         PlaceAndCompleteCanal(sim, path);
 
-        // No resulting structure; every path tile is now Water.
-        Assert.False(sim.World.Structures.ContainsKey(new TileCoord(1, 5)));
+        // Every path tile is now Water, and carries a Canal structure (its banks, and the
+        // channel feet can't cross, are the tile's footprint).
         foreach (var t in path)
+        {
             Assert.Equal(Biome.Water, sim.World.Grid.BiomeAt(t));
+            Assert.Equal(StructureKind.Canal, sim.World.Structures[t].Kind);
+        }
         // Builders released to Idle.
         Assert.All(sim.World.Units.Values, u => Assert.Equal(Activity.Idle, u.Activity));
     }
@@ -321,7 +324,7 @@ public class CanalsTests
         // Before the canal, the inland tile (3,5) is landlocked — no water route.
         Assert.True(new Sim.Core.Movement.MoveIntent(boat.Id, new TileCoord(3, 5))
             { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.Null(boat.PathRemaining);
+        Assert.False(boat.IsWalking);
 
         // Dig a canal inland from the coast and let it complete.
         PlaceAndCompleteCanal(sim, new List<TileCoord> { new(1, 5), new(2, 5), new(3, 5) });
@@ -329,7 +332,7 @@ public class CanalsTests
         // Now the boat sails the canal to the inland end — the supply line.
         Assert.True(new Sim.Core.Movement.MoveIntent(boat.Id, new TileCoord(3, 5))
             { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.NotNull(boat.PathRemaining);
+        Assert.True(boat.IsWalking);
         sim.Run();
         Assert.Equal(new TileCoord(3, 5), boat.Position);
     }

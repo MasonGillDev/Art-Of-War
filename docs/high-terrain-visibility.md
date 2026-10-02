@@ -110,3 +110,12 @@ fog path. Cost is one bounded O(W·H) scan per world construction.
 - `Sim.Core/Vision/View.cs` (`BuildPlayerView`), `Sim.Core/World/Biome.cs`
   (`Biomes.IsCommonKnowledgeTerrain`), `Sim.Server/ViewProjector.cs` (the wire
   projection that carries `Remembered` to the client/AI).
+
+
+## Update 2026-10-01 — veins are hidden inside common-knowledge mountains (M44)
+
+Mountain terrain stays common knowledge, but Mountain is now the ore band.
+Its **veins** are not common knowledge. A faction learns a vein only by
+surveying with a Miner, or by seeing a Mine or Mine site stand on it. So
+the race to the peaks is now a race to prospect them. Hills (now the stone
+band) stay fogged. See `docs/stone-and-ore-land.md`.

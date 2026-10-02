@@ -113,19 +113,18 @@ public sealed class Unit
     // that moves cargo reads Cargo, never this.
     public Resource CargoResource => Cargo.Dominant;
 
-    // ---- M4 in-flight movement anchor (Phase A) ----
-    // The committed remaining steps of the current movement chain. Null when
-    // not moving. Set by MoveIntent.Resolve at command time, consumed step
-    // by step by MoveArrivalEvent.Apply. Stored on the unit so RegenerateQueue
-    // (M4 recovery) can rebuild the next MoveArrivalEvent purely from state.
-    //
-    // Storing the committed path (not recomputing on restore) is deliberate:
-    // recomputing against current road conditions could yield a different
-    // path than the live sim took, breaking determinism.
-    public List<TileCoord>? PathRemaining { get; set; }
+    // ---- Movement (M43: one movement, on subtiles) ----
+    // A unit that is going somewhere is WALKING: SubtileRoute (below) holds the steps
+    // left, one queued step event walks the next. PathFinalDest is the TILE it was
+    // ordered to (null for a route the player drew square by square, which has no
+    // errand): what the wire shows as its destination, what a battle or a fight
+    // leaves it to resume, and what marks an errand walk. Stored, never recomputed on
+    // restore (architecture §4 rule 7): a committed path was chosen against the world
+    // at command time.
     public TileCoord? PathFinalDest { get; set; }
-    public long? NextArrivalTick { get; set; }
-    public long? NextArrivalSeq  { get; set; }
+
+    // Walking now: steps left in the walk.
+    public bool IsWalking => SubtileRoute is { Count: > 0 };
 
     // ---- M4 in-flight haul anchor (Phase A) ----
     // Drives the pickup/deposit dispatch at the end of the move chain in
@@ -155,6 +154,13 @@ public sealed class Unit
     // is waiting on a precondition the unit sits in Activity.Waiting at the
     // target tile. See GoalPlan.cs and docs/goal-shaped-intents.md.
     public GoalPlan? Goal { get; set; }
+
+    // ---- M44 in-flight survey anchor ----
+    // Set by SurveyIntent (via SurveyRules.Begin), cleared by SurveyRules on
+    // every exit (report, cancel by retask, a failed walk). While digging,
+    // the unit sits in Activity.Waiting at the slope and the plan carries
+    // the SurveyCompleteEvent anchor. See Mining/SurveyPlan.cs.
+    public Sim.Core.Mining.SurveyPlan? Survey { get; set; }
 
     // ---- M29 in-flight pursuit anchor ----
     // Set by EngageUnitIntent, re-pathed one hop at a time by
@@ -246,16 +252,34 @@ public sealed class Unit
     // SetBattleDoctrineIntent. Survives between battles.
     public Sim.Core.Battlefields.BattleDoctrine? Doctrine { get; internal set; }
 
+    // M42 (docs/subtile-movement.md) — the subtile of its world tile the unit
+    // stands on, in a grid-combat world. Only enemies share one (a duel).
+    // Null in a Pooled world, while aboard a boat, and for a unit with no room
+    // on its tile. Written only by Battlefields.Placement.
+    public Sim.Core.Battlefields.Subtile? Subtile { get; internal set; }
+
+    // M42/M43 — THE WALK: the steps left of this unit's walk on the map's subtiles
+    // (SubtileRoutes), null when it has none, and the (tick, Seq) anchor of its queued
+    // SubtileRouteStepEvent (null while a battle has paused it). Set by a tile order
+    // (the pathfinder's path), a drawn route (the player's squares), a chase or an errand.
+    public List<Sim.Core.Battlefields.WorldSubtile>? SubtileRoute { get; internal set; }
+    public long? SubtileRouteTick { get; internal set; }
+    public long? SubtileRouteSeq { get; internal set; }
+
+    // M43 (docs/fix-combat-m43.md) — the open battlefield this unit's next step is waiting to
+    // enter: the board's tile had no room for it (a friend standing on the arrival subtile,
+    // or its side at the cap), so the step is retried on the board's beats and the unit stays
+    // on its own tile, off the board, until it fits or gives up. WaitingSince = the tick the
+    // wait began. Set and cleared only by SubtileRoutes (Cancel clears it), so a walk that
+    // ends any other way never leaves a stale wait.
+    public TileCoord? WaitingToEnter { get; internal set; }
+    public long WaitingSince { get; internal set; }
+
     // The tile this unit last walked in from, and when: a battle's arriving
     // units deploy on the edge facing it, and Withdraw goes back out that
     // way. Set on every hop arrival.
     public TileCoord? EnteredFrom { get; internal set; }
     public long EnteredTick { get; internal set; } = long.MinValue / 2;
-
-    // Set while the unit is making the world hop OFF a battlefield it left
-    // (the tile it left): it no longer counts as present there and nothing
-    // pins it. Cleared when the hop lands.
-    public TileCoord? LeavingBoard { get; internal set; }
 
     public Unit(int id, TileCoord position) { Id = id; Position = position; }
 

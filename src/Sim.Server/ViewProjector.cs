@@ -175,8 +175,22 @@ public sealed class ViewProjector
                 ForestMaxBaseline = Sim.Core.Biomes.EnvironmentalFertility.MaxBaseline(Biome.Forest, fert),
             },
             Units = UnitCatalog(),
+            Doctrines = DoctrineCatalog(),
         };
     }
+
+    // The battle doctrines, in catalog order (docs/battle-sandbox.md).
+    private static DoctrineOptionDto[] DoctrineCatalog() =>
+        Sim.Core.Battlefields.DoctrineCatalog.All
+            .Select(d => new DoctrineOptionDto
+            {
+                Id = (int)d.Behaviour,
+                Name = d.Name,
+                Description = d.Description,
+                TakesWithdrawBelow = d.TakesWithdrawBelow,
+                Roles = d.Roles?.Select(r => (int)r).ToArray() ?? [],
+            })
+            .ToArray();
 
     // P3 — every role but None, ordered by id for a deterministic payload. Bandits
     // are included: the player sees them and needs to read them.
@@ -250,6 +264,7 @@ public sealed class ViewProjector
                 BuildDurationTicks = spec.BuildDurationTicks,
                 ClaimCount = spec.ClaimCount,
                 ClaimRange = spec.ClaimRange,
+                RequiresVein = spec.RequiresVein,
                 BlocksMovement = spec.BlocksMovement,
                 AlliedPassage = spec.AlliedPassage,
                 BaseHealth = spec.BaseHealth,
@@ -297,7 +312,7 @@ public sealed class ViewProjector
     // RLE'd fog-state grid plus the handful of tiles whose BELIEVED biome has drifted
     // from genesis. Must be called under the host lock, exactly like Project: it reads
     // live world state and advances GraveSource's seen gate.
-    public ViewV2Dto ProjectV2(Simulation sim, long now, int playerId, bool reveal)
+    public ViewV2Dto ProjectV2(Simulation sim, long now, int playerId, bool reveal, bool revealOrders = false)
     {
         var world = sim.World;
         var cfg = world.BiomeDegradationConfig;
@@ -355,12 +370,12 @@ public sealed class ViewProjector
         if (run > 0) { runState.Add(cur); runLen.Add(run); }
 
         // Roads are terrain memory (design 8.6): they persist through re-fog, so any
-        // road ARC with an explored endpoint ships with its live decayed condition.
+        // road LINK with an explored endpoint ships with its live decayed condition.
         // Iterating the sparse Roads dict keeps this bounded by road count, not map size.
         var roads = new List<RoadDto>();
         foreach (var arc in world.Roads.Keys)
         {
-            if (!reveal && !view.Explored.Contains(arc.A) && !view.Explored.Contains(arc.B)) continue;
+            if (!reveal && !view.Explored.Contains(arc.A.Tile) && !view.Explored.Contains(arc.B.Tile)) continue;
             var cond = Road.ConditionAt(world, arc, now);
             if (cond > 0) roads.Add(RoadDtoFor(arc, cond));
         }
@@ -401,7 +416,7 @@ public sealed class ViewProjector
         FillOmens(dto, world, now, playerId);
         FillSecrets(dto, world, now, playerId);
         FillPiles(dto, world, reveal);
-        dto.Battlefields = BattlefieldProjection.Project(sim, playerId, reveal, view.Visible);
+        dto.Battlefields = BattlefieldProjection.Project(sim, playerId, reveal, revealOrders, view.Visible);
         if (GraveSource is not null)
         {
             // GraveTracker.Project reads only X/Y off this array (its visibility gate).
@@ -527,7 +542,22 @@ public sealed class ViewProjector
                 X = g.Center.X, Y = g.Center.Y, Radius = g.Radius,
                 TicksLeft = Math.Max(0, g.EndsTick - now),
             }).ToArray();
+
+        // M44 — the viewer's own ore knowledge. Pure read; (y, x) order.
+        dto.Veins = world.KnownVeins.TryGetValue(playerId, out var known)
+            ? known.Select(t => new VeinDto { X = t.X, Y = t.Y, Mined = MineStandsOn(world, t) }).ToArray()
+            : [];
+        if (world.SurveyedBarren.TryGetValue(playerId, out var barren))
+        {
+            dto.BarrenX = barren.Select(t => t.X).ToArray();
+            dto.BarrenY = barren.Select(t => t.Y).ToArray();
+        }
     }
+
+    private static bool MineStandsOn(GameWorld world, TileCoord tile) =>
+        world.Structures.TryGetValue(tile, out var s)
+        && (s.Kind == StructureKind.Mine
+            || (s is ConstructionSite c && c.TargetKind == StructureKind.Mine));
 
     // M37 — the viewer's OWN omens (docs/progression.md): live ones, and the
     // outcome of any that ended within OmenDto.RecentTicks. Pure read. A
@@ -612,6 +642,7 @@ public sealed class ViewProjector
             .Select(r => new HaulRouteDto
             {
                 Id = r.RouteId,
+                Name = r.Name,
                 Stops = r.Stops.Select(st => new HaulStopDto
                 {
                     X = st.Tile.X, Y = st.Tile.Y,
@@ -627,6 +658,11 @@ public sealed class ViewProjector
                     CurrentStop = c.CurrentStop,
                     Living = Sim.Core.Hauling.RouteCrews.Living(world, r, c).Count,
                     State = crewStates.TryGetValue((r.RouteId, c.CrewId), out var cr) ? (int)cr.State : 0,
+                    LastStop = c.LastServe?.Stop ?? -1,
+                    LastTick = c.LastServe?.Tick ?? -1,
+                    LastLoaded = c.LastServe?.Loaded ?? 0,
+                    LastUnloaded = c.LastServe?.Unloaded ?? 0,
+                    LastNotes = (int)(c.LastServe?.Notes ?? Sim.Core.Hauling.ServeNote.None),
                 }).ToArray(),
             }).ToArray();
     }
@@ -803,14 +839,14 @@ public sealed class ViewProjector
         var view = View.BuildPlayerView(world, playerId, now);
 
         // Roads are terrain memory (design §8.6): they persist through re-fog, so we
-        // include any road ARC with an explored endpoint (not just currently visible)
+        // include any road LINK with an explored endpoint (not just currently visible)
         // with its live decayed condition via the pure-read ConditionAt. Iterating the
         // sparse Roads dict keeps this bounded by road count, not map size.
         var roads = new List<RoadDto>();
         foreach (var arc in world.Roads.Keys)
         {
-            // An arc is known when EITHER tile is explored (docs/roads-on-edges.md).
-            if (!view.Explored.Contains(arc.A) && !view.Explored.Contains(arc.B)) continue;
+            // A link is known when EITHER of its tiles is explored.
+            if (!view.Explored.Contains(arc.A.Tile) && !view.Explored.Contains(arc.B.Tile)) continue;
             var cond = Road.ConditionAt(world, arc, now);
             if (cond > 0) roads.Add(RoadDtoFor(arc, cond));
         }
@@ -887,8 +923,9 @@ public sealed class ViewProjector
             GoalX = mine ? u.Goal?.TargetTile.X ?? -1 : -1,
             GoalY = mine ? u.Goal?.TargetTile.Y ?? -1 : -1,
         };
-        if (mine) FillPursuit(dto, u);
-        FillHop(dto, u, world, now);
+        if (mine) { FillPursuit(dto, u); FillRoute(dto, u); FillSurvey(dto, u); FillHaul(dto, u); }
+        FillSubtile(dto, u);
+        FillSubtileStep(dto, u, world);
         return dto;
     }
 
@@ -897,6 +934,53 @@ public sealed class ViewProjector
     // M36 — every resource aboard, in enum order (CargoHold is sorted).
     private static CargoItemDto[] CargoItems(Unit u) =>
         u.Cargo.Items.Select(kv => new CargoItemDto { Resource = (int)kv.Key, Amount = kv.Value }).ToArray();
+
+    // M42 — the subtile a unit stands on (public, physical).
+    private static void FillSubtile(UnitDto dto, Unit u)
+    {
+        if (u.Subtile is not { } s) return;
+        dto.SubX = s.X;
+        dto.SubY = s.Y;
+    }
+
+    // M42/M43 — the subtile step in flight: the walk's next step, the tick it lands and how long
+    // it takes. Public, like the hop it replaced: which way something is stepping is visible.
+    private static void FillSubtileStep(UnitDto dto, Unit u, GameWorld world)
+    {
+        if (u.Subtile is not { } sub || u.SubtileRouteTick is not { } arrive || u.SubtileRoute is not { Count: > 0 } route) return;
+        var here = Sim.Core.Battlefields.WorldSubtile.Of(u.Position, sub);
+        var next = route[0];
+        var total = Sim.Core.Battlefields.SubtileRoutes.StepCost(world, u, here, next, arrive);
+        if (!here.IsAdjacentTo(next) || total <= 0) return;
+        dto.SubStepX = next.X;
+        dto.SubStepY = next.Y;
+        dto.SubStepArriveTick = arrive;
+        dto.SubStepTotalTicks = (int)total;
+    }
+
+    // M42 — the unit's drawn subtile route, own units only (the caller gates).
+    private static void FillRoute(UnitDto dto, Unit u)
+    {
+        if (u.SubtileRoute is not { Count: > 0 } route) return;
+        dto.RouteX = route.Select(r => r.X).ToArray();
+        dto.RouteY = route.Select(r => r.Y).ToArray();
+    }
+
+    // M45 — the unit's live load and its named route. Own units only (callers gate).
+    private static void FillHaul(UnitDto dto, Unit u)
+    {
+        dto.CargoCapacity = u.CargoCapacity;
+        dto.HaulRouteId = u.RouteId ?? -1;
+    }
+
+    // M44 — the survey tag. Own units only (callers gate).
+    private static void FillSurvey(UnitDto dto, Unit u)
+    {
+        if (u.Survey is not { } plan) return;
+        dto.SurveyX = plan.Target.X;
+        dto.SurveyY = plan.Target.Y;
+        dto.SurveyDoneTick = plan.CompleteTick ?? -1;
+    }
 
     private static void FillPursuit(UnitDto dto, Unit u)
     {
@@ -928,6 +1012,12 @@ public sealed class ViewProjector
     // player controls, and that is the one the player may want to act on.
     private static string GoalStateOf(Unit u, GameWorld world)
     {
+        // M44 — a survey is an errand too, and says so: walking to the slope,
+        // then digging (never "waiting" — the dig is progress, not a stall).
+        if (u.Goal is null && u.Survey is { } survey)
+            return survey.CompleteTick is null
+                ? $"en route to survey ({survey.Target.X},{survey.Target.Y})"
+                : $"surveying ({survey.Target.X},{survey.Target.Y})";
         if (u.Goal is not { } goal) return "";
         if (u.Activity != Activity.Waiting) return "en route";
 
@@ -946,36 +1036,6 @@ public sealed class ViewProjector
     // The state of the group a unit belongs to, or 0 when it is in none. Pure read.
     private static int GroupStateOf(Unit u, GameWorld world) =>
         u.GroupId is { } gid && world.Groups.TryGetValue(gid, out var g) ? (int)g.State : 0;
-
-    // The hop a unit is in the middle of: which tile it is stepping to, the tick it
-    // lands, and how many ticks the step takes. Everything the client needs to place
-    // it BETWEEN tiles instead of snapping it to a centre four times a second.
-    //
-    // Pure reads throughout — the anchor fields the sim already keeps for recovery
-    // (PathRemaining / NextArrivalTick) plus MovementCost.ExecutionCost, which is the
-    // same function that priced the hop when it was scheduled. So the duration is the
-    // sim's own number, not an estimate.
-    //
-    // Emitted for EVERY visible unit. See UnitDto.HopToX for why a step is public
-    // where a destination is not.
-    private static void FillHop(UnitDto dto, Unit u, GameWorld world, long now)
-    {
-        if (u.NextArrivalTick is not { } arriveAt) return;
-        if (u.PathRemaining is not { Count: > 0 } path) return;
-
-        var to = path[0];
-        var cost = Sim.Core.Movement.MovementCost.ExecutionCost(
-            world, u.Position, to, now, u.Traversal);
-
-        // Impassable comes back as a sentinel cost; a hop that cannot be priced is
-        // one the client should not try to animate.
-        if (cost <= 0 || cost >= Sim.Core.World.Biomes.Impassable) return;
-
-        dto.HopToX = to.X;
-        dto.HopToY = to.Y;
-        dto.HopArriveTick = arriveAt;
-        dto.HopTotalTicks = cost;
-    }
 
     // Where is this unit ultimately headed? Solo movement carries its own
     // PathFinalDest anchor; a grouped unit rides its Group's. Pure read.
@@ -1052,8 +1112,8 @@ public sealed class ViewProjector
             GoalX = goalX,
             GoalY = goalY,
         };
-        if (uv.OwnerId == viewerPlayerId && live is not null) FillPursuit(dto2, live);
-        if (live is not null) FillHop(dto2, live, world, now);
+        if (uv.OwnerId == viewerPlayerId && live is not null) { FillPursuit(dto2, live); FillRoute(dto2, live); FillSurvey(dto2, live); FillHaul(dto2, live); }
+        if (live is not null) { FillSubtile(dto2, live); FillSubtileStep(dto2, live, world); }
         return dto2;
     }
 
@@ -1258,7 +1318,10 @@ public sealed class ViewProjector
                 // Soil visibility (own-only): live fertility per claim
                 // tile, parallel to the ClaimX/ClaimY arrays FillClaims
                 // emits (same source list, same order). Pure read.
-                if (ex.ClaimTiles.Count > 0)
+                // M44 — only for kinds that WEAR their land: a quarry's hills
+                // never change, so there is no soil to read (and the client's
+                // soil ladder would misgrade off-ladder Hills).
+                if (ex.ClaimTiles.Count > 0 && ex.Spec.DegradeAmount > 0)
                 {
                     dto.ClaimFertility = ex.ClaimTiles
                         .Select(t => Sim.Core.Biomes.BiomeDegradation.FertilityAt(
@@ -1316,6 +1379,6 @@ public sealed class ViewProjector
         }
     }
 
-    private static RoadDto RoadDtoFor(TileEdge arc, int condition) =>
+    private static RoadDto RoadDtoFor(SubtileLink arc, int condition) =>
         new() { X = arc.A.X, Y = arc.A.Y, Axis = (int)arc.Direction, Condition = condition };
 }

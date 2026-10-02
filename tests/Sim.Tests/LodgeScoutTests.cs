@@ -6,8 +6,8 @@ using Sim.Server;
 namespace Sim.Tests;
 
 // M38 Phase A (docs/scouting-secrets.md): scouts are trained at the Lodge, not
-// the School, and a human seat starts with none (its two scout slots are
-// untrained citizens, so the headcount is unchanged). AI factions keep theirs.
+// the School, and a human seat starts with none (its roster is the human
+// opening, docs/human-opening.md). AI factions keep theirs.
 public class LodgeScoutTests
 {
     private static (Simulation sim, Unit citizen) CitizenOn(StructureKind trainer)
@@ -107,7 +107,7 @@ public class LodgeScoutTests
     }
 
     [Fact]
-    public void AHumanSeat_StartsWithoutScouts_AndTheSameHeadcount_AiSeatsKeepTheirs()
+    public void AHumanSeat_StartsWithoutScouts_AiSeatsKeepTheirs()
     {
         var human = new Simulation(WorldFactory.Build(new ServerOptions
             { MapWidth = 96, MapHeight = 96, MapSeed = 7, AiPlayers = 1, Progression = true }).Spec, seed: 1);
@@ -116,11 +116,8 @@ public class LodgeScoutTests
 
         int Count(Simulation s, int owner, UnitRole role) =>
             s.World.Units.Values.Count(u => u.OwnerId == owner && u.Role == role);
-        int Heads(Simulation s, int owner) => s.World.Units.Values.Count(u => u.OwnerId == owner);
 
         Assert.Equal(0, Count(human, 0, UnitRole.Scout));
-        Assert.Equal(Count(lab, 0, UnitRole.Scout), Count(human, 0, UnitRole.None) - Count(lab, 0, UnitRole.None));
-        Assert.Equal(Heads(lab, 0), Heads(human, 0));
         Assert.Equal(2, Count(human, 1, UnitRole.Scout));   // the AI faction keeps its pair
         Assert.Equal(2, Count(lab, 0, UnitRole.Scout));     // and so does an AI-driven seat 0
     }

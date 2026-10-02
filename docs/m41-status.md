@@ -441,3 +441,39 @@ in one pass. **Nothing is committed.**
 - **`CombatDto` still describes a board tile as a pooled combat** for the old clash marks.
   Harmless: the Grid is opt-in.
 - **Not run in Play:** the whole client half. The user's checklist is in the Phase 6 section.
+
+---
+
+## Update 2026-09-29 — milestone numbering
+
+"M42" above (flip the default to grid, migrate the tests, the AI) is now **M43**. The new
+**M42 is subtile movement** (`docs/subtile-movement.md`, `docs/m42-status.md`): every unit
+always stands on a subtile. The flip stands on it.
+
+## Update 2026-09-29 — M42 replaced seating, shelter and the outside lane
+
+`docs/subtile-movement.md` (M42 phase 4) changes what this doc built. A board now reads the
+subtiles units already stand on (`Unit.Subtile`):
+- **Seating at open is gone.** Everyone on the tile joins where they stand: arrivals no longer
+  deploy on the edge row, and units already present no longer go to the centre rows.
+- **Overflow shelter (D1) is gone.** A unit with no room has no subtile, and is not on the
+  board: it can neither act nor be hit. The per-side cap (`docs/structure-footprints.md`) keeps
+  that to test worlds that pile units up.
+- **The "outside lane" waiting position is gone.** A hop onto an open board is put off to the
+  next beat; the unit waits on its source subtile, then lands on an entry lane and joins.
+- **`BoardSlot`** holds only the order, the subtile last moved from, and the last step note. The
+  wire keeps `Waiting` and `Sheltered` (always false) so the client contract is unchanged.
+- **Battle routes:** a subtile route a unit is walking when a battle opens, or is given on an
+  open board, becomes its battle route, walked one subtile a turn.
+
+## Update 2026-09-30
+
+The Phase 6 battle test bed is replaced by the **battle sandbox** (`docs/battle-sandbox.md`):
+an Edit mode where you compose a situation in the real world (palette, inspector, marches,
+the hour, the pace) and a Play mode that is the real game but for the map's size and fog.
+Scrapped with it: the five `scenarios/battle/*.scenario` files and their format
+(`Sim.Server/Scenarios`), `ScenarioLibraryTests`, `tools/battle-testbed.ps1`, `GameHost`'s
+hold-at-beats and step-turn clock tools, and the client's director mode (the reveal switch is
+now split: `?reveal=1` lifts the fog, `&orders=1` shows the other side's orders). The test
+bed's reasons for those crutches are recorded above; the user chose to play battles on the
+game's real clock and information instead.

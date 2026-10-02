@@ -1,9 +1,9 @@
 namespace Sim.Core.Roads;
 
-// Per-ARC road state (docs/roads-on-edges.md): the lane between two
-// adjacent tiles. Sparse: only arcs with Condition > 0 live in
-// GameWorld.Roads. When CatchUpDecay drops Condition to 0, the arc is
-// removed from the set (absent arcs return plain biome cost via the
+// Per-LINK road state (M43, docs/subtile-movement.md): the step between two
+// adjacent subtiles. Sparse: only links with Condition > 0 live in
+// GameWorld.Roads. When CatchUpDecay drops Condition to 0, the link is
+// removed from the set (absent links return the plain step cost via the
 // fallback path in Road.EffectiveCost).
 //
 // Mutable class — events mutate it in place. Matches the Extractor pattern;

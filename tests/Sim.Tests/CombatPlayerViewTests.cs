@@ -6,7 +6,8 @@ using Sim.Core.World;
 
 namespace Sim.Tests;
 
-// M7 Phase F: PlayerView surfaces combat within fog.
+// M7 Phase F: PlayerView surfaces combat within fog. (M43: the combat rounds that remain are
+// sieges; the boards have their own projection.)
 //   * Own unit Health is visible.
 //   * Combat on a tile inside the viewer's Visible set surfaces in
 //     OngoingCombats.
@@ -42,7 +43,7 @@ public class CombatPlayerViewTests
     [Fact]
     public void Combat_OnVisibleTile_SurfacesInOngoingCombats()
     {
-        var tile = new TileCoord(5, 5); // inside faction 0's castle vision (radius 5).
+        var tile = new TileCoord(6, 5); // inside faction 0's castle vision (radius 5).
         var spec = new GenesisSpec
         {
             Width = 30, Height = 30,
@@ -55,9 +56,10 @@ public class CombatPlayerViewTests
         var world = Genesis.Build(spec);
         world.Diplomacy.SetState(FactionPair.Of(0, 1), RelationshipState.Enemy);
 
-        // Hand-place enemies on a tile in faction 0's vision.
-        world.AddUnit(new Unit(100, tile) { Role = UnitRole.Builder, OwnerId = 0 });
-        world.AddUnit(new Unit(200, tile) { Role = UnitRole.Builder, OwnerId = 1 });
+        // M43: unit fights are boards; the combat rounds that remain are SIEGES. Hand-place an
+        // enemy alone with a structure of faction 0's, on a tile in faction 0's vision.
+        world.AddStructure(new Stockpile(tile) { OwnerId = 0 });
+        world.AddUnit(new Unit(200, tile) { Role = UnitRole.Soldier, OwnerId = 1 });
         var sim = new Simulation(world, seed: 0xF06);
         CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
 
@@ -84,8 +86,8 @@ public class CombatPlayerViewTests
         world.Diplomacy.SetState(FactionPair.Of(1, 2), RelationshipState.Enemy);
 
         var farTile = new TileCoord(30, 30); // out of faction 0's range.
-        world.AddUnit(new Unit(100, farTile) { Role = UnitRole.Builder, OwnerId = 1 });
-        world.AddUnit(new Unit(200, farTile) { Role = UnitRole.Builder, OwnerId = 2 });
+        world.AddStructure(new Stockpile(farTile) { OwnerId = 1 });
+        world.AddUnit(new Unit(200, farTile) { Role = UnitRole.Soldier, OwnerId = 2 });
         var sim = new Simulation(world, seed: 0xF06);
         CombatTrigger.MaybeBeginCombatOnTile(sim, farTile);
 
@@ -93,9 +95,7 @@ public class CombatPlayerViewTests
         Assert.Empty(view0.OngoingCombats);
 
         // Belligerents see it.
-        var view1 = View.BuildPlayerView(world, playerId: 1);
         var view2 = View.BuildPlayerView(world, playerId: 2);
-        Assert.NotEmpty(view1.OngoingCombats);
-        Assert.NotEmpty(view2.OngoingCombats);
+        Assert.NotEmpty(view2.OngoingCombats);   // the attacker's own soldier has eyes on the tile
     }
 }

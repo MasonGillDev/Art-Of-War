@@ -63,7 +63,7 @@ public static class Claims
     // Who claims `tile`? Scans both carriers (finished extractors AND
     // pending construction sites — claims reserve at placement). Returns
     // the claimant's structure tile, or null. O(structures × claim size);
-    // claim size ≤ 6 — same scaling shape the radius scan had. A per-tile
+    // claim size ≤ 15 (the Farm) — same scaling shape the radius scan had. A per-tile
     // claim index is the future optimization if structure counts demand it.
     public static TileCoord? ClaimantAt(GameWorld world, TileCoord tile)
     {

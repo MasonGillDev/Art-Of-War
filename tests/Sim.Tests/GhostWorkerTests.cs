@@ -22,7 +22,7 @@ namespace Sim.Tests;
 //   * ProductionTickEvent reschedules while Workers.Count > 0, so the dead
 //     building keeps ticking at zero rate forever.
 //
-// The MOVE path always released assignments (MoveIntent.CleanUpAssignment);
+// The MOVE path always released assignments (Retask.Release);
 // the DEATH path never did. Both now go through WorkAssignment.Release.
 public class GhostWorkerTests
 {

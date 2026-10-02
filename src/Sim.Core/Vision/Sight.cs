@@ -63,6 +63,7 @@ public static class Sight
     internal static void AfterReveal(Simulation sim, int playerId, TileCoord center, int r)
     {
         Sim.Core.Scouting.Charts.OnSight(sim, playerId, center, r);
+        Sim.Core.Mining.Veins.OnSight(sim, playerId, center, r);   // M44 — seeing a mine teaches its vein
         Sim.Core.Progression.Progression.Check(sim, playerId);
     }
 

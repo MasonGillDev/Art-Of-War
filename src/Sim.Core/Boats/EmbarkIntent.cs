@@ -125,14 +125,12 @@ public sealed class EmbarkIntent : Intent
         {
             var p = world.Units[pid];
             // Drop any in-flight obligations cleanly. Idle → bump epoch.
-            p.PathRemaining = null;
-            p.PathFinalDest = null;
-            p.NextArrivalTick = null;
-            p.NextArrivalSeq = null;
+            Sim.Core.Movement.Walk.Stop(p);
             p.HaulPlan = null;
             p.TrySetActivity(Activity.Idle);
             boat.Passengers.Add(pid);
             p.EmbarkedOn = BoatId;
+            p.Subtile = null;   // M42 — a passenger stands on no subtile
         }
 
         // Everyone else walks to the quay and boards when they and the hull are

@@ -176,7 +176,8 @@ public sealed class Cache : StorageStructure
 // the snapshot format WILL change") was paid off by M15: claiming kinds
 // (LumberCamp, Farm — Spec.ClaimCount > 0) work an explicit set of
 // CLAIMED tiles (docs/extraction-claims.md); FormatVersion bumped to 10.
-// Quarry/Mine remain own-tile-only until their ladder extension.
+// M44: the Quarry claims too (Hills, no wear); the Mine stays own-tile —
+// it stands on a surveyed vein (docs/stone-and-ore-land.md).
 public sealed class Extractor : Structure
 {
     public override StructureKind Kind => _kind;

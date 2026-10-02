@@ -79,7 +79,7 @@ public static class Footprints
     private static SubtileLayer Build(StructureKind kind, int? owner, Heading facing, IReadOnlyCollection<Heading> joins)
     {
         var turns = (int)facing;
-        if (kind == StructureKind.Castle) return Turned(owner, turns, CastleNorth());
+        if (kind == StructureKind.Castle) return Turned(owner, turns, CastleNorth(), CastleTowers);
         if (kind == StructureKind.BanditCamp) return Turned(owner, turns, BanditCampNorth(), (new Subtile(3, 3), CampTowerReach));
         if (kind == StructureKind.Dock) return Turned(owner, turns, DockNorth());
         if (kind == StructureKind.Canal) return SubtileLayer.Build(owner, Channel(joins));
@@ -264,22 +264,40 @@ public static class Footprints
     private static List<(Subtile At, SubtileKind Kind, Heading[] Closed)> Blocked(params (int X, int Y)[] cells) =>
         cells.Select(c => (new Subtile(c.X, c.Y), SubtileKind.Blocked, Array.Empty<Heading>())).ToList();
 
-    // The castle, facing North: a ring of Wall around an open 2×2 courtyard, each
-    // ring subtile closed on its outer side (two at a corner), with one Open gap
-    // at (1, 0) on the north edge: the gate, which anyone may use. Turned
-    // clockwise a quarter per step to East, South, West.
+    // A castle corner tower's archer reaches every subtile within this many moves
+    // (user, 2026-10-01): from a corner that is the gap and the nearest courtyard
+    // subtile, so an attacker's foothold is under fire from both flanks.
+    public const int CastleTowerReach = 2;
+
+    // The castle, facing North (user, 2026-10-01; docs/structure-footprints.md,
+    // Update 2026-10-01): a ring round an open 2×2 courtyard, each ring subtile
+    // closed on its outer side (two at a corner). The corners are Towers; the keep
+    // on the back wall is Blocked (nobody stands in it); one Open gap at (1, 0) on
+    // the facing edge is the gate, which anyone may use. Turned clockwise a quarter
+    // per step to East, South, West.
+    //
+    //      x=0   x=1   x=2   x=3
+    //   0  TWR   gap    W    TWR
+    //   1   W     .     .     W
+    //   2   W     .     .     W
+    //   3  TWR   ███   ███   TWR
     private static List<(Subtile At, SubtileKind Kind, Heading[] Closed)> CastleNorth()
     {
         var cells = new List<(Subtile, SubtileKind, Heading[])>();
         var gap = new Subtile(1, 0);
+        var keep = new HashSet<Subtile> { new(1, 3), new(2, 3) };
         foreach (var at in Subtile.All())
         {
             var outer = Headings.All.Where(at.IsOnEdgeRow).ToArray();
             if (outer.Length == 0 || at == gap) continue;
-            cells.Add((at, SubtileKind.Wall, outer));
+            var kind = keep.Contains(at) ? SubtileKind.Blocked : outer.Length == 2 ? SubtileKind.Tower : SubtileKind.Wall;
+            cells.Add((at, kind, outer));
         }
         return cells;
     }
+
+    private static readonly (Subtile At, int Moves)[] CastleTowers =
+        { (new Subtile(0, 0), CastleTowerReach), (new Subtile(3, 0), CastleTowerReach), (new Subtile(0, 3), CastleTowerReach), (new Subtile(3, 3), CastleTowerReach) };
 
     // A wall line through the tile, running to the edge of every neighbour it
     // joins, one row in from its outer side so it meets the neighbours' lines

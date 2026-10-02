@@ -1,34 +1,20 @@
 namespace Sim.Core.Battlefields;
 
-// M41 — a unit's place on an open battlefield (Unit.Board). Exactly one of:
-//   on the board  — At is a subtile 0..3;
-//   waiting       — At is just outside an edge, in the lane it will come on
-//                   by (it arrived while the board was open; it steps on at
-//                   the next beat, docs/battlefield-grid.md §4.3);
-//   sheltered     — more of its side on the tile than the board holds (build
-//                   decision D1): off the board, safe, unable to act; it
-//                   comes on into a free subtile when one frees.
+// M41 — a unit's part in an open battlefield (Unit.Board). M42 phase 4: where it
+// stands is Unit.Subtile, the same as at world scale, so the slot holds only what
+// belongs to the fight: the standing order, the subtile it last moved from (no
+// passing through), and why its last planned step didn't happen.
 public sealed class BoardSlot
 {
     public TileCoord Tile { get; }
-    public Subtile At { get; internal set; }
     public Subtile? CameFrom { get; internal set; }
     public BattleOrder? Order { get; internal set; }
-    public bool Sheltered { get; internal set; }
 
     // Why its last planned step didn't happen (StepNote.None if it did, or it
     // had none). Shown to the owner (§10).
     public StepNote LastNote { get; internal set; }
 
-    public BoardSlot(TileCoord tile, Subtile at, bool sheltered = false)
-    {
-        Tile = tile;
-        At = at;
-        Sheltered = sheltered;
-    }
-
-    public bool OnBoard => !Sheltered && At.IsOnBoard;
-    public bool Waiting => !Sheltered && !At.IsOnBoard;
+    public BoardSlot(TileCoord tile) { Tile = tile; }
 }
 
 // M41 — one open battlefield (GameWorld.Battlefields). The turn anchor is the

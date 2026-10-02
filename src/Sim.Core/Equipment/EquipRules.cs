@@ -60,6 +60,26 @@ public static class EquipRules
         if (storage is null || storage.AmountOf(item) < 1) return false;
 
         storage.Withdraw(item, 1);
+        Wear(unit, spec);
+        unit.TrySetActivity(Activity.Idle);
+        unit.BumpEpoch();
+        return true;
+    }
+
+    // Put an item on a unit that is being CREATED, with no shelf to take it from:
+    // the battle sandbox's composed units (docs/battle-sandbox.md). Same rules as
+    // the storehouse road (Blocker), same buff instance, same health rule. Returns
+    // why it can't, or null. Not an intent and never called in a running game: the
+    // unit must have just been added, before tick 0.
+    public static string? Grant(Unit unit, Resource item)
+    {
+        if (Blocker(unit, item) is { } why) return why;
+        Wear(unit, EquipmentCatalog.Spec(item));
+        return null;
+    }
+
+    private static void Wear(Unit unit, EquipmentSpec spec)
+    {
         // Modifiers are COPIED into the instance — snapshot-carried — so a later
         // catalog retune never reaches back into a unit already carrying this.
         unit.Buffs.Add(new Buff(spec.BuffKind, spec.PowerModifier, spec.HealthModifier,
@@ -68,9 +88,6 @@ public static class EquipRules
         // The apply-time health rule (Buff.cs): a Shield's +10 raises Health now
         // and is reversed when the item is stripped.
         unit.Health += spec.HealthModifier;
-        unit.TrySetActivity(Activity.Idle);
-        unit.BumpEpoch();
-        return true;
     }
 
     // A delivery landed in this storehouse. Anyone standing in it waiting for

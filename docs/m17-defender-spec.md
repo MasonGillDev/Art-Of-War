@@ -288,3 +288,12 @@ the pursuit-leash pin sampled every think.
   machinery Muster drives.
 - `docs/combat.md` / `CombatRules.cs` — contact-triggered combat and
   the drop-to-tile loot economy Defend recovers from.
+
+## Update 2026-10-01
+
+The genesis School is now the **AI seats'** answer to the circular lock only.
+The human seat starts with a House and no School (`docs/human-opening.md`),
+with two Builders and a separately crowned King instead. For the human seat
+the lock is reachable again, but it takes two Builder deaths before the first
+School stands. That risk was accepted on purpose so the School becomes
+something the player discovers they need.

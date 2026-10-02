@@ -129,7 +129,7 @@ public sealed class HaulIntent : Intent
             // on another lake; a walled-off yard): without this the hauler
             // stays Hauling forever with no arrival scheduled — a zombie
             // every selector ignores.
-            if (hauler.NextArrivalSeq is null)
+            if (!hauler.IsWalking)
             {
                 hauler.HaulPlan = null;
                 hauler.TrySetActivity(Activity.Idle);

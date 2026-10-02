@@ -39,15 +39,38 @@ public sealed class RouteCrew
     public int CrewId { get; init; }
     public List<int> Members { get; init; } = new();   // ascending, distinct
     public int CurrentStop { get; set; }
+
+    // M45 — what the crew's last serve did, so a stop that moves nothing can
+    // say why. Written ONLY by ServeRouteStopIntent; cleared by
+    // UpdateHaulRouteIntent (its stop index may no longer mean the same stop).
+    public ServeReport? LastServe { get; set; }
 }
+
+// M45 — why a serve moved less than its rules asked for. Flags: one serve can
+// meet an empty store at one rule and a full one at another. Append-only bits.
+[Flags]
+public enum ServeNote : byte
+{
+    None        = 0,
+    SourceEmpty = 1,    // a pick-up found less in store than it wanted
+    DropRefused = 2,    // a drop was not (fully) taken: store full, or it doesn't take that
+    CarrierFull = 4,    // a pick-up had no room left aboard
+    NotYours    = 8,    // no building of the route owner's on the stop tile
+    NoCarriers  = 16,   // everyone standing there is escort
+}
+
+// M45 — one serve, as the player needs to read it: which stop, when, how much
+// came aboard and went out across the crew, and what got in the way.
+public readonly record struct ServeReport(int Stop, long Tick, int Loaded, int Unloaded, ServeNote Notes);
 
 // A NAMED ROUTE (docs/hauling-queue-and-routes.md): a loop of stops, each
 // with pickup / drop rules, walked by one or more crews that never stop.
 // Haulers on a route are never in the queue's pool.
 //
-// Definition (Stops) is fixed at Set; the crews list changes through
+// Definition (Stops) is set by SetHaulRouteIntent and replaced whole by
+// UpdateHaulRouteIntent (M45); the crews list changes through
 // Add/RemoveRouteCrewIntent; a crew's cursor moves only through
-// ServeRouteStopIntent.
+// ServeRouteStopIntent, and is remapped by UpdateHaulRouteIntent.
 public sealed class HaulRoute
 {
     public int RouteId { get; init; }
@@ -55,4 +78,14 @@ public sealed class HaulRoute
     public List<RouteStop> Stops { get; init; } = new();
     public List<RouteCrew> Crews { get; init; } = new();   // ascending CrewId
     public int NextCrewId { get; set; } = 1;
+
+    // M45 — the player's name for the route ("" = unnamed). Set by
+    // SetHaulRouteIntent and RenameHaulRouteIntent only.
+    public string Name { get; set; } = "";
+
+    // M45 — bumped by every UpdateHaulRouteIntent. A serve the driver
+    // submitted against the old stop list carries the revision it saw and
+    // no-ops if the list changed under it (the stop index alone could now
+    // name a different stop).
+    public int Revision { get; set; }
 }

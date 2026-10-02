@@ -4,10 +4,9 @@ namespace Sim.Core.Groups;
 // member. First-class entity on GameWorld.Groups; members are still Unit
 // instances with Unit.GroupId set.
 //
-// The group is the orchestrator (it owns the path and the next-event
-// anchor); the members are what actually exist on tiles. When a group
-// moves, all members' positions update synchronously in a single
-// GroupArrivalEvent — they enter the next tile together.
+// The group is the orchestrator (it owns the destination and the count of
+// members still walking); the members are what actually exist on tiles, and each
+// walks its own subtile route (M43).
 //
 // Lifecycle:
 //   FormGroupIntent → State = Forming, members walk to RendezvousTile.
@@ -17,8 +16,6 @@ namespace Sim.Core.Groups;
 //   new path takes over.
 //   DisbandGroupIntent (any state) → members go solo, group removed.
 //
-// In-flight anchors mirror Unit's M4 anchors so Snapshot+RegenerateQueue
-// reconstruct the queue from state alone. See docs/architecture.md §2.8.
 public sealed class Group
 {
     public int Id { get; }
@@ -40,11 +37,11 @@ public sealed class Group
     // off-rendezvous member's MoveArrivalEvent reaches RendezvousTile.
     public int PendingArrivals { get; set; }
 
-    // ---- M4 in-flight movement anchor (mirror of Unit's) ----
-    public List<TileCoord>? PathRemaining { get; set; }
+    // ---- Movement (M43) ----
+    // A group moves as its members' walks (each member walks its own subtile route
+    // to the ordered tile). PathFinalDest is the ordered tile while Moving; the
+    // group is Idle again when the last walking member finishes (PendingArrivals).
     public TileCoord? PathFinalDest { get; set; }
-    public long? NextArrivalTick { get; set; }
-    public long? NextArrivalSeq  { get; set; }
 
     // Monotonic counter bumped on every MoveGroupIntent.Resolve and on
     // DisbandGroupIntent.Resolve. Live GroupArrivalEvents carry the epoch

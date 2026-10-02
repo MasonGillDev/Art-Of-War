@@ -48,10 +48,10 @@ public class GroupSnapshotTests
         u5.GroupId = 2;
         // Movement anchors so the snapshot round-trip exercises that path
         // on the Unit side too.
-        u5.PathRemaining = new List<TileCoord> { new(3, 5), new(4, 5), new(5, 5) };
+        u5.SubtileRoute = new List<Sim.Core.Battlefields.WorldSubtile> { new(12, 20), new(13, 20), new(14, 20) };
         u5.PathFinalDest = new TileCoord(5, 5);
-        u5.NextArrivalTick = 30;
-        u5.NextArrivalSeq  = 11;
+        u5.SubtileRouteTick = 30;
+        u5.SubtileRouteSeq  = 11;
 
         var sim = new Simulation(world, seed: 0xCAFE);
 
@@ -72,9 +72,9 @@ public class GroupSnapshotTests
         Assert.Equal(2, restored.World.Units[4].GroupId);
         Assert.Equal(2, restored.World.Units[5].GroupId);
 
-        Assert.NotNull(restored.World.Units[5].PathRemaining);
-        Assert.Equal(3, restored.World.Units[5].PathRemaining!.Count);
-        Assert.Equal(30, restored.World.Units[5].NextArrivalTick);
+        Assert.True(restored.World.Units[5].IsWalking);
+        Assert.Equal(3, restored.World.Units[5].SubtileRoute!.Count);
+        Assert.Equal(30, restored.World.Units[5].SubtileRouteTick);
     }
 
     [Fact]

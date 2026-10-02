@@ -81,13 +81,12 @@ public class MilitaryDeterminismTests
         var a = Run();
         var b = Run();
 
-        // Sanity: the pipeline actually happened — soldier alive and
-        // equipped, enemy dead, combat resolved.
+        // Sanity: the pipeline actually happened — the citizen trained, equipped and
+        // marched (M43: onto the board, where the enemy builder withdraws).
         Assert.True(a.World.Units.ContainsKey(1));
         Assert.Equal(UnitRole.Soldier, a.World.Units[1].Role);
         Assert.Single(a.World.Units[1].Buffs);
-        Assert.False(a.World.Units.ContainsKey(50));
-        Assert.Empty(a.World.CombatStates);
+        Assert.Equal(new TileCoord(5, 2), a.World.Units[1].Position);
 
         Assert.Equal(Snapshot.Hash(a), Snapshot.Hash(b));
     }
@@ -113,7 +112,7 @@ public class MilitaryDeterminismTests
                 for (var i = 0; i < 2; i++)
                 {
                     var u = sim.World.AddUnit(new Unit(nextId++, tile)
-                        { Role = UnitRole.Soldier, OwnerId = owner });
+                        { Role = UnitRole.Soldier, OwnerId = owner, Doctrine = Sim.Core.Battlefields.BattleDoctrine.Advance });
                     u.Buffs.Add(new Buff(sword.BuffKind, sword.PowerModifier, sword.HealthModifier, null));
                     u.Buffs.Add(new Buff(shield.BuffKind, shield.PowerModifier, shield.HealthModifier, null));
                     u.Health += sword.HealthModifier + shield.HealthModifier;
@@ -124,7 +123,7 @@ public class MilitaryDeterminismTests
         }
 
         const ulong Seed = 0xFAB;
-        const long MidTick = 35;  // mid-battle, rounds at 10, 20, 30, ...
+        const long MidTick = 25;  // mid-battle, turns at 10, 20, 30, ...
         const long EndTick = 2000;
 
         // Path A: uninterrupted.
@@ -135,8 +134,8 @@ public class MilitaryDeterminismTests
         // Path B: snapshot mid-fight, restore, continue.
         var simB = BuildScenario(Seed);
         simB.Run(until: MidTick);
-        Assert.True(simB.World.CombatStates.ContainsKey(tile),
-            "expected combat still active at MidTick");
+        Assert.True(simB.World.Battlefields.ContainsKey(tile),
+            "expected the battle still open at MidTick");
         var bytes = Snapshot.Serialize(simB);
         var restored = Snapshot.Restore(bytes, seed: Seed);
         restored.Run(until: EndTick);
@@ -155,7 +154,7 @@ public class MilitaryDeterminismTests
         for (var owner = 0; owner <= 1; owner++)
         {
             var u = sim.World.AddUnit(new Unit(100 + owner, tile)
-                { Role = UnitRole.Soldier, OwnerId = owner });
+                { Role = UnitRole.Soldier, OwnerId = owner, Doctrine = Sim.Core.Battlefields.BattleDoctrine.Advance });
             u.Buffs.Add(new Buff(sword.BuffKind, sword.PowerModifier, sword.HealthModifier, null));
         }
         CombatTrigger.MaybeBeginCombatOnTile(sim, tile);

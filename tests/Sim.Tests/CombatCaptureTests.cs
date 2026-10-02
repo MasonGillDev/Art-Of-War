@@ -40,14 +40,8 @@ public class CombatCaptureTests
         var hauler = sim.World.AddUnit(new Unit(100, tile)
             { Role = UnitRole.Hauler, OwnerId = 0 });
         hauler.Cargo.Add(Resource.Wood, 5);
-        hauler.Health = 1;
 
-        // Overwhelming ambush from owner 1.
-        for (var i = 0; i < 5; i++)
-            sim.World.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: 100);
+        CombatRules.OnUnitDeath(sim, hauler);   // (M43: the board's resolver kills; every death lands here)
 
         Assert.False(sim.World.Units.ContainsKey(100), "hauler should be dead");
         Assert.True(sim.World.GroundResources.TryGetValue(tile, out var pile),
@@ -66,13 +60,8 @@ public class CombatCaptureTests
             var u = sim.World.AddUnit(new Unit(id, tile)
                 { Role = UnitRole.Hauler, OwnerId = 0 });
             u.Cargo.Add(Resource.Wood, 3);
-            u.Health = 1;
+            CombatRules.OnUnitDeath(sim, u);
         }
-        for (var i = 0; i < 6; i++)
-            sim.World.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: 200);
 
         Assert.True(sim.World.GroundResources.TryGetValue(tile, out var pile));
         Assert.Equal(9, pile[Resource.Wood]); // 3 × 3 = 9

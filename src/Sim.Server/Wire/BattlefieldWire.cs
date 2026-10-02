@@ -9,7 +9,7 @@ namespace Sim.Server.Wire;
 // Everyone on a visible board shows position, HP and morale; ORDERS, the step
 // a unit will try next beat and why its last step failed are the unit's
 // OWNER's alone (the other side never sees them, §5 "Hidden orders"). With
-// ?reveal=1 (a dev switch; the battle test bed's director mode) every unit's
+// ?orders=1 (a dev switch, separate from ?reveal=1's fog lift) every unit's
 // orders are shown.
 //
 // Unity's JsonUtility can't read null objects or nullable numbers, so "none"
@@ -72,8 +72,9 @@ public sealed class FootprintPatternDto
     public FootprintDto Footprint { get; set; } = new();
 }
 
-// Subtile SX, SY: 0..3 on the board; one step outside an edge while waiting to
-// come on in that lane. Sheltered units (overflow, D1) have no subtile.
+// Subtile SX, SY: 0..3 on the board, the subtile the unit stands on. Waiting and
+// Sheltered are always false since M42 (nobody waits outside an edge or is
+// sheltered); they are kept so the wire contract doesn't change.
 public sealed class BattleUnitDto
 {
     public int Id { get; set; }
@@ -89,7 +90,7 @@ public sealed class BattleUnitDto
     public bool InDuel { get; set; }
     public bool Ranged { get; set; }
 
-    // Own units (or all, under reveal). Mine = false means the rest is blank.
+    // Own units (or all, under ?orders=1). Mine = false means the rest is blank.
     public bool Mine { get; set; }
     public int OrderKind { get; set; }          // 0 = no order (doctrine); else BattleOrderKind
     public int OrderX { get; set; }
@@ -116,6 +117,11 @@ public sealed class BattleTurnDto
     public BattleHitDto[] Hits { get; set; } = [];
     public BattleClashDto[] Clashes { get; set; } = [];
     public int[] Deaths { get; set; } = [];
+
+    // 2026-10-01 — the siege from the board: the units that worked on the tile's
+    // structure this turn and the HP it lost (docs/structure-footprints.md).
+    public int[] Besiegers { get; set; } = [];
+    public int StructureDamage { get; set; }
 }
 
 public sealed class BattleMoveDto

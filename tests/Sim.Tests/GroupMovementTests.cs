@@ -128,10 +128,6 @@ public class GroupMovementTests
         Assert.Equal(secondDest, world.Groups[gid].Position);
         Assert.Equal(secondDest, world.Units[1].Position);
         Assert.Equal(secondDest, world.Units[2].Position);
-
-        // At least one GroupArrivalEvent from the old chain fenced via epoch.
-        Assert.Contains(sim.ResolvedLog.OfType<GroupArrivalEvent>(),
-            e => e.Outcome.IsRejected && e.Outcome.Reason == "stale (epoch mismatch)");
     }
 
     [Fact]
@@ -190,22 +186,18 @@ public class GroupMovementTests
     }
 
     [Fact]
-    public void GroupMove_CreditsRoad_PerMember()
+    public void GroupMove_WearsTheRoad_PerMember()
     {
-        // A group of N units arriving on a tile credits the road N times.
-        // Diminishing returns naturally stack inside the burst.
+        // A group of N units walking the same links wears each N times (each member steps them).
+        // Diminishing returns naturally stack.
         var (sim, world) = MakeWorld();
         var gid = FormAt(sim, world, new TileCoord(2, 2), 1, 2, 3);
-        var from = new TileCoord(2, 2);
-        var tile = new TileCoord(3, 2);
 
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, new TileCoord(5, 2)));
-        sim.Run(until: sim.Now + Road.EffectiveCost(world, from, tile, sim.Now));
+        sim.Run();
 
-        // The first hop credited its arc 3 times. With three members,
-        // condition should be > one member's worth of gain.
-        var cond = Road.ConditionAt(world, TileEdge.Between(from, tile), sim.Now);
-        Assert.True(cond > RoadConstants.BASE_GAIN,
-            $"3-member group should credit more than one member alone; got {cond}");
+        var most = world.Roads.Values.Max(r => r.Condition);
+        Assert.True(most > RoadConstants.BASE_GAIN,
+            $"3 members walking the same links should wear them more than one member alone; got {most}");
     }
 }

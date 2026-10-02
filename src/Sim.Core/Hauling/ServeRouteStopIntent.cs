@@ -10,8 +10,9 @@ namespace Sim.Core.Hauling;
 // the stop the driver saw, so a stale serve (the crew was re-staffed or the
 // route cleared in between) no-ops.
 //
-// The rules, per Hauler-role member standing at the stop (escorts carry
-// nothing):
+// The rules, per CARRIER standing at the stop. A crew is the units the
+// player named, so every member carries at its own capacity, except
+// Soldiers and Archers, who are escort (M45; M36 had Haulers only):
 //   1. every Drop rule, in order: hand over up to Percent of capacity worth
 //      of the resource; what the structure can't take stays aboard;
 //   2. every Pickup rule, in order: fill the resource up to Percent of
@@ -20,18 +21,25 @@ namespace Sim.Core.Hauling;
 // fills. Only a structure of the route owner's on the stop tile is traded
 // with; anywhere else the crew passes through untouched. The crew never
 // waits: a stop that can't be served is skipped, and leftovers ride on.
+//
+// M45 -- the serve writes RouteCrew.LastServe (what moved, what got in the
+// way) and is also fenced on the route's Revision, so a serve submitted
+// before an UpdateHaulRouteIntent no-ops. ExpectedRevision -1 (logs written
+// before M45) skips that fence.
 public sealed class ServeRouteStopIntent : Intent
 {
     public int RouteId { get; }
     public int CrewId { get; }
     public int ExpectedStop { get; }
+    public int ExpectedRevision { get; }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public ServeRouteStopIntent(int routeId, int crewId, int expectedStop)
+    public ServeRouteStopIntent(int routeId, int crewId, int expectedStop, int expectedRevision = -1)
     {
         RouteId = routeId;
         CrewId = crewId;
         ExpectedStop = expectedStop;
+        ExpectedRevision = expectedRevision;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
@@ -47,20 +55,30 @@ public sealed class ServeRouteStopIntent : Intent
         if (crew.CurrentStop != ExpectedStop)
             return IntentOutcome.Reject(
                 $"stop fence: crew {CrewId} is at stop {crew.CurrentStop}, expected {ExpectedStop}");
+        if (ExpectedRevision >= 0 && route.Revision != ExpectedRevision)
+            return IntentOutcome.Reject(
+                $"revision fence: route {RouteId} is at revision {route.Revision}, expected {ExpectedRevision}");
 
         var stop = route.Stops[crew.CurrentStop];
         var present = new List<Unit>();
         foreach (var u in RouteCrews.Living(world, route, crew))
-            if (u.Position == stop.Tile && u.Activity == Activity.Idle && u.PathRemaining is null)
+            if (u.Position == stop.Tile && u.Activity == Activity.Idle && !u.IsWalking)
                 present.Add(u);
         if (present.Count == 0)
             return IntentOutcome.Reject($"no member of crew {CrewId} is standing at stop {crew.CurrentStop}");
 
-        if (world.Structures.TryGetValue(stop.Tile, out var here) && here.OwnerId == route.OwnerId)
+        var loaded = 0;
+        var unloaded = 0;
+        var notes = ServeNote.None;
+        if (!world.Structures.TryGetValue(stop.Tile, out var here) || here.OwnerId != route.OwnerId)
+            notes |= ServeNote.NotYours;
+        else if (!present.Exists(RouteCrews.Carries))
+            notes |= ServeNote.NoCarriers;
+        else
         {
             foreach (var u in present)
             {
-                if (u.Role != UnitRole.Hauler) continue;
+                if (!RouteCrews.Carries(u)) continue;
                 var before = u.CargoAmount;
                 var cap = u.CargoCapacity;
 
@@ -68,20 +86,30 @@ public sealed class ServeRouteStopIntent : Intent
                 {
                     if (rule.Op != StopRuleOp.Drop) continue;
                     var give = Math.Min(u.Cargo.AmountOf(rule.Resource), rule.QuotaFor(cap));
-                    u.Cargo.Take(rule.Resource, CargoTransfer.DepositInto(sim, here, rule.Resource, give));
+                    if (give <= 0) continue;
+                    var taken = CargoTransfer.DepositInto(sim, here, rule.Resource, give);
+                    u.Cargo.Take(rule.Resource, taken);
+                    unloaded += taken;
+                    if (taken < give) notes |= ServeNote.DropRefused;
                 }
                 foreach (var rule in stop.Rules)
                 {
                     if (rule.Op != StopRuleOp.Pickup) continue;
                     var want = rule.QuotaFor(cap) - u.Cargo.AmountOf(rule.Resource);
+                    if (want <= 0) continue;
                     var room = Math.Min(want, cap - u.CargoAmount);
-                    u.Cargo.Add(rule.Resource, CargoTransfer.WithdrawFrom(sim, here, rule.Resource, room));
+                    if (room <= 0) { notes |= ServeNote.CarrierFull; continue; }
+                    var got = CargoTransfer.WithdrawFrom(sim, here, rule.Resource, room);
+                    u.Cargo.Add(rule.Resource, got);
+                    loaded += got;
+                    if (got < room) notes |= ServeNote.SourceEmpty;
                 }
 
                 if (u.CargoAmount != before) u.BumpEpoch();
             }
         }
 
+        crew.LastServe = new ServeReport(crew.CurrentStop, sim.Now, loaded, unloaded, notes);
         crew.CurrentStop = (crew.CurrentStop + 1) % route.Stops.Count;
         return IntentOutcome.Applied;
     }

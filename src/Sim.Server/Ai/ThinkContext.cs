@@ -39,6 +39,9 @@ public sealed class ThinkContext
     // (TileDto.Baseline): what makes one pocket better land than another.
     private readonly Dictionary<(int X, int Y), int> _baseline = new();
     private readonly HashSet<(int X, int Y)> _blocked = new();   // structures + claims + blacklist
+    // M44 — the brain's own ore knowledge, straight off the view.
+    private readonly HashSet<(int X, int Y)> _freeVeins = new();     // known, unmined
+    private readonly HashSet<(int X, int Y)> _surveyed = new();      // known veins + proven barren
 
     // Per-think unit reservation, shared by EVERY selector (carriers,
     // staffing, builders, parents, scouts). Without it, two layers
@@ -89,6 +92,12 @@ public sealed class ThinkContext
             d._baseline.TryAdd((t.X, t.Y), t.Baseline);
         }
         foreach (var b in mem.BlacklistedTiles) d._blocked.Add(b);
+        foreach (var v in view.Veins)
+        {
+            d._surveyed.Add((v.X, v.Y));
+            if (!v.Mined) d._freeVeins.Add((v.X, v.Y));
+        }
+        for (var i = 0; i < view.BarrenX.Length; i++) d._surveyed.Add((view.BarrenX[i], view.BarrenY[i]));
         foreach (var s in view.Structures)
         {
             d._blocked.Add((s.X, s.Y));
@@ -122,6 +131,12 @@ public sealed class ThinkContext
     // Idle AND standing still — a marching unit reads Activity.Idle
     // (movement lives on the arrival anchors), so "has no destination"
     // is the real stillness check. M16 lesson.
+    // M43 — the per-side cap: only units STANDING on a tile take its room (a walk through
+    // takes none), and a walk ordered onto a full tile is re-aimed to the tile beside, so
+    // ordering more there only shuffles them every think. Own castle/open ground is 16.
+    public bool HasRoomAt(TileCoord t, int adding = 1) =>
+        OwnUnits.Count(u => u.X == t.X && u.Y == t.Y && u.DestX < 0) + adding <= Sim.Core.Battlefields.Subtile.Count;
+
     public bool IsIdleStill(UnitDto u) => u.Activity == (int)Activity.Idle && u.DestX < 0;
 
     // Allocate a haul carrier for THIS think: idle, still, empty-handed,
@@ -255,6 +270,42 @@ public sealed class ThinkContext
     // choice is deterministic. requiredBiome null = any walkable land.
     public TileCoord? NearestFreeTile(Biome? requiredBiome, int range) =>
         NearestFreeTileNear(CastleTile, requiredBiome, range);
+
+    // M44 — the nearest ore vein the brain knows that no mine stands on and
+    // nothing blocks: where a Mine can go. (dist, y, x) order from the keep.
+    public TileCoord? NearestFreeVein(int range)
+    {
+        TileCoord? best = null;
+        var bestKey = (int.MaxValue, int.MaxValue, int.MaxValue);
+        foreach (var (x, y) in _freeVeins)
+        {
+            if (_blocked.Contains((x, y))) continue;
+            var d = Math.Max(Math.Abs(x - CastleTile.X), Math.Abs(y - CastleTile.Y));
+            if (d > range) continue;
+            var key = (d, y, x);
+            if (key.CompareTo(bestKey) < 0) { bestKey = key; best = new TileCoord(x, y); }
+        }
+        return best;
+    }
+
+    // M44 — where to send a Miner to survey: the nearest known Mountain tile
+    // its owner has not yet surveyed (neither a known vein nor proven
+    // barren). Each sweep proves the slopes around it, so the next answer
+    // moves outward on its own — no survey radius needed on the brain side.
+    public TileCoord? NearestUnsurveyedMountain(int range)
+    {
+        for (var r = 0; r <= range; r++)
+        for (var dy = -r; dy <= r; dy++)
+        for (var dx = -r; dx <= r; dx++)
+        {
+            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+            var key = (CastleTile.X + dx, CastleTile.Y + dy);
+            if (!_biome.TryGetValue(key, out var b) || b != (int)Biome.Mountain) continue;
+            if (_surveyed.Contains(key)) continue;
+            return new TileCoord(key.Item1, key.Item2);
+        }
+        return null;
+    }
 
     // Same scan from an ARBITRARY origin (M19 Phase 3b: houses are
     // placed by the work cluster they feed, not by the keep).

@@ -168,3 +168,16 @@ Output is monotone in live claim fertility and still >= 1 while any claimed
 tile lives (the CEIL argument is unchanged). At strength 0 the sum is
 `inBand * BandBaseline` for untouched land, so fresh claims produce exactly
 what they do today; a tiring field now visibly slows before its band flips.
+
+
+## Update 2026-10-01 — the Quarry claims (M44)
+
+The Quarry now claims: 6 **Hills** tiles within range 2, with exclusion
+across all owners and kinds, as for the other claiming kinds. It never
+degrades them (`DegradeAmount = 0`). Hills are off the fertility ladder, so
+the taper always works out to 1. The claim is pure territory; stone is slow
+but not scarce. The Mine does not claim, because it stands on a surveyed
+ore vein. See `docs/stone-and-ore-land.md`.
+
+The counts quoted above are stale. Today LumberCamp claims 8 and Farm
+claims 15, both at range 2.

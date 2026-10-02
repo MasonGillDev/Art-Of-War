@@ -11,19 +11,22 @@ namespace Sim.Core.Logistics;
 // production picks up after one full ProductionPeriodTicks.
 //
 // Per-id validation (per docs/intent-validation.md):
-//   * Unit exists, owned, not grouped, not embarked, of training age.
-//   * Unit.Activity == Idle (a Waiting or Working body belongs to the intent
-//     chain that owns it).
+//   * Unit exists, owned, not grouped, not embarked, not mid-breed.
+//   * A BUSY unit is RETASKED, exactly as a march would (Sim.Core.Intents.
+//     Retask): its old post, build, haul or goal is released first. Until
+//     2026-10-01 non-Idle units were skipped and did not move at all.
 //   * Assigning would not exceed extractor.Spec.WorkerCap — counting units
 //     already walking here, so a cap-1 extractor doesn't attract five
 //     hopefuls who all dissolve on arrival. Advisory only; ground truth is
-//     re-checked on arrival.
+//     re-checked on arrival. The OVERFLOW still goes: anyone past the cap is
+//     marched to the tile as a plain move, because the player's gesture was
+//     "send these people there" and a body that stays put reads as a refusal.
 // Role is not validated — any role can work an extractor; PreferredRole
 // only affects rate, not eligibility.
 //
 // Per-id failures are skipped; valid ids still apply. The intent rejects
 // only when nothing changes: missing/wrong-type structure, OR zero
-// assignments AND nothing dispatched AND no arming triggered.
+// assignments AND nothing dispatched or marched AND no arming triggered.
 public sealed class AssignWorkersIntent : Intent
 {
     public TileCoord StructureTile { get; }
@@ -47,17 +50,30 @@ public sealed class AssignWorkersIntent : Intent
 
         var assigned = 0;
         var dispatched = 0;
+        var marched = 0;
         // In-flight walkers count against the cap (see the header note).
         var pending = GoalRules.PendingCountFor(world, StructureTile, GoalKind.AssignWorker);
         foreach (var id in WorkerIds)
         {
-            if (extractor.Workers.Count + pending >= extractor.Spec.WorkerCap) break; // cap reached
             if (!world.Units.TryGetValue(id, out var unit)) continue;
             if (unit.OwnerId != PlayerId) continue;  // skip non-owned silently per per-id pattern
-            if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
-            if (unit.IsEmbarked) continue;            // embarked units are off-tile
-            if (unit.Activity != Activity.Idle) continue;
+            if (Retask.Refusal(sim, unit) is not null) continue;  // grouped, embarked, breeding
+            if (extractor.Workers.Contains(unit.Id)) continue;    // already on the payroll here
+            if (unit.Goal is { Kind: GoalKind.AssignWorker } g && g.TargetTile == StructureTile)
+                continue;                              // already on this errand: don't restart the walk
 
+            var slotFree = extractor.Workers.Count + pending < extractor.Spec.WorkerCap;
+            if (!slotFree)
+            {
+                // Past the cap: still go there, as a plain march.
+                if (unit.Position == StructureTile) continue;
+                Retask.Release(sim, unit);
+                MoveIntent.BeginMove(sim, unit, StructureTile);
+                if (unit.IsWalking) marched++;
+                continue;
+            }
+
+            Retask.Release(sim, unit);
             if (unit.Position == StructureTile)
             {
                 if (WorkAssignment.TryAssignWorker(sim, extractor, unit)) assigned++;
@@ -76,7 +92,7 @@ public sealed class AssignWorkersIntent : Intent
             armed = extractor.TickArmed;
         }
 
-        if (assigned == 0 && dispatched == 0 && !armed)
+        if (assigned == 0 && dispatched == 0 && marched == 0 && !armed)
             return IntentOutcome.Reject("no eligible workers and no production armed");
 
         return IntentOutcome.Applied;

@@ -279,3 +279,25 @@ wars — gets its own Sparta pin (`Warlord_DoesNotStarveItsOwnColony`).
 - docs/bandits.md — the intent-driver pitfalls (Idle-while-moving,
   replay interleaving) inherited by every driver.
 - docs/diplomacy-model.md — relationships, the telegraph, proposals.
+
+## Update 2026-09-29: the campaign learns the board (M43 step 6)
+
+The decision: the AI stays view-only, so the board's per-side unit cap reaches it as config
+(`AiConfig.CastleAttackerSlots` = 5, `ReserveWeightPercent` = 50), pinned to `TileCapacity` by
+`AiBoardAwarenessTests`; it is not read off the world.
+
+Why: attackers get 5 subtiles at a castle (the gap and the courtyard), so an army fights the gate in
+waves. `ConquerRung` prices its roster with `EnemyIntel.AssaultPower` (the strongest 5 in full, the rest
+as a reserve at half) for the GO gate and the retreat test; before, a plain sum let a campaign launch
+that the gate could not bring to bear. Losing options: reading the cap from the world (breaks the
+fairness contract that a brain sees only the wire); counting the reserve at zero (a long siege does
+feed the reserve in as the front falls). A launch now needs a few more soldiers than before.
+
+Also: a full rally spills its extras onto the tile beside, and they count as assembled there instead of
+being marched back every think; the raid recall sends civilians to the castle only as far as its 16
+standing places; `Walk.CanReach` (a pure read of the same plan `Walk.Begin` makes) lets the bandit
+driver skip a prize its party can't walk to.
+
+Future: the enemy estimate still prices defenders by a plain sum (fog hides who stands inside);
+a defender-side cap and per-role weighting are open; the Rival's tuning waits for step 7's balance
+pass.

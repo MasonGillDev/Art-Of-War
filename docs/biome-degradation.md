@@ -471,3 +471,13 @@ floor. Forest depth reads the WORLDGEN grid, not `BiomeAt`, because the lazy
 field only admits event-driven baseline changes (canal completion is the
 one event). Knobs default to strength 0 = byte-identical M9/M21/M27
 behaviour. Full rationale and losing options: `docs/environmental-fertility.md`.
+
+
+## Update 2026-10-01 — Hills and Mountain stay off the ladder for good (M44)
+
+M44 settles the deferred question of a Hills/Mountain ladder: there will
+be none. The Quarry (now on Hills) claims land but never degrades it.
+The Mine (now on Mountain) stands on a hidden ore vein that never runs
+out. Stone and ore are slow, not scarce. `HillsBaseline` is still read:
+it is the quarry taper's band baseline, and it must stay positive. See
+`docs/stone-and-ore-land.md`.

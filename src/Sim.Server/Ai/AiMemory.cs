@@ -36,6 +36,10 @@ public sealed class AiMemory
     // into LandStarved each think.
     public bool LandStarved;
     public bool ForestStarved;
+    // M44 — Forge's distress flag: the colony wants a Mine, knows no free
+    // vein, and has no Miner to survey for one. TrainRung reads it to train
+    // a Miner (docs/stone-and-ore-land.md).
+    public bool OreStarved;
     // First think each extractor was observed — farm mortality accounting
     // (age ≈ working life; replacements pre-build before the cliff).
     public Dictionary<(int X, int Y), long> FirstSeen { get; } = new();

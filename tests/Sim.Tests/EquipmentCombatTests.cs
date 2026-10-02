@@ -47,86 +47,6 @@ public class EquipmentCombatTests
     }
 
     [Fact]
-    public void EquippedSoldiers_BeatEqualCount_UnequippedSoldiers()
-    {
-        // N sworded soldiers vs N bare soldiers. Replay the linear-
-        // proportional, lowest-Health-first attrition from config to
-        // compute the expected winner AND survivor count, then assert
-        // the sim matches.
-        const int n = 3;
-        var tile = new TileCoord(10, 10);
-        var sim = MakeWarScenario();
-        var nextId = 100;
-        for (var i = 0; i < n; i++) AddSoldier(sim, nextId++, tile, owner: 0, sword: true);
-        for (var i = 0; i < n; i++) AddSoldier(sim, nextId++, tile, owner: 1, sword: false);
-
-        // In-test replay from config: per-unit power and health.
-        var baseHealth = UnitCombatCatalog.Spec(UnitRole.Soldier).BaseHealth;
-        var basePower = UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower;
-        var swordPower = EquipmentCatalog.Spec(Resource.Sword).PowerModifier;
-        var aSide = Enumerable.Repeat(baseHealth, n).ToList(); // each power basePower+swordPower
-        var bSide = Enumerable.Repeat(baseHealth, n).ToList(); // each power basePower
-        while (aSide.Count > 0 && bSide.Count > 0)
-        {
-            var aPower = aSide.Count * (basePower + swordPower);
-            var bPower = bSide.Count * basePower;
-            Distribute(aSide, bPower);
-            Distribute(bSide, aPower);
-        }
-
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: RoundInterval * 100);
-
-        Assert.Empty(sim.World.CombatStates);
-        var survivors = sim.World.Units.Values.Where(u => u.Position == tile).ToList();
-        Assert.True(bSide.Count == 0 && aSide.Count > 0, "replay sanity: equipped side wins");
-        Assert.All(survivors, u => Assert.Equal(0, u.OwnerId));
-        Assert.Equal(aSide.Count, survivors.Count);
-
-        static void Distribute(List<int> healths, int damage)
-        {
-            healths.Sort(); // lowest-Health-first
-            for (var i = 0; i < healths.Count && damage > 0; i++)
-            {
-                var hit = Math.Min(healths[i], damage);
-                healths[i] -= hit;
-                damage -= hit;
-            }
-            healths.RemoveAll(h => h <= 0);
-        }
-    }
-
-    [Fact]
-    public void ShieldBearer_OutlastsUnshieldedPeer()
-    {
-        // Two own-side soldiers under the same incoming damage: the
-        // shield-bearer has more Health, so lowest-Health-first kills the
-        // bare one first. Pin by dealing exactly enough damage to kill
-        // one bare soldier.
-        var tile = new TileCoord(10, 10);
-        var sim = MakeWarScenario();
-        var bare = AddSoldier(sim, 100, tile, owner: 0, sword: false);
-        var shielded = AddSoldier(sim, 101, tile, owner: 0, sword: false);
-        var shield = EquipmentCatalog.Spec(Resource.Shield);
-        shielded.Buffs.Add(new Buff(shield.BuffKind, shield.PowerModifier, shield.HealthModifier, null));
-        shielded.Health += shield.HealthModifier;
-
-        // Enemy force sized to exactly the bare soldier's Health per
-        // round: power = baseHealth → bare dies in round 1, shielded
-        // survives with full health.
-        var baseHealth = UnitCombatCatalog.Spec(UnitRole.Soldier).BaseHealth;
-        var enemy = sim.World.AddUnit(new Unit(200, tile) { Role = UnitRole.Soldier, OwnerId = 1 });
-        enemy.Buffs.Add(new Buff("test-power", baseHealth - UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower, 0, null));
-
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: RoundInterval + 1); // exactly one round
-
-        Assert.False(sim.World.Units.ContainsKey(bare.Id));
-        Assert.True(sim.World.Units.ContainsKey(shielded.Id));
-        Assert.Equal(baseHealth + shield.HealthModifier, shielded.Health);
-    }
-
-    [Fact]
     public void SoldierDies_FullLoadout_BothItemsDropToGroundPile()
     {
         var tile = new TileCoord(10, 10);
@@ -171,29 +91,4 @@ public class EquipmentCombatTests
         Assert.Equal(0, stockpile.AmountOf(Resource.Sword));
     }
 
-    [Fact]
-    public void DamagedSurvivor_KeepsBuffsAndReducedHealth()
-    {
-        // A chip fight: equipped soldier vs one weak enemy. The soldier
-        // survives wounded, loadout intact.
-        var tile = new TileCoord(10, 10);
-        var sim = MakeWarScenario();
-        var soldier = AddSoldier(sim, 100, tile, owner: 0, sword: true);
-        var healthBefore = soldier.Health;
-        sim.World.AddUnit(new Unit(200, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-        var builderPower = UnitCombatCatalog.Spec(UnitRole.Builder).BasePower;
-
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: RoundInterval * 100);
-
-        Assert.True(sim.World.Units.ContainsKey(soldier.Id));
-        Assert.Single(soldier.Buffs);
-        // The builder lands builderPower per round until it dies; rounds
-        // survived = ceil(builderHealth / soldierPower), all config-derived.
-        var soldierPower = UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower
-                         + EquipmentCatalog.Spec(Resource.Sword).PowerModifier;
-        var builderHealth = UnitCombatCatalog.Spec(UnitRole.Builder).BaseHealth;
-        var rounds = (builderHealth + soldierPower - 1) / soldierPower;
-        Assert.Equal(healthBefore - rounds * builderPower, soldier.Health);
-    }
 }

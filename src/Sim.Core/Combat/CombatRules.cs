@@ -110,6 +110,24 @@ public static class CombatRules
         return s;
     }
 
+    // THE ONE PLACE siege damage lands: the pooled siege round (CombatRoundEvent)
+    // and the board's besiegers (Battlefields.Apply) alike drain the structure's
+    // HP here and, at zero, raze it. A razed bandit camp credits the owners that
+    // brought it down (M39), after the raze has spilled its hoard. `attackerOwners`
+    // may repeat; bandits never count.
+    public static void DealSiegeDamage(Simulation sim, Structure target, int damage, IEnumerable<int> attackerOwners)
+    {
+        if (damage <= 0 || target.Health <= 0) return;
+        target.Health -= damage;
+        if (target.Health > 0) return;
+        var razedCamp = target as BanditCamp;
+        var razers = razedCamp is null ? null : attackerOwners
+            .Where(o => o != Sim.Core.Bandits.BanditConstants.OwnerId && sim.World.Diplomacy.AreHostile(o, razedCamp.OwnerId))
+            .Distinct().OrderBy(o => o).ToList();
+        Sim.Core.Sieges.SiegeDamage.RazeStructure(sim, target);
+        if (razedCamp is not null) Sim.Core.Bandits.Camps.OnRazed(sim, razedCamp, razers!);
+    }
+
     // Any of `unitOwners` hostile to `structureOwner` AND able to siege?
     // Linear in owners, bounded by the faction count. The answer is
     // symmetric in the diplomacy axis.
@@ -239,10 +257,7 @@ public static class CombatRules
         //    world.Units.TryGetValue when the unit is removed below;
         //    this just makes the dying unit's own state debugger-clear
         //    and closes the M2 landmine described in docs/architecture.md.
-        unit.PathRemaining = null;
-        unit.PathFinalDest = null;
-        unit.NextArrivalTick = null;
-        unit.NextArrivalSeq = null;
+        Sim.Core.Movement.Walk.Stop(unit);
         unit.HaulPlan = null;
         unit.Pursuit = null;   // M29 — a corpse chases nobody
         unit.GroupId = null;
@@ -299,8 +314,9 @@ public static class CombatRules
         foreach (var u in world.Units.Values)   // SortedDictionary → id order
         {
             if (u.Position != tile || u.IsEmbarked || u.GroupId is not null) continue;
-            if (u.PathRemaining is not null || u.NextArrivalTick is not null) continue; // already walking
+            if (u.IsWalking) continue; // already walking
             if (u.Pursuit is null && u.HaulPlan is null && u.Goal is null
+                && u.Survey is not { CompleteTick: null }
                 && !world.ScoutMissions.ContainsKey(u.Id)) continue;
             (standing ??= new List<Unit>()).Add(u);
         }
@@ -344,6 +360,16 @@ public static class CombatRules
                     Sim.Core.Intents.GoalRules.OnArrival(sim, u);   // the goal's own arrival handling
                 else
                     Movement.MoveIntent.BeginMove(sim, u, goal.TargetTile);
+                continue;
+            }
+            // M44 — a Miner caught on the way to his survey slope (a digging
+            // one never left it, and his clock kept running).
+            if (u.Survey is { CompleteTick: null } survey)
+            {
+                if (u.Position == survey.Target)
+                    Sim.Core.Mining.SurveyRules.OnArrival(sim, u);
+                else
+                    Movement.MoveIntent.BeginMove(sim, u, survey.Target);
             }
         }
     }

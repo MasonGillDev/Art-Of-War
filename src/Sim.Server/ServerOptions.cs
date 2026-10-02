@@ -51,17 +51,15 @@ public sealed record ServerOptions
     // bare ServerOptions, because the labs that build one drive player 0 with
     // an AI brain, and a reprisal raid would muddy every balance readout.
     public bool Progression { get; init; } = false;
-    // M41 — the combat model (--combat pooled|grid; docs/battlefield-grid.md).
-    // Pooled until M42 flips the default (docs/m41-status.md).
-    public string Combat { get; init; } = "pooled";
-    // M41 — the battle test bed (--scenario NAME|DIR): the host loads small
-    // battle scenarios (scenarios/battle/*.scenario) instead of a full world,
-    // and serves the /v2/dev/* routes. A dev tool; never a production default.
-    public string? Scenario { get; init; }
+    // The battle sandbox (--sandbox [DIR], docs/battle-sandbox.md): the host builds
+    // small worlds from compositions (saved as JSON in DIR, default `sandbox/`)
+    // instead of a full game, and serves the /v2/dev/* routes. A dev tool; never a
+    // production default. Null = an ordinary game.
+    public string? Sandbox { get; init; }
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 234343341, mapWidth = 252, mapHeight = 252;
+        int port = 8080, mapSeed = 233301431, mapWidth = 252, mapHeight = 252;
         var tps = 1.0;
         var preludeTps = 4.0;
         var landingDay = 30;
@@ -72,8 +70,9 @@ public sealed record ServerOptions
         var fertility = "flat";
         var god = 0;
         var progression = 1;
-        var combat = "pooled";
-        string? scenario = null;
+        string? sandbox = null;
+        // `--sandbox` may stand last with no folder: the default one.
+        if (args.Length > 0 && args[^1] == "--sandbox") sandbox = Sim.Server.Sandbox.SandboxHost.DefaultDirectory;
         for (var i = 0; i + 1 < args.Length; i++)
         {
             switch (args[i])
@@ -96,8 +95,7 @@ public sealed record ServerOptions
                 case "--fertility": fertility = args[i + 1]; break;
                 case "--god":     int.TryParse(args[i + 1], out god); break;
                 case "--progression": int.TryParse(args[i + 1], out progression); break;
-                case "--combat":  combat = args[i + 1]; break;
-                case "--scenario": scenario = args[i + 1]; break;
+                case "--sandbox": sandbox = args[i + 1].StartsWith("--") ? Sim.Server.Sandbox.SandboxHost.DefaultDirectory : args[i + 1]; break;
             }
         }
         return new ServerOptions
@@ -121,8 +119,7 @@ public sealed record ServerOptions
             FertilityGradient = fertility,
             GodMode = god != 0,
             Progression = progression != 0,
-            Combat = combat,
-            Scenario = scenario,
+            Sandbox = sandbox,
         };
     }
 }

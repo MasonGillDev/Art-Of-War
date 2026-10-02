@@ -378,30 +378,6 @@ public class BoatsPhaseCTests
     }
 
     [Fact]
-    public void Dock_Production_ReArmsAfterSlipClears_OnMoveArrival()
-    {
-        var (sim, dock) = MakeCoastalSimWithBuiltDock();
-        // Park a foot unit on the slip; let stall happen.
-        var blocker = sim.World.AddUnit(new Unit(50, dock.Slip)
-        {
-            Role = UnitRole.Builder, OwnerId = 0, BornTick = 0,
-        });
-        var period = StructureCatalog.Spec(StructureKind.Dock).ProductionPeriodTicks;
-        sim.Run(until: period);
-        Assert.False(dock.ProductionArmed);
-
-        // Move the blocker off the slip via MoveIntent. The
-        // OnUnitLeftTile hook should re-arm the dock.
-        new Sim.Core.Movement.MoveIntent(50, new TileCoord(4, 1))
-            { PlayerId = 0 }.Resolve(sim);
-        // The MoveArrivalEvent that lands the unit on (4, 1) is the one
-        // that triggers OnUnitLeftTile(blockerPrevTile = slip).
-        sim.Run(until: 100_000);
-
-        Assert.True(sim.World.Units.Values.Any(u => u.Role == UnitRole.Boat));
-    }
-
-    [Fact]
     public void Boat_Unit_SnapshotRoundTrip_PreservesCarrierFields()
     {
         var (sim, dock) = MakeCoastalSimWithBuiltDock();
@@ -605,7 +581,7 @@ public class BoatsPhaseDTests
             { PlayerId = 0 }.Resolve(sim);
         Assert.True(outcome.IsApplied);
         // PathRemaining is set; FinalDest is the destination.
-        Assert.NotNull(boat.PathRemaining);
+        Assert.True(boat.IsWalking);
         Assert.Equal(new TileCoord(7, 1), boat.PathFinalDest);
     }
 
@@ -619,7 +595,7 @@ public class BoatsPhaseDTests
         // Resolve returns Applied (the intent itself was structurally ok),
         // but no path was found so the boat's PathRemaining is null.
         Assert.True(outcome.IsApplied);
-        Assert.Null(boat.PathRemaining);
+        Assert.False(boat.IsWalking);
     }
 
     [Fact]

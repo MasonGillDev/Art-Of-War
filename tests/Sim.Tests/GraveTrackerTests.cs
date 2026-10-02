@@ -59,8 +59,8 @@ public class GraveTrackerTests
         var tracker = new GraveTracker();
         tracker.SnapshotUnits(sim.World);
 
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: 200);
+        // (M43: the board's resolver kills; every death lands in CombatRules.OnUnitDeath, which mints the drop)
+        CombatRules.OnUnitDeath(sim, sim.World.Units.Values.First(u => u.OwnerId == 1));
         Assert.Equal(0, sim.World.Units.Values.Count(u => u.OwnerId == 1));   // victim fell
 
         tracker.Harvest(sim, 0);
@@ -89,8 +89,8 @@ public class GraveTrackerTests
         var tracker = new GraveTracker();
         tracker.SnapshotUnits(sim.World);
 
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: 200);
+        // (M43: the board's resolver kills; every death lands in CombatRules.OnUnitDeath, which mints the drop)
+        foreach (var u in sim.World.Units.Values.ToList()) CombatRules.OnUnitDeath(sim, u);   // both fall
         Assert.Empty(sim.World.Units);
 
         tracker.Harvest(sim, 0);

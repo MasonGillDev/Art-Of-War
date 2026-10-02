@@ -101,7 +101,8 @@ public class IdolTests
         Assert.Equal(GoalKind.ActivateIdol, unit.Goal?.Kind);
 
         // Walk until it gets there (well inside the idol's own duration).
-        for (var t = 0; t < 200 && unit.Position != IdolAt; t++) sim.Run(until: sim.Now + Time.Hour);
+        // (a walk is steps of a few ticks, and it ends a few steps after it enters the tile)
+        for (var t = sim.Now + 1; t < 200 * Time.Hour && (unit.IsWalking || unit.Position != IdolAt); t++) sim.Run(until: t);
 
         Assert.Equal(IdolAt, unit.Position);
         Assert.Null(unit.Goal);

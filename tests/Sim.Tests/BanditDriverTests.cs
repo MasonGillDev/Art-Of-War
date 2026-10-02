@@ -169,13 +169,16 @@ public class BanditDriverTests
             Role = UnitRole.Hauler, OwnerId = 0, BornTick = 0,
             Cargo = { { Resource.Wood, 10 } },
         });
-        RunWithDriver(sim, driver, until: sim.Now + 10_000, step: 30);
-
-        // Sprung: the party converged, combat ran on co-location, the
-        // hauler (10HP/1pwr) lost to the bandit (25HP/3pwr), and its
-        // cargo hit the ground where it fell.
-        Assert.False(world.Units.ContainsKey(200));
-        Assert.True(world.GroundResources.Values.Any(p => p.ContainsKey(Resource.Wood)));
+        // Sprung: the party converged on the prey and a battlefield opened (M43: a fight is a board;
+        // the hauler withdraws, the bandit advances). Watch for the board, tick by tick.
+        var sprung = false;
+        for (var t = sim.Now; t <= sim.Now + 10_000 && !sprung; t += 30)
+        {
+            sim.Run(until: t);
+            driver.Think(sim, t);
+            sprung = world.Battlefields.Count > 0;
+        }
+        Assert.True(sprung, "the ambusher never sprang on the prey that walked into its sight");
     }
 
     [Fact]

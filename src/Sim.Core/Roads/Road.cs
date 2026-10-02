@@ -1,19 +1,20 @@
+using Sim.Core.Battlefields;
+
 namespace Sim.Core.Roads;
 
-// All road math lives here. A road is an ARC: the lane a unit walks when it
-// hops between two 4-adjacent tiles, keyed by TileEdge (docs/roads-on-
-// edges.md). Units still stand on tiles; the road is what lies between.
-// Three categories of operation:
+// All road math lives here. A road is a set of worn LINKS: the step a unit takes
+// between two 4-adjacent subtiles, keyed by SubtileLink (M43 step 3,
+// docs/subtile-movement.md). Units stand on subtiles; the road is what they wear
+// between them. Three categories of operation:
 //
 //   PURE READS (called from pathfinding, views, AI): EffectiveCost,
 //     ConditionAt. NEVER mutate. Path queries can fire any number of times
 //     without state drift. THE single most important rule of M2 — a read
 //     that wrote would inject nondeterminism via path queries.
 //
-//   MUTATING WRITES (called only from MoveArrivalEvent — the one mutation
-//     point): CreditTraffic. Phase C adds this. CatchUpDecay is internal,
-//     used by CreditTraffic to bring stale stored state forward before
-//     applying gain.
+//   MUTATING WRITES (called only from the walk's step, SubtileRoutes.Step — the one
+//     mutation point): CreditTraffic. CatchUpDecay is internal, used by
+//     CreditTraffic to bring stale stored state forward before applying gain.
 //
 // LAZY DECAY MODEL:
 //   Decay is rate × time. We don't tick it globally; we catch up on touch.
@@ -23,49 +24,42 @@ namespace Sim.Core.Roads;
 //     condition -= periods * DECAY_PER_PERIOD            // completed boundaries only
 //     LastDecayTick += periods * DECAY_PERIOD            // carry the remainder
 //
-//   The CARRY is what makes it observation-independent. If an arc is
-//   touched mid-period, the partial elapsed time stays banked in
-//   LastDecayTick rather than being silently dropped. So the final
-//   condition at tick T is identical whether the arc was touched once
-//   or fifty times along the way.
+//   The CARRY is what makes it observation-independent. If a link is touched
+//   mid-period, the partial elapsed time stays banked in LastDecayTick rather than
+//   being silently dropped. So the final condition at tick T is identical whether
+//   the link was touched once or fifty times along the way.
 //
 //   Constant rate (NOT condition-dependent) — that would be the
 //   coupled-interval trap (the same one production-tick math avoided
 //   in Phase D of M1).
 public static class Road
 {
-    // Movement cost of the Foot hop from -> to: the DESTINATION's biome cost
-    // reduced by the condition of the arc crossed, AT THE GIVEN TICK. Plain
-    // biome cost if no road exists there, or if from == to (a tile priced in
-    // isolation by tests and tooling). Always >= MIN_COST.
+    // Cost of the foot STEP from -> to: `baseCost` (a quarter of the ground's hop, rounded
+    // up) reduced by the condition of the link stepped, AT THE GIVEN TICK. Plain `baseCost`
+    // if no road exists there, or if the two aren't adjacent. Always >= MIN_COST.
     //
     // PURE READ. No mutation. Safe to call any number of times.
-    // `baseCost`: the cost to reduce, when it isn't the destination's biome (a
-    // bridge deck over a Water tile walks like grassland).
-    public static int EffectiveCost(GameWorld world, TileCoord from, TileCoord to, long now, int? baseCost = null)
+    public static int EffectiveCost(GameWorld world, WorldSubtile from, WorldSubtile to, long now, int baseCost)
     {
-        var biomeCost = baseCost ?? world.Grid.TerrainCost(to);
-        if (!TileEdge.TryBetween(from, to, out var edge)) return biomeCost;
-        var condition = ConditionAt(world, edge, now);
-        if (condition <= 0) return biomeCost;
-        // Reduction is a percentage of the biome cost so roads stay
-        // proportionally useful on expensive terrain (mountain, forest).
-        // Long math + single division at the end avoids intermediate
-        // truncation; max product (250 × 100 × 1000) fits well below int max
-        // but the long is cheap insurance against future biome-cost growth.
-        var reduction = (int)((long)biomeCost * RoadConstants.MAX_REDUCTION_PERCENT * condition
+        if (world.Roads.Count == 0 || !SubtileLink.TryBetween(from, to, out var link)) return baseCost;
+        var condition = ConditionAt(world, link, now);
+        if (condition <= 0) return baseCost;
+        // Reduction is a percentage of the base cost so roads stay proportionally useful on
+        // expensive terrain (mountain, forest). Long math + single division at the end avoids
+        // intermediate truncation.
+        var reduction = (int)((long)baseCost * RoadConstants.MAX_REDUCTION_PERCENT * condition
                               / (100L * RoadConstants.CONDITION_MAX));
-        var cost = biomeCost - reduction;
+        var cost = baseCost - reduction;
         return cost < RoadConstants.MIN_COST ? RoadConstants.MIN_COST : cost;
     }
 
-    // Current road condition on an arc AT THE GIVEN TICK, applying any
+    // Current road condition on a link AT THE GIVEN TICK, applying any
     // accumulated decay since the stored LastDecayTick. Returns 0 if no
     // road exists (or if decay would have wiped it).
     //
     // PURE READ. Same math as CatchUpDecay but without the write — the
     // two MUST agree on what the condition is at any tick.
-    public static int ConditionAt(GameWorld world, TileEdge edge, long now)
+    public static int ConditionAt(GameWorld world, SubtileLink edge, long now)
     {
         if (!world.Roads.TryGetValue(edge, out var road)) return 0;
         if (road.Condition <= 0) return 0;
@@ -81,27 +75,26 @@ public static class Road
         return result <= 0 ? 0 : (int)result;
     }
 
-    // Apply a single traversal's traffic credit to the arc from -> to.
+    // Apply a single step's traffic credit to the link from -> to.
     // Mutating. The ONE mutation point for road condition outside tests.
-    // Called from MoveArrivalEvent.Apply after the unit's position update.
-    // A non-adjacent pair (from == to) credits nothing: there is no lane.
+    // Called from the walk's step (SubtileRoutes.Step) after the unit has stepped.
+    // A non-adjacent pair credits nothing: there is no link.
     //
     // Order matters and is deterministic:
     //   1. CatchUpDecay first — read the *current* condition, not the stale stored one.
     //   2. Compute diminishing-returns gain from the post-decay condition.
     //   3. Add gain (clamped at CONDITION_MAX), create the road state if newly > 0.
     //
-    // The decay-then-gain order is what makes same-tick traversals stack
-    // correctly: the second event sees the first's gain because both share
-    // the same `now` (so CatchUpDecay is a no-op for the second), and the
-    // gain formula uses the freshly-updated condition.
-    internal static void CreditTraffic(GameWorld world, TileCoord from, TileCoord to, long now)
+    // The decay-then-gain order is what makes same-tick steps stack correctly: the
+    // second sees the first's gain because both share the same `now` (so CatchUpDecay is
+    // a no-op for the second), and the gain formula uses the freshly-updated condition.
+    internal static void CreditTraffic(GameWorld world, WorldSubtile from, WorldSubtile to, long now)
     {
-        if (!TileEdge.TryBetween(from, to, out var edge)) return;
-        CreditTraffic(world, edge, now);
+        if (!SubtileLink.TryBetween(from, to, out var link)) return;
+        CreditTraffic(world, link, now);
     }
 
-    internal static void CreditTraffic(GameWorld world, TileEdge edge, long now)
+    internal static void CreditTraffic(GameWorld world, SubtileLink edge, long now)
     {
         CatchUpDecay(world, edge, now);
 
@@ -127,13 +120,13 @@ public static class Road
         }
     }
 
-    // Advance a road arc's decay state to `now`, write-through. Mutating.
+    // Advance a road link's decay state to `now`, write-through. Mutating.
     // Internal — only CreditTraffic and tests call this directly; pathfinding
     // and views use the pure-read ConditionAt instead.
     //
-    // Removes the arc from world.Roads if condition hits 0 (keeps the set
-    // sparse — pure reads on absent arcs return 0 via the fallback path).
-    internal static void CatchUpDecay(GameWorld world, TileEdge edge, long now)
+    // Removes the link from world.Roads if condition hits 0 (keeps the set
+    // sparse — pure reads on absent links return 0 via the fallback path).
+    internal static void CatchUpDecay(GameWorld world, SubtileLink edge, long now)
     {
         if (!world.Roads.TryGetValue(edge, out var road)) return;
         if (road.Condition <= 0) { world.Roads.Remove(edge); return; }
@@ -155,5 +148,12 @@ public static class Road
 
         road.Condition = (int)newCondition;
         road.LastDecayTick += periods * RoadConstants.DECAY_PERIOD; // carry the remainder
+    }
+
+    // A tile floods (a canal dug through it): every link that touches it goes.
+    internal static void RemoveOnTile(GameWorld world, TileCoord tile)
+    {
+        foreach (var link in world.Roads.Keys.Where(l => l.Touches(tile)).ToList())
+            world.Roads.Remove(link);
     }
 }

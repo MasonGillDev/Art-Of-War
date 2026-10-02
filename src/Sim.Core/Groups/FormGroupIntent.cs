@@ -5,10 +5,9 @@ namespace Sim.Core.Groups;
 // ineligible or unreachable (per locked decision: no partial formation).
 //
 // On success, creates the Group at State=Forming, sets every member's
-// GroupId, and dispatches MoveIntent.BeginMove for off-rendezvous members.
-// Each member's MoveArrivalEvent on reaching the rendezvous decrements
-// PendingArrivals via DispatchOnFinalArrival; when zero, the group
-// transitions to Idle.
+// GroupId, and starts a walk (Walk.Begin) for each off-rendezvous member.
+// Each member finishing its walk at the rendezvous decrements PendingArrivals
+// (Walk.DispatchOnArrival); when zero, the group transitions to Idle.
 //
 // Resolution-time re-validation per docs/intent-validation.md: members may
 // have died / been grouped by some other intent / moved between submission
@@ -88,17 +87,23 @@ public sealed class FormGroupIntent : Intent
 
         world.Groups[groupId] = group;
 
-        // Dispatch walks for off-rendezvous members. We add the group to
-        // world.Groups BEFORE scheduling so MoveArrivalEvent's
-        // DispatchOnFinalArrival can find it.
+        // Dispatch walks for off-rendezvous members, each to a subtile of its own. The group
+        // is in world.Groups BEFORE they start so the arrival dispatch can find it. A member
+        // that can't walk there doesn't leave the group waiting for it for ever.
+        var reserved = new HashSet<Sim.Core.Battlefields.WorldSubtile>();
         foreach (var id in UnitIds)
         {
             var unit = world.Units[id];
             if (unit.Position == RendezvousTile) continue;
-            // Bump epoch so any stale move chain on the unit fences out before
-            // we begin a fresh chain.
             unit.BumpEpoch();
-            MoveIntent.BeginMove(sim, unit, RendezvousTile);
+            Sim.Core.Movement.Walk.Begin(sim, unit, RendezvousTile, reserved);
+            if (!unit.IsWalking && unit.Position != RendezvousTile) group.PendingArrivals--;
+        }
+        if (group.State == GroupState.Forming && group.PendingArrivals <= 0)
+        {
+            group.State = GroupState.Idle;
+            group.RendezvousTile = null;
+            group.PendingArrivals = 0;
         }
 
         return IntentOutcome.Applied;
@@ -107,7 +112,7 @@ public sealed class FormGroupIntent : Intent
     private static int NextGroupId(GameWorld world)
     {
         // Monotonic from 1. Group ids never reuse — that would break stale
-        // GroupArrivalEvents from a defunct group firing on a new one.
+        // stale events from a defunct group firing on a new one.
         var max = 0;
         foreach (var k in world.Groups.Keys) if (k > max) max = k;
         return max + 1;

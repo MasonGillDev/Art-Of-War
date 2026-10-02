@@ -136,9 +136,9 @@ public class ClaimsLedgerTests
 
         // Marching — the M16 pitfall: a marching unit still reads Idle, so
         // dormancy MUST consult the anchors, not Activity.
-        unit.NextArrivalTick = 500;
+        unit.SubtileRoute = new List<Sim.Core.Battlefields.WorldSubtile> { new(4, 4) };
         Assert.False(ClaimLedger.IsDormant(world, unit));
-        unit.NextArrivalTick = null;
+        unit.SubtileRoute = null;
         Assert.True(ClaimLedger.IsDormant(world, unit));
 
         // Working.
@@ -234,8 +234,8 @@ public class ClaimsLedgerTests
         // driver re-issues the pull against a unit already on its way.
         var sim = BuildWorld();
         var trainee = sim.World.Units[3];
-        trainee.PathRemaining = new List<TileCoord> { new(4, 4), new(5, 5) };
-        trainee.NextArrivalTick = 300;
+        trainee.SubtileRoute = new List<Sim.Core.Battlefields.WorldSubtile> { new(16, 16), new(16, 17) };
+        trainee.SubtileRouteTick = 300;
         Submit(sim, 0, ClaimUnitIntent.Claim(3, orderId: 12, ClaimPurpose.InFlight));
 
         var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 11);

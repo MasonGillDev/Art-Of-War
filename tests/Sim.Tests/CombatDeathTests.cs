@@ -8,16 +8,18 @@ using Sim.Core.World;
 
 namespace Sim.Tests;
 
-// M7 Phase D: clean death.
+// M7 Phase D: clean death. (M43: the pooled rounds that used to deal the blows are gone: the
+// board's resolver kills now, and every death converges on CombatRules.OnUnitDeath, which is
+// what these pin, so they call it directly.)
 //   * Dying units are removed from world.Units.
 //   * Grouped units are removed from their group's Members.
 //   * A group hitting zero Members is attrition-disbanded.
-//   * Pending in-flight events (MoveArrival / HaulPickup / HaulDeposit)
-//     fence cleanly via world.Units.TryGetValue when the unit is gone —
-//     no crash, no silent state corruption.
+//   * A walk or a haul in flight fences cleanly when its unit is gone: the queued step
+//     and the pending pickup/deposit find no unit and do nothing (no crash, no silent
+//     state corruption).
 public class CombatDeathTests
 {
-    private static Simulation MakeContestedScenario(TileCoord tile)
+    private static Simulation MakeScenario()
     {
         var spec = new GenesisSpec
         {
@@ -38,27 +40,23 @@ public class CombatDeathTests
     public void DyingUnit_RemovedFromWorldUnits()
     {
         var tile = new TileCoord(10, 10);
-        var sim = MakeContestedScenario(tile);
-        // 2 vs 1 — the lone B unit dies fast.
+        var sim = MakeScenario();
         sim.World.AddUnit(new Unit(100, tile) { Role = UnitRole.Builder, OwnerId = 0 });
-        sim.World.AddUnit(new Unit(101, tile) { Role = UnitRole.Builder, OwnerId = 0 });
-        sim.World.AddUnit(new Unit(200, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
+        var victim = sim.World.AddUnit(new Unit(200, tile) { Role = UnitRole.Builder, OwnerId = 1 });
 
-        sim.Run(until: 200);
+        CombatRules.OnUnitDeath(sim, victim);
+
         Assert.False(sim.World.Units.ContainsKey(200));
+        Assert.True(sim.World.Units.ContainsKey(100));
     }
 
     [Fact]
     public void GroupedUnitDying_RemovedFromGroup()
     {
         var tile = new TileCoord(10, 10);
-        var sim = MakeContestedScenario(tile);
-        // Two A units on the tile in a group, one B unit on the tile.
-        // We pre-attach a group to A's units (id 1).
+        var sim = MakeScenario();
         var u1 = sim.World.AddUnit(new Unit(100, tile) { Role = UnitRole.Builder, OwnerId = 0 });
         var u2 = sim.World.AddUnit(new Unit(101, tile) { Role = UnitRole.Builder, OwnerId = 0 });
-        sim.World.AddUnit(new Unit(200, tile) { Role = UnitRole.Builder, OwnerId = 1 });
         var group = new Group(1) { OwnerId = 0 };
         group.Members.Add(u1.Id);
         group.Members.Add(u2.Id);
@@ -68,28 +66,18 @@ public class CombatDeathTests
         u1.GroupId = group.Id;
         u2.GroupId = group.Id;
 
-        // Bring A's units down to 1 HP each so they die in round 1
-        // (B's power = 1 → 1 dmg → kills lowest-HP first).
-        u1.Health = 1;
-        u2.Health = 1;
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: 30);
+        CombatRules.OnUnitDeath(sim, u1);
 
-        // One A unit died → group has one member remaining (or zero,
-        // depending on damage order).
-        Assert.True(group.Members.Count < 2, "at least one grouped unit should have died");
+        Assert.Equal(new[] { 101 }, group.Members.ToArray());
+        Assert.True(sim.World.Groups.ContainsKey(1));
     }
 
     [Fact]
     public void GroupAtZeroMembers_RemovedFromWorldGroups()
     {
         var tile = new TileCoord(10, 10);
-        var sim = MakeContestedScenario(tile);
+        var sim = MakeScenario();
         var u1 = sim.World.AddUnit(new Unit(100, tile) { Role = UnitRole.Builder, OwnerId = 0 });
-        // B has overwhelming force — guarantees A's lone group dies.
-        sim.World.AddUnit(new Unit(200, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-        sim.World.AddUnit(new Unit(201, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-        sim.World.AddUnit(new Unit(202, tile) { Role = UnitRole.Builder, OwnerId = 1 });
         var group = new Group(1) { OwnerId = 0 };
         group.Members.Add(u1.Id);
         group.Position = tile;
@@ -97,65 +85,45 @@ public class CombatDeathTests
         sim.World.Groups[group.Id] = group;
         u1.GroupId = group.Id;
 
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
-        sim.Run(until: 200);
+        CombatRules.OnUnitDeath(sim, u1);
 
         Assert.False(sim.World.Groups.ContainsKey(1),
             "group should attrition-disband when its last member dies");
     }
 
     [Fact]
-    public void UnitDyingMidMove_PendingArrivalNoOps_NotCrash()
+    public void UnitDyingMidWalk_ItsQueuedStepNoOps_NotCrash()
     {
-        // Set up: faction 0 unit walks toward faction 1's territory; faction 1
-        // ambushes it at a tile en route. The walking unit dies mid-path; the
-        // remaining MoveArrivalEvents for that unit will fire on an absent
-        // unit and must fence cleanly (no crash).
-        var tile = new TileCoord(8, 10);
-        var sim = MakeContestedScenario(tile);
-
-        var walker = sim.World.AddUnit(new Unit(100, new TileCoord(2, 10))
-            { Role = UnitRole.Builder, OwnerId = 0 });
-        walker.Health = 1; // dies on first damage tick.
-
-        // Ambusher — overwhelming force on the path.
-        for (var i = 0; i < 5; i++)
-            sim.World.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-
+        var sim = MakeScenario();
+        var walker = sim.World.AddUnit(new Unit(100, new TileCoord(2, 10)) { Role = UnitRole.Builder, OwnerId = 0 });
         sim.SubmitIntent(0, new MoveIntent(walker.Id, new TileCoord(15, 10)));
-        // Run long enough for arrival, combat round, walker death,
-        // and any subsequent pending MoveArrivalEvent to fire harmlessly.
-        sim.Run(until: 500);
+        sim.Run(until: 60);
+        Assert.True(walker.IsWalking);
 
-        // Walker dead; no exception thrown.
+        CombatRules.OnUnitDeath(sim, walker);
+        sim.Run(until: 500);   // the step that was queued fires on an absent unit and must do nothing
+
         Assert.False(sim.World.Units.ContainsKey(100));
     }
 
     [Fact]
-    public void UnitDyingMidHaul_PendingPickupNoOps_NotCrash()
+    public void UnitDyingMidHaul_PendingHaulEventsNoOp_NotCrash()
     {
-        var tile = new TileCoord(8, 10);
-        var sim = MakeContestedScenario(tile);
-
-        // Source on the LEFT of the contested tile, destination on the RIGHT,
-        // so the hauler walks THROUGH the ambush.
+        var sim = MakeScenario();
         var src = new TileCoord(2, 10);
         var dst = new TileCoord(15, 10);
         var stockpile = sim.World.AddStructure(new Stockpile(src) { OwnerId = 0 });
         stockpile.Deposit(Resource.Wood, 50);
-        var dstStockpile = sim.World.AddStructure(new Stockpile(dst) { OwnerId = 0 });
-        var hauler = sim.World.AddUnit(new Unit(100, src)
-            { Role = UnitRole.Hauler, OwnerId = 0 });
-        hauler.Health = 1;
-
-        // Ambusher on the path — overwhelming.
-        for (var i = 0; i < 5; i++)
-            sim.World.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
+        sim.World.AddStructure(new Stockpile(dst) { OwnerId = 0 });
+        var hauler = sim.World.AddUnit(new Unit(100, src) { Role = UnitRole.Hauler, OwnerId = 0 });
 
         sim.SubmitIntent(0, new HaulIntent(hauler.Id, src, dst, Resource.Wood));
-        sim.Run(until: 500);
+        sim.Run(until: 150);
+        Assert.True(hauler.IsWalking || hauler.CargoAmount > 0);
 
-        // Hauler died; no crash on the pending haul events that fence cleanly.
+        CombatRules.OnUnitDeath(sim, hauler);
+        sim.Run(until: 800);
+
         Assert.False(sim.World.Units.ContainsKey(100));
     }
 }

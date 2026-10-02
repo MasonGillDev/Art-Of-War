@@ -65,6 +65,40 @@ public class HaulWireTests
         Assert.Empty(theirs.Units.Single(u => u.Id == carrier.Id).Cargo);
     }
 
+    // M45 — capacity and route id on own units, the route's name and each
+    // crew's last serve; none of it on anyone else's view.
+    [Fact]
+    public void RouteNameCapacityAndLastServe_ReachTheOwner_Only()
+    {
+        var (sim, projector, driver, castle) = Match();
+        var world = sim.World;
+        var pileAt = new TileCoord(castle.At.X + 2, castle.At.Y);
+        world.Structures.Remove(pileAt);
+        world.AddStructure(new Stockpile(pileAt) { OwnerId = 0 });
+        var carrier = world.Units.Values.First(u => u.OwnerId == 0 && u.GroupId is null && !u.IsEmbarked);
+        var routeId = world.NextHaulRouteId;
+        Assert.True(new SetHaulRouteIntent(new()
+        {
+            new() { Tile = carrier.Position },
+            new() { Tile = pileAt },
+        }, new() { carrier.Id }, name: "Wood loop") { PlayerId = 0 }.Resolve(sim).IsApplied);
+        world.HaulRoutes[routeId].Crews[0].LastServe =
+            new ServeReport(1, 42, 3, 2, ServeNote.SourceEmpty | ServeNote.DropRefused);
+
+        var mine = projector.Project(sim, sim.Now, playerId: 0, reveal: false);
+        var theirs = projector.Project(sim, sim.Now, playerId: 1, reveal: true);
+
+        var route = Assert.Single(mine.HaulRoutes);
+        Assert.Equal("Wood loop", route.Name);
+        var crew = Assert.Single(route.Crews);
+        Assert.Equal((1, 42L, 3, 2, 3), (crew.LastStop, crew.LastTick, crew.LastLoaded, crew.LastUnloaded, crew.LastNotes));
+        var row = mine.Units.Single(u => u.Id == carrier.Id);
+        Assert.Equal((carrier.CargoCapacity, routeId), (row.CargoCapacity, row.HaulRouteId));
+
+        var other = theirs.Units.Single(u => u.Id == carrier.Id);
+        Assert.Equal((0, -1), (other.CargoCapacity, other.HaulRouteId));
+    }
+
     [Fact]
     public void Projecting_IsAPureRead()
     {

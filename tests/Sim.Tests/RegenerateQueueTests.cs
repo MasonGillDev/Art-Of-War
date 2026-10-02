@@ -120,11 +120,8 @@ public class RegenerateQueueTests
             // Spot-check identifying payload fields per event kind.
             switch (ea)
             {
-                case MoveArrivalEvent ma when eb is MoveArrivalEvent mb:
-                    Assert.Equal(ma.UnitId, mb.UnitId);
-                    Assert.Equal(ma.To, mb.To);
-                    Assert.Equal(ma.FinalDestination, mb.FinalDestination);
-                    Assert.Equal(ma.ExpectedEpoch, mb.ExpectedEpoch);
+                case Sim.Core.Battlefields.SubtileRouteStepEvent sa when eb is Sim.Core.Battlefields.SubtileRouteStepEvent sb:
+                    Assert.Equal(sa.UnitId, sb.UnitId);
                     break;
                 case ProductionTickEvent pa when eb is ProductionTickEvent pb:
                     Assert.Equal(pa.ExtractorTile, pb.ExtractorTile);

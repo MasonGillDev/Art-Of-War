@@ -94,7 +94,7 @@ public class GodModeTests
         foreach (var t in path)
         {
             Assert.Equal(Biome.Water, sim.World.Grid.BiomeAt(t));
-            Assert.False(sim.World.Structures.ContainsKey(t));
+            Assert.Equal(StructureKind.Canal, sim.World.Structures[t].Kind);   // the dug tile's banks and channel
         }
     }
 

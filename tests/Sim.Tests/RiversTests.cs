@@ -85,12 +85,15 @@ public class RiversTests
     {
         var sim = RiverWorld();
         var w = sim.World;
-        // A maxed road on the crossing arc itself reduces the terrain term
-        // but never the river surcharge (docs/roads-on-edges.md).
-        w.Roads[TileEdge.Between(new(2, 2), new(3, 2))] = new Sim.Core.Roads.RoadState(Sim.Core.Roads.RoadConstants.CONDITION_MAX, 0);
-        var roadCost = Sim.Core.Roads.Road.EffectiveCost(w, new(2, 2), new(3, 2), sim.Now);
-        Assert.True(roadCost < G);
-        Assert.Equal(roadCost + X, MovementCost.ExecutionCost(w, new(2, 2), new(3, 2), sim.Now));
+        // A maxed road on the crossing link itself reduces the terrain term of the step
+        // but never the river surcharge.
+        var from = Sim.Core.Battlefields.WorldSubtile.Of(new(2, 2), new Sim.Core.Battlefields.Subtile(3, 1));
+        var to = Sim.Core.Battlefields.WorldSubtile.Of(new(3, 2), new Sim.Core.Battlefields.Subtile(0, 1));
+        w.Roads[Sim.Core.Roads.SubtileLink.Between(from, to)] = new Sim.Core.Roads.RoadState(Sim.Core.Roads.RoadConstants.CONDITION_MAX, 0);
+        var plain = (int)Sim.Core.Battlefields.SubtileStepRules.StepTicks(w, new(3, 2));
+        var worn = Sim.Core.Battlefields.SubtileStepRules.StepCost(w, Traversal.Foot, from, to, sim.Now);
+        Assert.True(worn < plain + X);
+        Assert.Equal(Sim.Core.Roads.Road.EffectiveCost(w, from, to, sim.Now, plain) + X, worn);
     }
 
     [Fact]
@@ -162,15 +165,25 @@ public class RiversTests
     }
 
     [Fact]
-    public void MoveIntent_HopAcrossRiver_TakesLonger()
+    public void MoveIntent_StepAcrossRiver_TakesLonger()
     {
-        // The unit at (2,2) walks to (3,2): the arrival is scheduled G + X
-        // ticks out, not G. The river is real travel time, not a route hint.
+        // The unit at (2,2) walks to (3,2): the step over the river edge is scheduled a
+        // quarter hop plus the ford out, not the quarter hop alone. The river is real travel
+        // time, not a route hint.
         var sim = RiverWorld();
         var unit = sim.World.Units[1];
         sim.SubmitIntent(0, new MoveIntent(1, new TileCoord(3, 2)) { PlayerId = 0 });
         sim.Run(until: 0);
-        Assert.Equal(G + X, unit.NextArrivalTick);
+        var route = unit.SubtileRoute!;
+        var at = Sim.Core.Battlefields.WorldSubtile.Of(unit.Position, unit.Subtile!.Value);
+        var crossing = route.First(step => step.Tile != unit.Position);
+        var stepIndex = route.IndexOf(crossing);
+        long walked = 0;
+        var prev = at;
+        for (var i = 0; i < stepIndex; i++) { walked += Sim.Core.Battlefields.SubtileRoutes.StepCost(sim.World, unit, prev, route[i], 0); prev = route[i]; }
+        var quarter = Sim.Core.Battlefields.SubtileStepRules.StepTicks(sim.World, crossing.Tile);
+        Assert.Equal(quarter + X, Sim.Core.Battlefields.SubtileRoutes.StepCost(sim.World, unit, prev, crossing, 0));
+        Assert.True(unit.SubtileRouteTick > 0);
     }
 
     // ---- pure-read wall --------------------------------------------------------

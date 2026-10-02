@@ -713,3 +713,108 @@ designed under "The unit cap" above, in grid-combat worlds (`TileCapacity`).
   - a new unit on a full tile placed on the nearest tile with room;
   - the planner going round a full tile;
   - no per-side cap in the default game.
+
+## Update 2026-10-01 — corner towers, a blocked keep, anyone on the walls, and siege from the board
+
+Decided with the user while planning the castle model's ramparts and stairs (the client
+side is in `docs/combat-damage-playback.md`'s neighbour, the prod client's
+`docs/battlefields.md`). Four changes, all built in the sim.
+
+**1. The castle footprint.** Facing North:
+
+```
+      x=0   x=1   x=2   x=3
+   0  TWR   gap    W    TWR
+   1   W     .     .     W
+   2   W     .     .     W
+   3  TWR   ███   ███   TWR
+```
+
+- The four corners are `Tower` subtiles with reach 2 (`Footprints.CastleTowerReach`): from
+  a corner an archer reaches the gap and the nearest courtyard subtile, so an attacker's
+  foothold is under fire from both flanks. This answers open question 4 ("ring archers
+  have nothing in front of them").
+- The keep sits on the two middle subtiles of the back wall and is `Blocked`: nobody
+  stands in it. The user: "I don't mind blocking the keep. There's plenty of room on the
+  walls to hold your units, and the idea can be that enemies get a small foothold in the
+  courtyard and control the entrance, and can also cut off the supply of food."
+- The gap stays at (1, 0), one subtile, anyone may use it. The castle model's gatehouse
+  must put its opening there (it was centred on the edge); a centred single-cell gap
+  does not exist on a 4-cell edge, and widening the gap to two cells was rejected (it
+  doubles the attackers' throughput).
+
+**2. Anyone stands on a wall or tower it can reach through an open side.** Before, Wall,
+Gate and Tower subtiles took only the owner's side (and towers only its archers). The
+user asked why the inside of a wall was shielded from enemies; nothing in this doc gave
+a reason beyond the M26 carry-over ("a wall tile is impassable to enemies"), and the
+"archers-only damage" line was about the owner's soldiers. So:
+- `SubtileLayer.CanStand`: Wall and Tower take anyone; Gate still takes the owner's side
+  only (a gate is a door, and only one side has the key). The wall IS its closed sides.
+- An attacker in the courtyard can climb the walls and duel the defenders there; stepping
+  onto the wall is no longer a safe retreat, which is the beat model's own guess.
+- A defender on the rampart beside the gap can step down into the gateway (the gatehouse
+  stair); an attacker in the gap cannot climb out of it except through the courtyard.
+- The per-side cap follows: a castle holds 14 for the owner and 14 for attackers (the keep
+  is nobody's). The gap still admits one unit at a time, which was always the defence.
+- A standalone wall is unchanged for the attacker's side: its outer side is closed, so an
+  enemy gets onto it only from the defended side, or along the line from a wall tile it
+  has already taken. A breached stretch is a highway for the breacher.
+- `BoardMover.Archer` no longer decides where a unit may stand; role rules decide what a
+  unit can DO on a subtile. It stays on the struct for the tower's reach rule.
+- **Why this also sets up siege engines:** every engine becomes a temporary opening in the
+  layer — a siege tower or ladder opens a wall subtile's closed outer side while it stands
+  there, a ram opens a gate for everyone, a breach is Rubble. No special cases about who may
+  stand where. `Crossings` reads the same layer, so world movement agrees.
+
+**3. Siege from the board.** The user: "If you're on an enemy structure tile and not in
+combat with a unit, you're doing damage to the structure." Before, a building or castle took
+siege damage only once the board had closed with attackers alone (D4), and a board stays
+contested while any defender has a slot — so one archer on a tower made the castle
+indestructible, the exact failure `FortSiege` was written to avoid for walls.
+- Each turn, every unit hostile to a destructible structure on the tile that is **not
+  fighting a unit** (no duel, no clash, no target for its bow) and **did not move this turn**
+  deals its base damage (no morale) to the structure. Bandits never besiege (M16). The gap
+  counts as on the structure.
+- Pure in `TurnResolver.Resolve` (`besieges` predicate in, `TurnResult.Besiegers` and
+  `StructureDamage` out); `Battlefields.Apply` lands it through
+  `CombatRules.DealSiegeDamage`, the one place siege damage now lands (the pooled round
+  uses it too). A standing besieger is work, so the board does not suspend.
+- D4's pooled siege round still runs when the board closes with attackers alone, and
+  `FortSiege` adjacency is unchanged.
+- The wire: `BattleTurnDto.Besiegers` and `StructureDamage`, for the client's playback.
+- What it does in play: five attackers in the courtyard at ~6 each take ~30 a turn off a
+  1,000 HP castle, about 34 turns if nobody comes down to stop them. The defender's only
+  answer is to fight; the wall protects the defender, not the castle. Starvation and the
+  slow siege run together.
+
+**4. Rejected on the way:** open-topped towers (the roof is a client cutaway when the tower
+is occupied; the standing height is the tower floor); widening the gap; attackers kept to
+the gap and courtyard.
+
+**Tests:** `StructureFootprintTests` (the pattern, both sides' standing, the corner reach, an
+attacker climbing the wall into a duel), `TileCapacityTests` (14/14, barracks 13),
+`FootprintWireTests`, and `BoardSiegeTests` (the rule on the board and in the world: a
+defender on the wall no longer keeps the castle whole; a razed castle is rubble and its
+owner defeated).
+
+**Found while building (2026-10-01):** with walls open to anyone, `Placement.Reseat` no longer
+popped an enemy that a new castle's wall rose under (its subtile was still "usable"). A
+wall, tower or gate that rises under a unit not on the structure's side is not something
+it climbed: the unit is popped off, onto open ground (`SubtilePlacementTests`).
+
+**Known effect, accepted (2026-10-01, the user):** with 14 attackers able to stand inside a
+castle, raids are much deadlier. Two AI lab tests that pin "a colony survives default
+bandit pressure" (`AiPlayerTests.AiVsBandits_EconomySurvivesRaids`,
+`Doctrine_RecallVsWorkThrough_LabReport`) now fail and stay red until a balance pass
+retunes bandit pressure or the defence. The user chose this over counting walls out of
+the attackers' cap ("walls aren't room", which would have kept 5) and over reverting to
+owner-only walls. `AiConfig.CastleAttackerSlots` mirrors the new cap (14).
+
+**Also found:** `RivalTests.Rival_RazesUndefendedCastle_GameOverFires` and
+`ScavengeTests.Scavenge_Lab_RivalStripsTheFallenKingdom` hinged on the rival's king
+happening to stand within his aura of the three campaigners (the GO gate was exactly
+12 vs 12); the new ring reshuffled the AI's farm staffing, the king went to a farther
+farm, and the campaign never launched. The tests now set the fog floor
+(`AssumedGarrisonPower = 6`) like the other lab knobs, and seat their extra soldiers
+beside a full castle with `TileCapacity.RoomNear` (a unit with no subtile cannot walk).
+Worth a look on its own: the AI staffs farms with its king.

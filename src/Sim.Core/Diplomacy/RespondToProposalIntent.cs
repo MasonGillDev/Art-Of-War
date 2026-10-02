@@ -63,6 +63,9 @@ public sealed class RespondToProposalIntent : Intent
         // consented; there's no "caught off guard" risk to telegraph against.
         var pair = FactionPair.Of(proposal.ProposerId, proposal.TargetId);
         d.SetState(pair, proposal.DesiredState);
+        // M42 — units of two owners who stopped being hostile can't share a subtile.
+        if (proposal.DesiredState != RelationshipState.Enemy)
+            Sim.Core.Battlefields.Placement.SeparateNonHostile(sim.World);
         // Consensual peace overrides any in-flight hostile transition.
         if (d.Relationships.TryGetValue(pair, out var rel) && rel.HasPendingWar)
             d.ClearPending(pair);

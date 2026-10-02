@@ -37,6 +37,18 @@ public class ChartTests
         sim.Run(until: sim.Now);
     }
 
+    // Run one tick at a time until the scout stands on `tile` (a walk is steps of a few ticks, and a
+    // scout on a mission turns for home the moment it arrives, so a coarse wait steps over the moment).
+    private static void WalkTo(Simulation sim, Unit scout, TileCoord tile)
+    {
+        var limit = sim.Now + 20 * Time.Day;
+        for (var t = sim.Now + 1; scout.Position != tile; t++)
+        {
+            Assert.True(t < limit, "the scout never reached " + tile);
+            sim.Run(until: t);
+        }
+    }
+
     private static ChartEntry? Entry(Simulation sim, TileCoord tile) =>
         Charts.Of(sim.World, 0) is { } c && c.TryGetValue(tile, out var e) ? e : null;
 
@@ -47,7 +59,7 @@ public class ChartTests
         Dispatch(sim, scout, LookOut);
 
         // Out there, looking right at it: nothing charted yet.
-        while (scout.Position != LookOut) sim.Run(until: sim.Now + Time.Hour);
+        WalkTo(sim, scout, LookOut);
         Assert.Null(Entry(sim, CacheAt));
 
         sim.Run(until: sim.Now + 10 * Time.Day);
@@ -78,7 +90,7 @@ public class ChartTests
     {
         var (sim, scout) = MakeSim();
         Dispatch(sim, scout, LookOut);
-        while (scout.Position != LookOut) sim.Run(until: sim.Now + Time.Hour);
+        WalkTo(sim, scout, LookOut);
 
         CombatRules.OnUnitDeath(sim, scout);
         sim.Run(until: sim.Now + 10 * Time.Day);
@@ -153,7 +165,7 @@ public class ChartTests
     {
         var (sim, scout) = MakeSim();
         Dispatch(sim, scout, LookOut);
-        while (scout.Position != LookOut) sim.Run(until: sim.Now + Time.Hour);
+        WalkTo(sim, scout, LookOut);
 
         var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 1);
         var until = sim.Now + 10 * Time.Day;

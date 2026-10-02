@@ -244,12 +244,14 @@ public class LandingHostTests
         Assert.Equal(bandits.OrderBy(i => i), atStagingBeforeAssault.OrderBy(i => i));
         // Nobody touched the castle before the strike.
         Assert.True(firstOnSeat >= assault, $"first on the castle at {firstOnSeat}, assault {assault}");
-        // Every band reached it, each through its own approach tile.
+        // Every band reached it. M43: the castle is entered only by its gate (the walls are shut to
+        // anyone who is not its owner), so each band, wherever it gathered, comes in by the gate side.
+        var gate = Sim.Core.Battlefields.Battlefields.Across(host.Seat, sim.World.Structures[host.Seat].Facing);
         foreach (var f in host.Fronts)
             foreach (var id in f.UnitIds)
             {
                 Assert.True(enteredFrom.ContainsKey(id), $"bandit {id} never reached the castle");
-                Assert.Equal(f.Approach, enteredFrom[id]);
+                Assert.Equal(gate, enteredFrom[id]);
             }
     }
 }

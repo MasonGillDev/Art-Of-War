@@ -230,6 +230,15 @@ public sealed record AiConfig
     // and the war sues for peace — parity lost is campaign over, not a
     // death spiral. 100 = retreat the moment we're no longer ahead.
     public int RetreatBelowPercent { get; init; } = 100;
+
+    // M43 — the board's per-side unit cap, as the campaign sees it. Attackers get 14 subtiles
+    // at a castle (everything but the keep: anyone inside may climb the walls, 2026-10-01;
+    // docs/structure-footprints.md, "The unit cap"),
+    // so an army bigger than that fights the gate in waves: the strongest CastleAttackerSlots
+    // fight at full weight and the rest are a reserve, worth ReserveWeightPercent of their
+    // power. Mirrors TileCapacity (pinned by AiBoardAwarenessTests).
+    public int CastleAttackerSlots { get; init; } = 14;
+    public int ReserveWeightPercent { get; init; } = 50;
     // The OFFENSE budget: one campaign soldier per this many mouths, ON
     // TOP of the peacetime garrison, clamped by the wartime ceiling
     // (WarPopulationPerSoldier) — the budget scales with the society
@@ -338,7 +347,7 @@ public sealed record AiConfig
     // ARMING (ForgeRung + ArmRung, 2026-09-19, docs/refining-structures.md
     // "SmeltRung" deferral cashed in). The colony raises a Smithy and
     // forges SHIELDS for its garrison from wood + stone alone, then — once
-    // it knows Hills — a Mine and a Smelter, and forges SWORDS from the
+    // it knows a vein — a Mine and a Smelter, and forges SWORDS from the
     // iron (Ore + fuel -> Iron -> Sword: the second hop every human can
     // automate and the AI must be taught). False disables both rungs and
     // the feed lines — the pre-arming curves, byte for byte.

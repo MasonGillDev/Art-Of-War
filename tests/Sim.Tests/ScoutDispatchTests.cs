@@ -80,7 +80,7 @@ public class ScoutDispatchTests
         Assert.Equal(Home, mission.HomeTile);
         Assert.Equal(2, mission.Waypoints.Count);
         // Launched: the scout has a committed path toward waypoint 0.
-        Assert.NotNull(world.Units[ScoutId].PathRemaining);
+        Assert.True(world.Units[ScoutId].IsWalking);
     }
 
     // ---- progression + return -----------------------------------------

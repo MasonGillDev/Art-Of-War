@@ -186,14 +186,13 @@ public static class Construction
         {
             world.Grid.SetBiome(p, Biome.Water);
             world.Fertility.Remove(p);
-            foreach (var arc in TileEdge.Around(p)) world.Roads.Remove(arc);
+            Sim.Core.Roads.Road.RemoveOnTile(world, p);
         }
 
-        // 2b. Banks (docs/structure-footprints.md): in a grid-combat world each
-        // dug tile carries a Canal structure, whose channel feet can't cross.
-        if (CrossingRule.Applies(world))
-            foreach (var p in path)
-                world.AddStructure(new Canal(p) { OwnerId = site.OwnerId });
+        // 2b. Banks (docs/structure-footprints.md): each dug tile carries a Canal
+        // structure, whose channel feet can't cross.
+        foreach (var p in path)
+            world.AddStructure(new Canal(p) { OwnerId = site.OwnerId });
 
         // 3. Reveal the new water for the owner.
         foreach (var p in path)

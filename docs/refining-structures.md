@@ -282,3 +282,10 @@ their batches from `InputCost`, so they follow future retunes.
 Related fix (M36): `PredicateEvaluator.StoredAmount` now counts a refiner's
 **input** store for its input resources, so a supply line or haul job that keeps
 ore at a smelter can read as satisfied instead of pushing ore into a full store.
+
+
+## Update 2026-10-01 — the Smelter's ore comes from mountain veins (M44)
+
+The Mine moved from Hills to Mountain, and it may only stand on an ore vein
+its owner knows (surveyed by a Miner, or seen under someone's mine). The
+Smelter recipe is unchanged. See `docs/stone-and-ore-land.md`.

@@ -99,6 +99,15 @@ public class ViewDto
     public ChartEntryDto[] Chart { get; set; } = [];
     // M38 — the viewer's own live idol circles of sight. Owner-only.
     public VisionGrantDto[] VisionGrants { get; set; } = [];
+    // M44 — the viewer's own ore knowledge (docs/stone-and-ore-land.md).
+    // Owner-only: a vein another faction found is invisible until a mine
+    // stands on it. Veins = every vein the viewer knows, Mined when a Mine
+    // or Mine site stands on it now (anyone's). Barren = mountain tiles the
+    // viewer's surveys proved empty, as parallel X/Y arrays (Unity's
+    // JsonUtility reads flat int arrays). Both only ever grow.
+    public VeinDto[] Veins { get; set; } = [];
+    public int[] BarrenX { get; set; } = [];
+    public int[] BarrenY { get; set; } = [];
 
     // M20 — scout reports that have come in for this player (own-only; a
     // rolling window). Each carries the narrated prose (or raw-claims fallback)
@@ -274,6 +283,14 @@ public sealed class OrderDto
     public string LastDetail { get; set; } = "";
 }
 
+// M44 — one known ore vein. Mined: a Mine (or Mine site) stands on it.
+public sealed class VeinDto
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public bool Mined { get; set; }
+}
+
 // M38 — one chart marker. Hint: 1 Glint (a cache or ruin), 2 StoneFigure (an
 // idol). State: 1 Known (last seen SeenTick), 2 Gone (struck at GoneTick).
 public sealed class ChartEntryDto
@@ -365,6 +382,7 @@ public sealed class HaulJobDto
 public sealed class HaulRouteDto
 {
     public int Id { get; set; }
+    public string Name { get; set; } = "";   // M45 — "" = unnamed, show the number
     public HaulStopDto[] Stops { get; set; } = [];
     public HaulCrewDto[] Crews { get; set; } = [];
 }
@@ -390,6 +408,16 @@ public sealed class HaulCrewDto
     public int CurrentStop { get; set; }
     public int Living { get; set; }
     public int State { get; set; }           // RouteCrewState, live from the driver
+
+    // M45 — the crew's last serve (sim state, not the driver's): which stop,
+    // when, what came aboard and went out across the crew, and the ServeNote
+    // flags for what got in the way (1 store empty, 2 drop refused, 4 carrier
+    // full, 8 not your building, 16 no carriers). LastStop -1 = none yet.
+    public int LastStop { get; set; } = -1;
+    public long LastTick { get; set; } = -1;
+    public int LastLoaded { get; set; }
+    public int LastUnloaded { get; set; }
+    public int LastNotes { get; set; }
 }
 
 public sealed class SelectorDto
@@ -537,6 +565,21 @@ public sealed class UnitDto
     public int GoalX { get; set; } = -1;
     public int GoalY { get; set; } = -1;
 
+    // M44 — a Miner's survey (docs/stone-and-ore-land.md). OWN UNITS ONLY,
+    // like the goal tag. SurveyX/Y = the slope (-1 when not surveying);
+    // SurveyDoneTick = when the dig reports (-1 while still walking there).
+    public int SurveyX { get; set; } = -1;
+    public int SurveyY { get; set; } = -1;
+    public long SurveyDoneTick { get; set; } = -1;
+
+    // M45 — haul routes (docs/m45-status.md). OWN UNITS ONLY.
+    // CargoCapacity is this unit's live load (role base plus carts), so a route
+    // rule's "percent of a load" can be shown as units for each carrier.
+    // HaulRouteId is the named route the unit crews, -1 when none. (Not to be
+    // confused with RouteX/RouteY below, the subtile walk.)
+    public int CargoCapacity { get; set; }
+    public int HaulRouteId { get; set; } = -1;
+
     // P3 — the PURSUIT anchor (World/Pursuit.cs, docs/patrols.md): who this unit
     // is chasing and the leash it will be called off at. OWN UNITS ONLY — a chase
     // is an order and orders are private; an enemy's chase is inferred from its
@@ -547,29 +590,32 @@ public sealed class UnitDto
     public int PursuitLeashY { get; set; } = -1;
     public int PursuitLeashRadius { get; set; } = -1;
 
-    // C2 — THE CURRENT HOP, so the client can draw motion instead of teleportation.
-    //
-    // Units move tile to tile on scheduled arrivals, so a client that draws them at
-    // their tile centre relocates them 100 world units four times a second and
-    // nothing ever reads as marching. With the destination tile, the tick the hop
-    // lands on, and how long the hop takes, the client can place a unit exactly where
-    // it is between tiles — derived from sim facts, not smoothed into existence.
-    //
-    // PUBLIC FOR EVERY VISIBLE UNIT, unlike DestX/DestY above. The distinction is
-    // between a plan and a physical fact: where an army is ultimately HEADED is
-    // private intelligence, but which way it is stepping right now is something you
-    // can see by looking at it. Emitting the hop reveals no plan — one tile of a
-    // march is not a destination.
-    //
-    // -1 on all four when the unit is standing still.
-    public int HopToX { get; set; } = -1;
-    public int HopToY { get; set; } = -1;
-    public long HopArriveTick { get; set; } = -1;
-    public int HopTotalTicks { get; set; } = -1;
+    // M42 — WHERE ON ITS TILE the unit stands (docs/subtile-movement.md): its 4x4
+    // subtile, 0..3 each. Public for every visible unit, like the hop — a physical
+    // fact you can see, not a plan. -1 when the unit has none (boats, embarked).
+    public int SubX { get; set; } = -1;
+    public int SubY { get; set; } = -1;
+
+    // M42 — THE CURRENT SUBTILE STEP, so a unit walks between subtiles instead of
+    // hopping: the same shape as the tile hop (a physical fact, public). The world
+    // subtile (tile*4 + subtile) it is stepping to, the tick the step lands, and how
+    // long the step takes. -1 on all four when it is not mid-step.
+    public int SubStepX { get; set; } = -1;
+    public int SubStepY { get; set; } = -1;
+    public long SubStepArriveTick { get; set; } = -1;
+    public int SubStepTotalTicks { get; set; } = -1;
+
+    // M42 — the subtile ROUTE the unit is walking (or, on an open battlefield, its
+    // battle route), parallel arrays of WORLD subtile coordinates (tile*4 + subtile),
+    // remaining steps only. OWN UNITS ONLY: a drawn route is an order and orders are
+    // private. Empty when there is none.
+    public int[] RouteX { get; set; } = [];
+    public int[] RouteY { get; set; } = [];
 }
 
-// A road ARC (docs/roads-on-edges.md): the lane between the owner tile
-// (X, Y) and its east (Axis 0) or south (Axis 1) neighbour.
+// A road LINK (M43, docs/subtile-movement.md): the step between the owner SUBTILE
+// (X, Y, on the whole map: tile * 4 + subtile) and its east (Axis 0) or south (Axis 1)
+// neighbour.
 public sealed class RoadDto
 {
     public int X { get; set; }

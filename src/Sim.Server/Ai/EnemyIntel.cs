@@ -90,6 +90,17 @@ public static class EnemyIntel
         return power;
     }
 
+    // M43 — what a force is worth at a chokepoint that lets only `slots` of it fight at once
+    // (the castle gate): the strongest `slots` at full weight, the rest as a reserve at
+    // ReserveWeightPercent. A force that fits is worth its plain sum.
+    public static int AssaultPower(ThinkContext ctx, IEnumerable<int> powers, int slots)
+    {
+        var ordered = powers.OrderByDescending(p => p).ToList();
+        var front = ordered.Take(slots).Sum();
+        var reserve = ordered.Skip(slots).Sum();
+        return front + reserve * ctx.Cfg.ReserveWeightPercent / 100;
+    }
+
     public static bool HasKnownSmithy(ThinkContext ctx, int ownerId) =>
         ctx.View.Structures.Any(s => s.OwnerId == ownerId
             && (StructureKind)s.Kind == StructureKind.Smithy)

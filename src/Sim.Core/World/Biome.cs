@@ -49,11 +49,13 @@ public static class Biomes
     };
 
     // M22 — the HIGHEST terrain band is common knowledge. Mountain (the
-    // scarcest resource band — it alone gates Stone via the Quarry) is
+    // ore band — M44: its hidden veins gate Ore via the Mine) is
     // revealed to every player's view from the start, so the opening is a
     // RACE to the peaks rather than a fog-gated discovery. TERRAIN ONLY: fog
     // still hides the units / structures / roads ON a mountain until a player
     // gets real vision there (you see WHERE to race, not who already arrived).
+    // M44 — the VEINS inside the mountain are NOT common knowledge: a Miner
+    // must survey to find one (docs/stone-and-ore-land.md).
     //
     // This is the single knob for "which biomes are always-known terrain":
     // add `or Biome.Hills` to reveal the second band too. Pure terrain
@@ -65,8 +67,10 @@ public static class Biomes
     {
         Biome.Grassland => World.Resource.Food,
         Biome.Forest => World.Resource.Wood,
-        Biome.Hills => World.Resource.Ore,
-        Biome.Mountain => World.Resource.Stone,
+        // M44 — stone is quarried from hills, ore mined from mountain veins
+        // (docs/stone-and-ore-land.md).
+        Biome.Hills => World.Resource.Stone,
+        Biome.Mountain => World.Resource.Ore,
         Biome.Water => World.Resource.None,
         Biome.Desert => World.Resource.None,
         Biome.None => World.Resource.None,

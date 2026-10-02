@@ -199,3 +199,39 @@ The §3.5 sweep is partially deferred: the "target is whatever I am standing on"
 intents (`TrainUnit`, `EquipUnit`, `Craft`, `LootCache`, `Load`/`UnloadCargo`,
 `Embark`/`Disembark`) need an explicit target parameter before they can be
 goal-shaped at all. Named as a follow-up in the spec, not dropped.
+
+## Update 2026-10-01 — assign intents retask, like a march
+
+Found in a three-hour playtest: a builder working one site was right-clicked
+onto a second site with an open spot and did not move. `AssignBuildersIntent`
+and `AssignWorkersIntent` skipped every non-Idle unit, while `MoveIntent`
+pulled a busy unit off its job. The same gesture ("that body belongs there
+now") got two answers depending on whether the destination tile held a
+workplace.
+
+**Decision.** The assign intents now retask exactly as a march does. The
+shared logic lives in `Sim.Core.Intents.Retask`: `Refusal` (grouped, embarked,
+or a conceived breeding cycle — the one commitment no solo order overrides)
+and `Release` (dissolve the goal, release the post or build, clear the haul
+plan, bump the epoch). `MoveIntent`, `SubtileRouteIntent`, `AssignBuilders`
+and `AssignWorkers` all call it; the three copies of that block are gone.
+
+Two consequences, both deliberate:
+
+- **`Activity.Waiting` no longer hides behind the Idle gate** for these two
+  intents. A parent waiting for food who is sent to a farm leaves; the match
+  is torn down for both parents and announced (`GoalDissolvedEvent` ×2), as a
+  march already did. The 2026-08-20 note above ("every existing intent refuses
+  it") is therefore no longer true of the assign intents. A conceived cycle is
+  still refused.
+- **Hands past an extractor's cap still go.** The overflow is marched to the
+  tile as a plain move (no goal), so the body never stays put on an order the
+  player watched it ignore. A full workplace used to reject outright.
+
+Re-issuing the same errand to a unit already on it is a no-op (no restart, no
+dissolve). Pinned in `tests/Sim.Tests/RetaskOnAssignTests.cs`.
+
+The client half (prod): right-click and the wheel's "Move — choose where" now
+share one contextual order (`PlayerController.OrderAt`); a mixed selection sent
+at a site assigns the builders and marches the rest; the Deliver chain takes
+the building's job after the unload.

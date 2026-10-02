@@ -119,7 +119,7 @@ public class PatrolTests
         var order = Install(sim, Patrol(engage: 6, leash: 12));
         var bandit = AddBandit(sim, new TileCoord(11, 10));   // 3 from StopA
 
-        var (journal, _) = Run(sim, 600);
+        var (journal, _) = Run(sim, 4000);   // (M43: a fight is turns on a board, a turn at a time)
 
         Assert.Contains(journal.For(order.OrderId),
             e => e.Outcome == JournalOutcome.Fired && e.Detail.Contains($"engaging unit {bandit}"));

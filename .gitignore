@@ -487,3 +487,6 @@ run.sh
 
 # M20 — local Anthropic API key for scout-report narration (never commit secrets)
 anthropic-key.txt
+
+# The battle sandbox's compositions (docs/battle-sandbox.md): the user's own, never committed
+/sandbox/

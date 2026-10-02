@@ -154,24 +154,15 @@ public class HouseBirthTests
         sim.SubmitIntent(0, new BeginBreedingIntent(tile, 1, 2));
         sim.Run(until: Gestation / 2);
 
-        // Overwhelming attack force on the house tile.
-        for (var i = 0; i < 6; i++)
-            sim.World.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
-        CombatTrigger.MaybeBeginCombatOnTile(sim, tile);
+        // One parent falls in a fight (M43: the board's resolver kills; every death lands in
+        // CombatRules.OnUnitDeath). The other survives and is freed.
+        CombatRules.OnUnitDeath(sim, sim.World.Units[1]);
 
         sim.Run(until: Gestation * 2);
 
-        // Both parents dead in this overwhelming attack. Breeding ends
-        // either via vacant House (parents killed first) or via the M24
-        // siege razing the structure outright (combat keeps going after
-        // the defenders fall) — both outcomes stop the pregnancy. Pin the
-        // STOP, not the specific shape of the house tile.
-        switch (sim.World.Structures[tile])
-        {
-            case House h: Assert.Null(h.Occupation); break;
-            case Rubble: break;   // M24 — house razed; no pregnancy to track
-            default: Assert.Fail($"unexpected structure at {tile}"); break;
-        }
+        // Breeding stopped with the parent's death: the house is vacant again.
+        Assert.False(sim.World.Units.ContainsKey(1));
+        Assert.Null(((House)sim.World.Structures[tile]).Occupation);
         // No child was born (BirthEvent fenced).
         Assert.Empty(sim.World.Units.Values.Where(u => u.OwnerId == 0 && u.Role == UnitRole.None));
     }

@@ -11,9 +11,13 @@ namespace Sim.Core.Logistics;
 // the builder-arriving-last case symmetrical, so the two orders converge.
 //
 // Per-id validation (per docs/intent-validation.md):
-//   * Unit exists, owned, not grouped, not embarked, of training age.
+//   * Unit exists, owned, not grouped, not embarked, not mid-breed.
 //   * Unit.Role == UnitRole.Builder.
-//   * Unit.Activity == Idle.
+// A BUSY builder is RETASKED, exactly as a march would (Sim.Core.Intents.
+// Retask): the old post, build, haul or goal is released and the new errand
+// anchors. Until 2026-10-01 non-Idle builders were skipped, so "send that
+// builder to the new site" did nothing while "send him to the empty tile next
+// door" worked — the same decision, two answers.
 // Failing ids are skipped; valid ones still assign ("partial success" — the
 // "fail cleanly" rule applies per assignment, not per intent).
 //
@@ -46,11 +50,13 @@ public sealed class AssignBuildersIntent : Intent
         {
             if (!world.Units.TryGetValue(id, out var unit)) continue;
             if (unit.OwnerId != PlayerId) continue;  // skip non-owned silently per per-id pattern
-            if (unit.GroupId is not null) continue;  // grouped units can't be assigned solo
-            if (unit.IsEmbarked) continue;            // embarked units are off-tile
             if (unit.Role != UnitRole.Builder) continue;
-            if (unit.Activity != Activity.Idle) continue;
+            if (Retask.Refusal(sim, unit) is not null) continue;  // grouped, embarked, breeding
+            if (unit.Goal is { Kind: GoalKind.AssignBuilder } g && g.TargetTile == SiteTile)
+                continue;                              // already on this errand: don't restart the walk
+            if (unit.Position == SiteTile && unit.Activity == Activity.Building) continue; // already on it
 
+            Retask.Release(sim, unit);
             if (unit.Position == SiteTile)
             {
                 if (WorkAssignment.TryAssignBuilder(sim, site, unit)) assigned++;

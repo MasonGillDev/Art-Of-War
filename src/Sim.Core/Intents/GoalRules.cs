@@ -46,12 +46,12 @@ public static class GoalRules
             return true;
         }
 
-        // Idle → Idle move: bump explicitly so any prior movement chain's
-        // MoveArrivalEvents fence out, exactly as MoveIntent.Resolve does.
+        // Idle → Idle move: bump explicitly so any prior walk's
+        // pending events fence out, exactly as MoveIntent.Resolve does.
         unit.BumpEpoch();
         MoveIntent.BeginMove(sim, unit, goal.TargetTile);
 
-        if (unit.PathRemaining is null)
+        if (!unit.IsWalking)
         {
             // No route (or the target is unreachable through fog-free ground
             // truth). A goal that can never start must not linger as a silent
@@ -248,10 +248,7 @@ public static class GoalRules
     {
         if (unit.Goal is not { } goal) return;
         unit.Goal = null;
-        unit.PathRemaining = null;
-        unit.PathFinalDest = null;
-        unit.NextArrivalTick = null;
-        unit.NextArrivalSeq = null;
+        Sim.Core.Movement.Walk.Stop(unit);
         unit.TrySetActivity(Activity.Idle);
         ReleaseRegistration(sim, unit, goal, reason);
         sim.Schedule(sim.Now, new GoalDissolvedEvent(unit.Id, goal.Kind, goal.TargetTile, reason));

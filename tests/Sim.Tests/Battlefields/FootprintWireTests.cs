@@ -34,7 +34,9 @@ public class FootprintWireTests
             Assert.Equal((int)SubtileKind.Blocked, house.Kinds[Index(x, y)]);
         Assert.Equal(16, house.Kinds.Length);
         var castle = world.Footprints.Single(f => f.Kind == (int)StructureKind.Castle).Footprint;
-        Assert.Equal(11, castle.Kinds.Count(k => k == (int)SubtileKind.Wall));
+        Assert.Equal(5, castle.Kinds.Count(k => k == (int)SubtileKind.Wall));
+        Assert.Equal(4, castle.Kinds.Count(k => k == (int)SubtileKind.Tower));
+        Assert.Equal(Footprints.CastleTowerReach, castle.Reach[Index(0, 0)]);
         var camp = world.Footprints.Single(f => f.Kind == (int)StructureKind.BanditCamp).Footprint;
         Assert.Equal(Footprints.CampTowerReach, camp.Reach[Index(3, 3)]);
         Assert.Contains(world.Footprints, f => f.Kind == (int)StructureKind.Idol);
@@ -49,7 +51,7 @@ public class FootprintWireTests
         var dto = view.Structures.Single(s => s.X == castle.At.X && s.Y == castle.At.Y);
         Assert.Equal((int)castle.Facing, dto.Facing);
         Assert.True(dto.HasFootprint);
-        Assert.Equal(11, dto.Footprint.Kinds.Count(k => k == (int)SubtileKind.Wall));
+        Assert.Equal(5, dto.Footprint.Kinds.Count(k => k == (int)SubtileKind.Wall));
     }
 
     private static GameWorld GridWorld()
@@ -57,7 +59,7 @@ public class FootprintWireTests
         var w = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: 60, Model: CombatModel.Grid),
+            Combat = new CombatConfig(RoundIntervalTicks: 60),
             FactionStarts = new[] { new FactionStartSpec { OwnerId = 0, CastlePosition = new TileCoord(10, 10) } },
         });
         return w;

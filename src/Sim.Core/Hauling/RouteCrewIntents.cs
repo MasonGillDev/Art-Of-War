@@ -4,8 +4,9 @@ namespace Sim.Core.Hauling;
 // together and start from `StartStop`, which is how a player staggers a
 // second crew round the loop from the first.
 //
-// Any role may crew: Hauler-role members carry, everyone else (soldiers,
-// archers) is escort. A member must be free of other standing commitments —
+// Any role may crew. Every member carries at its own capacity except
+// Soldiers and Archers, who are escort (M45: a crew is the units the player
+// named; M36 carried with Haulers only). A member must be free of other standing commitments —
 // not on another route, not claimed by an automation order, not in a group,
 // not aboard a boat. Busy with a one-off task is fine: the crew waits for
 // everyone to be free before it moves.
@@ -132,6 +133,10 @@ public sealed class ClearHaulRouteIntent : Intent
 
 public static class RouteCrews
 {
+    // Who loads and unloads at a stop. Military roles walk the loop as
+    // escort; everyone else the player named is a carrier.
+    public static bool Carries(Unit u) => u.Role is not (UnitRole.Soldier or UnitRole.Archer);
+
     // Clear Unit.RouteId for the crew's living members. A member that died
     // is already gone from world.Units; one that somehow belongs elsewhere
     // is left alone.

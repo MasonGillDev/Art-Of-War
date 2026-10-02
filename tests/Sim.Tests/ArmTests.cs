@@ -118,6 +118,51 @@ public class ArmTests
         AdvanceTo(sim, sim.Now + site.BuildDurationTicks + 2);
     }
 
+    // M44 — no known vein: Forge surveys until a Miner finds one, then puts
+    // the Mine on it (docs/stone-and-ore-land.md). Every order the brain
+    // issues goes through the real intents and the server accepts it.
+    [Fact]
+    public void Forge_SurveysForAVein_ThenPlacesTheMineOnIt()
+    {
+        var (sim, projector) = MakeMatch();
+        var cfg = TestCfg;
+        var castle = CastleOf(sim, 1);
+        Stock(castle);
+        AddGarrison(sim, soldiers: 2);
+        sim.World.AddStructure(new Smithy(FreeNear(sim, castle.At, 2)) { OwnerId = 1 });
+        var mem = new AiMemory();
+
+        PlaceSiteIntent? mineSite = null;
+        for (var sweep = 0; sweep < 12 && mineSite is null; sweep++)
+        {
+            var d = new ForgeRung().TryClaim(Ctx(sim, projector, cfg, mem));
+            Assert.NotNull(d);
+            switch (Assert.Single(d!.Intents))
+            {
+                case Sim.Core.Mining.SurveyIntent survey:
+                    Assert.Equal(Biome.Mountain, sim.World.Grid.BiomeAt(survey.Target));
+                    sim.SubmitIntent(sim.Now, survey);
+                    // Walk there and dig: run until the Miner reports.
+                    for (var guard = 0; guard < 60 && (sim.World.Units[survey.UnitId].Survey is not null
+                            || sim.ResolvedLog.Count == 0); guard++)
+                        AdvanceTo(sim, sim.Now + Sim.Core.Time.Day);
+                    Assert.Null(sim.World.Units[survey.UnitId].Survey);
+                    break;
+                case PlaceSiteIntent place:
+                    mineSite = place;
+                    break;
+                default:
+                    Assert.Fail($"unexpected forge order {d.Intents[0].Describe()}");
+                    break;
+            }
+        }
+
+        Assert.NotNull(mineSite);
+        Assert.Equal(StructureKind.Mine, mineSite!.Kind);
+        Assert.True(Sim.Core.Mining.Veins.Knows(sim.World, 1, mineSite.Tile));
+        Assert.True(mineSite.Resolve(sim).IsApplied, "the server rejected the mine site");
+    }
+
     [Fact]
     public void Forge_RaisesASmithy_ThenArmsTheGarrisonWithShields()
     {
@@ -138,16 +183,17 @@ public class ArmTests
         var smithy = Assert.IsType<Smithy>(sim.World.Structures[place.Tile]);
 
         // 2. Feed lines: logistics sends the smithy its working stock.
-        // The keep's own vision already shows hills on this seed: the
-        // chain's next link goes down on them, and the server takes it.
+        // M44 — the chain's next link is ore, and ore needs a known vein: a
+        // fresh colony knows none, so Forge sends one of its Miners to survey
+        // a mountain (common knowledge), and the server takes the order.
         var ctx = Ctx(sim, projector, cfg, mem);
         var next = new ForgeRung().TryClaim(ctx);
         if (next is not null)
         {
-            var mineSite = Assert.IsType<PlaceSiteIntent>(Assert.Single(next.Intents));
-            Assert.Equal(StructureKind.Mine, mineSite.Kind);
-            Assert.Equal(Biome.Hills, sim.World.Grid.BiomeAt(mineSite.Tile));
-            Assert.True(mineSite.Resolve(sim).IsApplied, "the server rejected the mine site");
+            var survey = Assert.IsType<Sim.Core.Mining.SurveyIntent>(Assert.Single(next.Intents));
+            Assert.Equal(Biome.Mountain, sim.World.Grid.BiomeAt(survey.Target));
+            Assert.Equal(UnitRole.Miner, sim.World.Units[survey.UnitId].Role);
+            Assert.True(survey.Resolve(sim).IsApplied, "the server rejected the survey");
         }
         var hauls = LogisticsLayer.Emit(ctx).OfType<HaulIntent>().ToList();
         Assert.Contains(hauls, h => h.DestTile == place.Tile

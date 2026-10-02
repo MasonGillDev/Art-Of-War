@@ -91,7 +91,7 @@ public class BreedingMoveLockTests
         Assert.Equal(Activity.Working, parentA.Activity);
         Assert.Equal(prePos, parentA.Position);
         Assert.Equal(preEpoch, parentA.AssignmentEpoch);
-        Assert.Null(parentA.PathRemaining);
+        Assert.False(parentA.IsWalking);
         Assert.Null(parentA.PathFinalDest);
 
         // House occupation still intact — naming both parents.

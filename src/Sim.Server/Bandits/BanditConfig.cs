@@ -50,6 +50,17 @@ public sealed record BanditConfig
     // How far a hunting party wanders per leg when nothing is in sight.
     public int WanderRadius { get; init; } = 15;
 
+    // M43 (docs/fix-combat-m43.md) — how the brain fights on a battlefield. A bandit on a board
+    // follows its doctrine; these are the brain's own rules on top of it.
+    // A bandit withdraws when fewer than this share of its party is left on the board
+    // (BattleDoctrine.WithdrawBelow is a head count of its own side).
+    public int WithdrawBelowPercent { get; init; } = 50;
+    // A party joins a fight already open on its prize only if its power is at least this
+    // percent of the power of those fighting there (CombatRules.EffectivePower).
+    public int JoinPowerRatioPercent { get; init; } = 80;
+    // How long a place a march couldn't reach, or had no room at, is skipped.
+    public long BlockedCooldownTicks { get; init; } = 4 * Time.Hour;
+
     // Driver RNG seed. The driver does NOT need to be deterministic for
     // the sim's determinism contract (its DECISIONS land in the durable
     // intent log; replay re-reads the log, not the brain) — seeding it

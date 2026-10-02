@@ -25,7 +25,7 @@ public class KingBalanceLabTests
 {
     private static readonly TileCoord Field = new(12, 12);
 
-    // One battle: `n` soldiers each side, one side optionally led by its king,
+    // One battle (M43: on a board, both lines set to Advance so they close and fight): `n` soldiers each side, one side optionally led by its king,
     // fought to a decision. Returns true if the led side won.
     //
     // Both sides are otherwise identical, so the aura is the ONLY asymmetry —
@@ -43,9 +43,9 @@ public class KingBalanceLabTests
         var cfg = world.PopulationConfig;
         var id = 1;
         for (var i = 0; i < mine; i++)
-            world.AddUnit(new Unit(id++, Field) { Role = UnitRole.Soldier, OwnerId = 0, BornTick = -25 * cfg.TicksPerYear });
+            world.AddUnit(new Unit(id++, Field) { Role = UnitRole.Soldier, OwnerId = 0, BornTick = -25 * cfg.TicksPerYear, Doctrine = Sim.Core.Battlefields.BattleDoctrine.Advance });
         for (var i = 0; i < theirs; i++)
-            world.AddUnit(new Unit(id++, Field) { Role = UnitRole.Soldier, OwnerId = 1, BornTick = -25 * cfg.TicksPerYear });
+            world.AddUnit(new Unit(id++, Field) { Role = UnitRole.Soldier, OwnerId = 1, BornTick = -25 * cfg.TicksPerYear, Doctrine = Sim.Core.Battlefields.BattleDoctrine.Advance });
 
         if (withKing)
         {

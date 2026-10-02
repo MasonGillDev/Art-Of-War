@@ -23,7 +23,8 @@ public readonly record struct PlannedStep(Subtile? To, StepNote Note = StepNote.
 //                  walk onto). v1 worlds: every edge with a land neighbour.
 //   EnteredFrom  — per unit, the edge it came in by (Withdraw goes back out
 //                  that way); absent for units that never crossed in.
-public sealed record BoardSurroundings(IReadOnlySet<Heading> Exits, IReadOnlyDictionary<int, Heading> EnteredFrom)
+public sealed record BoardSurroundings(IReadOnlySet<Heading> Exits, IReadOnlyDictionary<int, Heading> EnteredFrom,
+    IReadOnlyDictionary<Heading, IReadOnlySet<int>>? OwnersBeyond = null)
 {
     public static readonly BoardSurroundings Anywhere =
         new(new HashSet<Heading>(Headings.All), new Dictionary<int, Heading>());
@@ -181,16 +182,22 @@ public static class TurnPlanner
         return step is null ? new PlannedStep(null, StepNote.NoWay) : Checked(board, u, step);
     }
 
+    // M43 (docs/fix-combat-m43.md): an edge whose neighbour tile holds a unit hostile to this one
+    // is no way out: a withdrawing unit that "backed out" into the enemy only opened a fight on the
+    // next tile and, backing out of that one, bounced between two tiles for ever. If every way
+    // out leads to an enemy it stays (CannotLeaveThere) and the board carries on.
     public static Heading? WithdrawEdge(BoardState board, BoardUnit u, BoardSurroundings around)
     {
         var mover = board.MoverOf(u);
         bool CanGetOut(Heading h) => Subtile.All().Any(s => s.IsOnEdgeRow(h) && board.Layer.CanStep(s, s.Step(h), mover));
-        if (around.EnteredFrom.TryGetValue(u.Id, out var came) && around.Exits.Contains(came) && CanGetOut(came)) return came;
+        bool EnemyBeyond(Heading h) => around.OwnersBeyond is { } beyond && beyond.TryGetValue(h, out var owners)
+            && owners.Any(o => board.AreHostile(u.OwnerId, o));
+        if (around.EnteredFrom.TryGetValue(u.Id, out var came) && around.Exits.Contains(came) && CanGetOut(came) && !EnemyBeyond(came)) return came;
         Heading? best = null;
         (int Enemy, int Dist) bestKey = default;
         foreach (var h in Headings.All)
         {
-            if (!around.Exits.Contains(h) || !CanGetOut(h)) continue;
+            if (!around.Exits.Contains(h) || !CanGetOut(h) || EnemyBeyond(h)) continue;
             var enemyOnRow = board.OnBoard.Any(o => o.At.IsOnEdgeRow(h) && board.AreHostile(u.OwnerId, o.OwnerId)) ? 1 : 0;
             var key = (enemyOnRow, u.At.DistanceToEdge(h));
             if (best is null || key.CompareTo(bestKey) < 0) { best = h; bestKey = key; }

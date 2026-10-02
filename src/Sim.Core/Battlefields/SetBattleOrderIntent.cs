@@ -8,8 +8,7 @@ namespace Sim.Core.Battlefields;
 //               order and go back to doctrine.
 //   Target    — MoveTo's subtile (just outside an edge = leave across it).
 //   Waypoints — Route's traced subtiles, contiguous, only the last may be
-//               outside an edge. For a unit waiting to come on, a route
-//               whose first waypoint is on its entry edge row picks its lane.
+//               outside an edge.
 //   SwapWith  — Swap's partner: an adjacent ally on the same board.
 public sealed class SetBattleOrderIntent : Intent
 {
@@ -42,6 +41,7 @@ public sealed class SetBattleOrderIntent : Intent
         if (!Battlefields.TryGet(world, unit, out var bf))
             return IntentOutcome.Reject($"unit {UnitId} is not on a battlefield");
         var slot = unit.Board!;
+        if (unit.Subtile is null) return IntentOutcome.Reject($"unit {UnitId} has no subtile");
 
         BattleOrder? order;
         try
@@ -73,23 +73,8 @@ public sealed class SetBattleOrderIntent : Intent
         if (order is { Kind: BattleOrderKind.Swap })
         {
             if (!world.Units.TryGetValue(SwapWith, out var partner) || partner.OwnerId != unit.OwnerId
-                || partner.Board is not { OnBoard: true } ps || ps.Tile != slot.Tile)
+                || partner.Board is not { } ps || ps.Tile != slot.Tile || partner.Subtile is null)
                 return IntentOutcome.Reject($"unit {SwapWith} is not an ally on this battlefield");
-        }
-
-        // A unit waiting to come on: a route (or move) into its entry edge
-        // row picks the lane it comes on by.
-        if (slot.Waiting && slot.At.EdgeBeyond is { } edge)
-        {
-            var first = order switch
-            {
-                { Kind: BattleOrderKind.Route } => order.Waypoints[0],
-                { Kind: BattleOrderKind.MoveTo } => order.Destination,
-                _ => (Subtile?)null,
-            };
-            // It steps on into `f`; the route then carries on from there.
-            if (first is { IsOnBoard: true } f && f.IsOnEdgeRow(edge))
-                slot.At = f.Step(edge);
         }
 
         slot.Order = order;
@@ -123,8 +108,8 @@ public sealed class SetBattleDoctrineIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
         if (unit.OwnerId != PlayerId)
             return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
-        if (!Enum.IsDefined(typeof(DoctrineBehaviour), Behaviour))
-            return IntentOutcome.Reject($"unknown doctrine {Behaviour}");
+        if (DoctrineCatalog.Blocker(unit.Role, (DoctrineBehaviour)Behaviour) is { } why)
+            return IntentOutcome.Reject(why);
         if (WithdrawBelow < 0 || WithdrawBelow > Subtile.Count)
             return IntentOutcome.Reject($"withdraw threshold {WithdrawBelow} out of range");
         unit.Doctrine = new BattleDoctrine((DoctrineBehaviour)Behaviour, WithdrawBelow);

@@ -179,7 +179,7 @@ public class RefiningTests
     [Fact]
     public void OrdinaryExtractor_RejectsInputDeposits()
     {
-        var grid = new TileGrid(4, 4, Biome.Hills);
+        var grid = new TileGrid(4, 4, Biome.Mountain);
         var world = new GameWorld(grid);
         var mine = (Extractor)world.AddStructure(new Extractor(StructureKind.Mine, new TileCoord(1, 1)));
         Assert.False(mine.IsRefiner);

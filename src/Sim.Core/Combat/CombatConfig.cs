@@ -9,24 +9,16 @@ namespace Sim.Core.Combat;
 //                      reinforcements can arrive between rounds and
 //                      retreating units can walk out. Tunable.
 //
-// M41 — Model picks the combat model at genesis (docs/battlefield-grid.md,
-// docs/m41-status.md): Pooled is the stat-pool rounds above (the default until
-// M42 flips it); Grid opens a 4×4 battlefield on every contested tile, fought
-// in simultaneous turns of RoundIntervalTicks each (one turn = one round).
-// LineSupport is the Grid's morale per friend alongside (BattleConfig).
-// Snapshotted v41.
+// M43 — there is one combat model, the battlefield grid (docs/battlefield-grid.md): a
+// 4×4 board of subtiles on every contested tile, fought in simultaneous turns of
+// RoundIntervalTicks each (one turn = one round). The pooled stat-pool rounds are gone
+// except the SIEGE round, which drains a structure's HP when attackers are alone with it.
+// LineSupport is the board's morale per friend alongside (BattleConfig).
 public readonly record struct CombatConfig(
     long RoundIntervalTicks,
-    CombatModel Model = CombatModel.Pooled,
     int LineSupport = 25)
 {
     public CombatConfig() : this(RoundIntervalTicks: 1 * Time.Hour) { }
 
     public Sim.Core.Battlefields.BattleConfig Battle => new(LineSupport);
-}
-
-public enum CombatModel : byte
-{
-    Pooled = 0,
-    Grid = 1,
 }

@@ -52,46 +52,6 @@ public class ArcherLineTests
     }
 
     [Fact]
-    public void WhileTheLineStands_TheArcherTakesNothing_AndStillHits()
-    {
-        // Soldier + archer against two soldiers: 6 damage a round lands on the line.
-        var sim = Fight((0, UnitRole.Soldier), (0, UnitRole.Archer), (1, UnitRole.Soldier), (1, UnitRole.Soldier));
-        sim.Run(until: RoundInterval);
-
-        var soldier = Assert.Single(Of(sim, 0, UnitRole.Soldier));
-        var archer = Assert.Single(Of(sim, 0, UnitRole.Archer));
-        Assert.Equal(Hp(UnitRole.Soldier) - 2 * Pw(UnitRole.Soldier), soldier.Health);
-        Assert.Equal(Hp(UnitRole.Archer), archer.Health);
-        // And the archer's power landed: the enemy took soldier + archer power.
-        var hurt = Of(sim, 1, UnitRole.Soldier).OrderBy(u => u.Health).First();
-        Assert.Equal(Hp(UnitRole.Soldier) - Pw(UnitRole.Soldier) - Pw(UnitRole.Archer), hurt.Health);
-    }
-
-    [Fact]
-    public void WhenTheLineFalls_TheRestOfTheRoundSpillsOntoTheArchers()
-    {
-        // A lone citizen (10 hp) in front of an archer, against enough enemy
-        // power to kill the citizen and have some left in the same round.
-        var enemy = new List<(int, UnitRole)>();
-        for (var i = 0; i < 4; i++) enemy.Add((1, UnitRole.Soldier));   // 12 damage a round
-        var sim = Fight(new[] { (0, UnitRole.None), (0, UnitRole.Archer) }.Concat(enemy).ToArray());
-        sim.Run(until: RoundInterval);
-
-        Assert.Empty(Of(sim, 0, UnitRole.None));
-        var archer = Assert.Single(Of(sim, 0, UnitRole.Archer));
-        var spill = 4 * Pw(UnitRole.Soldier) - Hp(UnitRole.None);
-        Assert.Equal(Hp(UnitRole.Archer) - spill, archer.Health);
-    }
-
-    [Fact]
-    public void ArchersAlone_HaveNoLine_AndTakeDamageAsBefore()
-    {
-        var sim = Fight((0, UnitRole.Archer), (1, UnitRole.Soldier));
-        sim.Run(until: RoundInterval);
-        Assert.Equal(Hp(UnitRole.Archer) - Pw(UnitRole.Soldier), Assert.Single(Of(sim, 0, UnitRole.Archer)).Health);
-    }
-
-    [Fact]
     public void FourSoldiersAndTwoArchers_NowBeatSixBandits_WithBothArchersStanding()
     {
         // The stack the old lowest-health-first order lost (the archers died

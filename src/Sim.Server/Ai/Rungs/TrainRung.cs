@@ -81,7 +81,13 @@ public sealed class TrainRung : IRung
                 && (UnitRole)u.Role is not (UnitRole.Builder or UnitRole.Hauler
                     or UnitRole.Scout or UnitRole.Farmer
                     or UnitRole.Soldier or UnitRole.Archer
-                    or UnitRole.King or UnitRole.Heir);
+                    or UnitRole.King or UnitRole.Heir)
+                // M44 — a Miner is the colony's prospector: routine Farmer
+                // coverage leaves him be (else the Miner OreStarved schooled is
+                // retrained the next think), but a missing organ — the
+                // Builder/Hauler/Scout floors — may still take him.
+                && ((UnitRole)u.Role != UnitRole.Miner
+                    || target is UnitRole.Builder or UnitRole.Hauler or UnitRole.Scout);
             var cand = ctx.OwnUnits.Where(u => ctx.IsIdleStill(u) && Trainable(u))
                 .OrderBy(u => (UnitRole)u.Role == UnitRole.None ? 0 : 1).ThenBy(u => u.Id)
                 .FirstOrDefault();
@@ -142,6 +148,9 @@ public sealed class TrainRung : IRung
         // scout without one would pin the rung on a training the sim refuses.
         if (Adults(UnitRole.Scout) < ctx.Cfg.ScoutFloor
             && ctx.Own.Any(s => s.Kind == (int)StructureKind.Lodge)) return UnitRole.Scout;
+        // M44 — Forge wants ore and has nobody who knows what a vein looks
+        // like: one Miner (docs/stone-and-ore-land.md).
+        if (ctx.Mem.OreStarved && Adults(UnitRole.Miner) == 0) return UnitRole.Miner;
         var (pool, _, handsDemanded) = ctx.LaborLedger();
         if (Adults(UnitRole.Farmer) < Math.Min(handsDemanded, Math.Max(1, pool - 3)))
             return UnitRole.Farmer;

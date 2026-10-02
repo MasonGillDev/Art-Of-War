@@ -82,8 +82,8 @@ public class PursuitTests
         sim.Run(200);
         Assert.Equal(target, sim.World.Units[1].Position);
         Assert.Null(sim.World.Units[1].Pursuit);                  // released on catch
-        Assert.True(sim.World.CombatStates.ContainsKey(target),
-            "arriving on the target's tile must have started a fight");
+        Assert.True(sim.World.Battlefields.ContainsKey(target),
+            "arriving on the target's tile must have opened a battlefield");
 
         // And it resolves on its own — the patrol layer never touches combat.
         sim.Run(5000);
@@ -130,7 +130,7 @@ public class PursuitTests
         var soldier = sim.World.Units[1];
         Assert.Null(soldier.Pursuit);
         Assert.Equal(Activity.Idle, soldier.Activity);
-        Assert.Null(soldier.PathRemaining);
+        Assert.False(soldier.IsWalking);
         // Never dragged beyond the leash from the route it was guarding.
         Assert.True(PursuitRules.Chebyshev(soldier.Position, Home) <= 5,
             $"patrol was pulled to {soldier.Position.X},{soldier.Position.Y} — the leash should hold it near its stop");
@@ -149,8 +149,8 @@ public class PursuitTests
         var soldier = sim.World.Units[1];
         Assert.Null(soldier.Pursuit);
         Assert.Equal(Activity.Idle, soldier.Activity);
-        Assert.Null(soldier.PathRemaining);
-        Assert.Null(soldier.NextArrivalTick);
+        Assert.False(soldier.IsWalking);
+        Assert.False(soldier.IsWalking);
     }
 
     [Fact]
@@ -172,7 +172,7 @@ public class PursuitTests
         {
             sim.Run(t);
             if (!sim.World.Units.TryGetValue(2, out var bandit)) break;
-            if (bandit.PathRemaining is null) break;      // it arrived; no longer fleeing
+            if (!bandit.IsWalking) break;      // it arrived; no longer fleeing
             stepsWhileFleeing++;
             Assert.NotEqual(sim.World.Units[1].Position, bandit.Position);
         }

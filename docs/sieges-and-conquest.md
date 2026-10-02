@@ -387,3 +387,13 @@ what the running server confirmed is that the client's payload reaches the right
 intent and validates ("no rubble at 30,30"). The positive path is covered by
 tests rather than by a live siege.
 
+
+## Update 2026-10-01 — siege from the board
+
+The board now sieges while it is open: every attacker on the tile that is not fighting a
+unit and did not move this turn works on the structure each turn (`TurnResolver`,
+`Battlefields.Apply`, through `CombatRules.DealSiegeDamage`, now the one place siege
+damage lands). D4 (the pooled rounds once the board closes with attackers alone) and the
+`FortSiege` adjacency rule are unchanged. Reason and rules: `docs/structure-footprints.md`,
+Update 2026-10-01 — a defender on an unreachable wall subtile used to make the castle
+indestructible.

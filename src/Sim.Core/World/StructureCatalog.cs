@@ -47,7 +47,7 @@ public static class StructureCatalog
             // crosses below ForestThreshold 7500 after ~1250 hourly periods
             // ≈ 52 days of continuous production, then snaps to Grassland —
             // a durable but REVERSIBLE loss (~208 days of rest to regrow).
-            // M15 — the loss lands on the camp's 6 CLAIMED forest tiles
+            // M15 — the loss lands on the camp's 8 CLAIMED forest tiles
             // (docs/extraction-claims.md), not a radius.
             DegradeAmount = 2,
             ClaimCount = 8,
@@ -58,7 +58,8 @@ public static class StructureCatalog
         {
             Kind = StructureKind.Quarry,
             IsPlayerBuildable = true,
-            RequiredBiome = Biome.Mountain,
+            // M44 — stone comes from the hills (docs/stone-and-ore-land.md).
+            RequiredBiome = Biome.Hills,
             OutputResource = Resource.Stone,
             BaseRatePerWorker = 1,
             ProductionPeriodTicks = 12 * Time.Hour,
@@ -70,13 +71,22 @@ public static class StructureCatalog
             BuildCost = new SortedDictionary<Resource, int> { [Resource.Wood] = 15 },
             BuildDurationTicks = 15 * Time.Hour,
             RequiredBuilderCount = 2,
+            // M44 — a quarry takes up hill land the way a farm takes up
+            // grassland: 6 claimed Hills tiles, exclusive across all owners
+            // and kinds. DegradeAmount stays 0 — the hillside never wears
+            // out; stone is slow, not scarce.
+            ClaimCount = 6,
+            ClaimRange = 2,
             BaseHealth = 50,
         },
         [StructureKind.Mine] = new StructureSpec
         {
             Kind = StructureKind.Mine,
             IsPlayerBuildable = true,
-            RequiredBiome = Biome.Hills,
+            // M44 — ore comes from mountain veins (docs/stone-and-ore-land.md):
+            // only on a vein the placing faction has surveyed (or seen mined).
+            RequiredBiome = Biome.Mountain,
+            RequiresVein = true,
             OutputResource = Resource.Ore,
             BaseRatePerWorker = 1,
             ProductionPeriodTicks = 1 * Time.Day,
@@ -123,7 +133,7 @@ public static class StructureCatalog
             // continuous production make a fresh Grassland tile permanently
             // dead. The PERMANENCE is the punishment (LumberCamp's
             // Forest→Grassland is reversible; this is not). M15 — the
-            // damage lands on the farm's 4 CLAIMED grassland tiles
+            // damage lands on the farm's 15 CLAIMED grassland tiles
             // (docs/extraction-claims.md); rotating farmland is the long
             // game.
             DegradeAmount = 1,

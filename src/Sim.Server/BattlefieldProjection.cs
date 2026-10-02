@@ -13,29 +13,33 @@ namespace Sim.Server;
 // projector.
 //
 // What a player sees (build decision D5):
-//   * boards on tiles they can see (every board, under reveal);
-//   * everyone on such a board: subtile, HP, morale, whether duelling;
+//   * boards on tiles they can see (every board, under revealMap);
+//   * everyone on such a board: subtile, HP, morale, whether duelling, and the walkers
+//     waiting across its edge for room (Waiting, in the lane outside);
 //   * their OWN units' orders, next step and last failure only — the enemy's
-//     orders never reach the wire. Reveal (the test bed's director mode) shows all.
+//     orders never reach the wire. revealOrders (a dev switch, never a play mode)
+//     shows all. The two are separate on purpose (docs/battle-sandbox.md, "Fog, not
+//     orders"): lifting the fog must not also give away what the other side plans.
 internal static class BattlefieldProjection
 {
-    public static BattlefieldDto[] Project(Simulation sim, int playerId, bool reveal, IReadOnlySet<TileCoord> visible)
+    public static BattlefieldDto[] Project(Simulation sim, int playerId, bool revealMap, bool revealOrders,
+        IReadOnlySet<TileCoord> visible)
     {
         var world = sim.World;
         if (world.Battlefields.Count == 0) return [];
         var list = new List<BattlefieldDto>();
         foreach (var bf in world.Battlefields.Values)
         {
-            if (!reveal && !visible.Contains(bf.Tile)) continue;
-            list.Add(ToDto(sim, bf, playerId, reveal));
+            if (!revealMap && !visible.Contains(bf.Tile)) continue;
+            list.Add(ToDto(sim, bf, playerId, revealOrders));
         }
         return list.ToArray();
     }
 
-    private static BattlefieldDto ToDto(Simulation sim, Battlefield bf, int playerId, bool reveal)
+    private static BattlefieldDto ToDto(Simulation sim, Battlefield bf, int playerId, bool revealOrders)
     {
         var world = sim.World;
-        var slotted = world.Units.Values.Where(u => u.Board is { } s && s.Tile == bf.Tile).ToList();
+        var slotted = world.Units.Values.Where(u => u.Board is { } s && s.Tile == bf.Tile && u.Subtile is not null).ToList();
         var board = Battlefields.ReadBoard(sim, bf.Tile, slotted);
         var preview = Battlefields.PlanPreview(sim, bf);
         var cfg = world.CombatConfig.Battle;
@@ -51,17 +55,17 @@ internal static class BattlefieldProjection
                 Id = u.Id,
                 OwnerId = u.OwnerId,
                 Role = (int)u.Role,
-                SX = slot.At.X,
-                SY = slot.At.Y,
-                Waiting = slot.Waiting,
-                Sheltered = slot.Sheltered,
+                SX = u.Subtile!.Value.X,
+                SY = u.Subtile.Value.Y,
+                Waiting = false,       // M42: nobody waits in an outside lane any more
+                Sheltered = false,     // M42: nobody is sheltered any more
                 Hp = u.Health,
                 MaxHp = MaxHealth(u, sim.Now),
-                Morale = onBoard is { OnBoard: true } ? TurnResolver.Morale(board, onBoard, cfg) : BattleConfig.SteadyMorale,
+                Morale = onBoard is not null ? TurnResolver.Morale(board, onBoard, cfg) : BattleConfig.SteadyMorale,
                 InDuel = onBoard is not null && board.InDuel(onBoard),
                 Ranged = spec.Ranged,
             };
-            if (reveal || u.OwnerId == playerId)
+            if (revealOrders || u.OwnerId == playerId)
             {
                 dto.Mine = u.OwnerId == playerId;
                 var doctrine = u.Doctrine ?? BattleDoctrine.DefaultFor(u.Role);
@@ -86,6 +90,36 @@ internal static class BattlefieldProjection
                 }
             }
             units.Add(dto);
+        }
+
+        // M43 (docs/fix-combat-m43.md): walkers waiting at this board's edge for room. They are
+        // not on the board (they can't act or be hit) but they are in plain sight across the
+        // edge they will come in by: in the lane of the subtile they step onto, just outside it.
+        foreach (var u in world.Units.Values)
+        {
+            if (u.WaitingToEnter != bf.Tile || u.SubtileRoute is not { Count: > 0 } route || u.Subtile is null) continue;
+            if (Battlefields.EdgeToward(bf.Tile, u.Position) is not { } edge) continue;
+            var arrival = route[0].Sub;
+            var lane = edge is Heading.North or Heading.South ? arrival.X : arrival.Y;
+            var outside = Subtile.OutsideLane(edge, lane);
+            var spec = UnitCombatCatalog.Spec(u.Role);
+            var waiting = new BattleUnitDto
+            {
+                Id = u.Id, OwnerId = u.OwnerId, Role = (int)u.Role,
+                SX = outside.X, SY = outside.Y,
+                Waiting = true,
+                Hp = u.Health, MaxHp = MaxHealth(u, sim.Now),
+                Morale = BattleConfig.SteadyMorale,
+                Ranged = spec.Ranged,
+            };
+            if (revealOrders || u.OwnerId == playerId)
+            {
+                waiting.Mine = u.OwnerId == playerId;
+                var doctrine = u.Doctrine ?? BattleDoctrine.DefaultFor(u.Role);
+                waiting.Doctrine = (int)doctrine.Behaviour;
+                waiting.WithdrawBelow = doctrine.WithdrawBelow;
+            }
+            units.Add(waiting);
         }
 
         var result = new BattlefieldDto
@@ -124,6 +158,8 @@ internal static class BattlefieldProjection
                 }).ToArray(),
                 Clashes = last.Result.Clashes.Select(c => new BattleClashDto { A = c.A, B = c.B }).ToArray(),
                 Deaths = last.Result.Deaths.ToArray(),
+                Besiegers = last.Result.Besiegers.ToArray(),
+                StructureDamage = last.Result.StructureDamage,
             };
         }
         return result;

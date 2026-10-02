@@ -107,31 +107,31 @@ public class SiegeDamageTests
     }
 
     [Fact]
-    public void DefenderDies_SiegeBegins_NextRound()
+    public void DefenderDies_TheBoardCloses_ThenTheSiegeBegins()
     {
+        // M43: the board decides who holds the tile (the defender's presence is a fight on the
+        // board, not a shield); when it closes with only attackers left, the siege rounds run.
         var sim = MakeTwoFactionWorld();
         var castleTile = new TileCoord(19, 19);
         var castle = (Castle)sim.World.Structures[castleTile];
         castle.Health = 50;
 
-        // Defender on its last legs (HP 1) so it dies in round 1 cleanly —
-        // attacker (HP 10) easily survives to siege from round 2 onward.
         var defender = sim.World.AddUnit(
             new Unit(200, castleTile) { Role = UnitRole.Builder, OwnerId = 1 });
-        defender.Health = 1;
         sim.World.AddUnit(new Unit(100, castleTile) { Role = UnitRole.Builder, OwnerId = 0 });
 
         CombatTrigger.MaybeBeginCombatOnTile(sim, castleTile);
+        Assert.True(sim.World.Battlefields.ContainsKey(castleTile));
 
-        // Round 1 (tick 10): defender absorbs the round, dies. Castle still
-        // untouched — the defender's death "cost a round" of shielding.
-        sim.Run(until: RoundInterval + 1);
-        Assert.False(sim.World.Units.ContainsKey(200));
-        Assert.Equal(50, castle.Health);
+        // The defender falls; the board closes on its next turn; the attacker is alone with the castle.
+        CombatRules.OnUnitDeath(sim, defender);
+        for (var t = sim.Now + 1; t < 50 * RoundInterval && !sim.World.CombatStates.ContainsKey(castleTile); t++) sim.Run(until: t);
+        Assert.True(sim.World.CombatStates.ContainsKey(castleTile), "the siege should begin once the board closes");
+        Assert.False(sim.World.Battlefields.ContainsKey(castleTile));
+        Assert.Equal(50, castle.Health);                 // nothing chipped before the first siege round
 
-        // Round 2 (tick 20): no defender at start → siege damage. Power 1
-        // attacker → 1 HP off the castle.
-        sim.Run(until: 2 * RoundInterval + 1);
+        // One siege round: power 1 attacker, 1 HP off the castle.
+        for (var t = sim.Now + 1; t < sim.Now + 3 * RoundInterval && castle.Health == 50; t++) sim.Run(until: t);
         Assert.Equal(49, castle.Health);
     }
 

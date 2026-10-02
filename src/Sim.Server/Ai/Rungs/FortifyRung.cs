@@ -16,9 +16,10 @@ namespace Sim.Server.Ai.Rungs;
 //   1. FINISH WHAT'S STARTED — builders for wall/gate/quarry sites
 //      (materials are logistics' job, as everywhere).
 //   2. STONE ECONOMY — walls are stone-heavy and NO other rung mines:
-//      below FortifyStoneFloor the rung bootstraps a Quarry (M22 makes
-//      every mountain common knowledge, so the brain always knows where
-//      stone lives) and staffs it, then waits for the pile.
+//      below FortifyStoneFloor the rung bootstraps a Quarry on the best
+//      known HILL pocket (M44 — stone is quarried from hills, and a quarry
+//      claims hill land like a farm claims grassland) and staffs it, then
+//      waits for the pile.
 //   3. GATE FIRST — a gate goes up before any wall segment, and no wall
 //      is ever placed while zero gates stand or build: own walls block
 //      OWN units too (spec has no owner exemption), so a gateless ring
@@ -118,11 +119,15 @@ public sealed class FortifyRung : IRung
             if (quarry is null)
             {
                 if (ctx.OwnSite(StructureKind.Quarry) is not null) return null;   // building — wait
-                if (ctx.NearestFreeTile(Biome.Mountain, cfg.SiteSearchRange) is { } mt)
+                // M44 — quarries claim hill land like farms claim grassland:
+                // search for a pocket that can host the full claim.
+                var quarrySpec = StructureCatalog.Spec(StructureKind.Quarry);
+                if (ctx.NearestPocketTile(Biome.Hills, cfg.SiteSearchRange,
+                        quarrySpec.ClaimCount, quarrySpec.ClaimRange) is { } ht)
                     return new Decision("fortify", "no stone income — placing a quarry",
-                        new List<Intent> { new PlaceSiteIntent(mt, StructureKind.Quarry)
+                        new List<Intent> { new PlaceSiteIntent(ht, StructureKind.Quarry)
                             { PlayerId = ctx.PlayerId } });
-                return null;   // no known mountain in range — scouting's problem
+                return null;   // no known hill pocket in range — scouting's problem
             }
             if (ctx.StaffExtractor(quarry, UnitRole.Quarryman, cfg.FortifyQuarryWorkers)
                     is { Count: > 0 } st)

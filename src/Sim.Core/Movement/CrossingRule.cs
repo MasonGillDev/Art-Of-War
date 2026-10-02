@@ -33,11 +33,6 @@ public sealed class CrossingRule
 
     public static CrossingRule GroundTruth(GameWorld world, int owner) => new(world, owner, null);
 
-    // Tile shapes rule world movement only in grid-combat worlds, like the rest
-    // of the battlefield work (docs/battlefield-grid.md): the default (pooled)
-    // game moves as it always has until the grid becomes the default.
-    public static bool Applies(GameWorld world) => world.CombatConfig.Model == Sim.Core.Combat.CombatModel.Grid;
-
     private Crossings At(TileCoord t)
     {
         if (_cache.TryGetValue(t, out var c)) return c;

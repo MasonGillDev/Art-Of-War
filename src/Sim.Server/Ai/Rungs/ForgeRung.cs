@@ -13,19 +13,19 @@ namespace Sim.Server.Ai.Rungs;
 //      first thing the smithy makes needs no new economy at all. The
 //      garrison gets +10 health per shield within days of the roof going
 //      on.
-//   2. MINE — on known Hills (the catalog's RequiredBiome). No known
-//      hills, no chain: the colony stays a shield-and-bare-sword
-//      kingdom until scouting finds ore. (ScoutRung's budget already
-//      re-opens on land hunger; ore hunger is deliberately NOT a scout
-//      trigger — the Fortify/Irrigate precedent is that industry grows
-//      with knowledge, never drives it.)
+//   2. MINE — M44: only on an ore VEIN the brain knows
+//      (docs/stone-and-ore-land.md). No known free vein → send a Miner to
+//      survey the nearest unsurveyed mountain (mountains are common
+//      knowledge, so there is always a slope to try); no Miner → raise
+//      OreStarved and TrainRung schools one. Veins are about a third of
+//      all mountain tiles, so a sweep or two finds one.
 //   3. SMELTER — Ore + Wood -> Iron, the only extractor with inputs. Fed
 //      by LogisticsLayer's feed lines, not by this rung: hauls are
 //      background (arbitration lesson #1).
 //
-// Then STAFF what stands (Miner preferred — the 2:1 bonus — but the
-// brain trains no miners; generalists smelt at the base rate, which is
-// plenty for an armoury). ArmRung, one slot below, spends the output.
+// Then STAFF what stands (Miner preferred — the 2:1 bonus; the brain
+// trains exactly the one Miner it needs to survey, generalists fill the
+// rest at the base rate). ArmRung, one slot below, spends the output.
 //
 // Doctrine, in firing order:
 //   * SURPLUS ONLY for new ground — the Fortify gates verbatim (famine,
@@ -96,18 +96,39 @@ public sealed class ForgeRung : IRung
             return Place(ctx, StructureKind.Smithy, requiredBiome: null,
                 "no smithy — placing one");
 
-        // 2. The Mine — only where the brain KNOWS hills. (No claims to
-        //    exhaust, so no DetectExhausted — its buffer cap is the brake.)
+        // 2. The Mine — only on a vein the brain KNOWS (M44). Veins never
+        //    run dry, so no DetectExhausted — its buffer cap is the brake.
         if (ctx.OwnStructure(StructureKind.Mine) is null)
-            return Place(ctx, StructureKind.Mine,
-                StructureCatalog.Spec(StructureKind.Mine).RequiredBiome,
-                "no mine — placing one on the hills");   // no known hills: shields only
+            return MineOrSurvey(ctx);
+        ctx.Mem.OreStarved = false;
 
         // 3. The Smelter, once ore is on its way.
         if (ctx.OwnStructure(StructureKind.Smelter) is null)
             return Place(ctx, StructureKind.Smelter, requiredBiome: null,
                 "no smelter — placing one");
         return null;
+    }
+
+    // M44 — a known free vein takes a Mine; otherwise a Miner goes looking.
+    private static Decision? MineOrSurvey(ThinkContext ctx)
+    {
+        var range = ctx.Cfg.SiteSearchRange;
+        if (ctx.NearestFreeVein(range) is { } vein)
+        {
+            ctx.Mem.OreStarved = false;
+            if (!AffordsSite(ctx, StructureCatalog.Spec(StructureKind.Mine))) return null;
+            return new Decision("forge", "no mine — placing one on a known vein",
+                new List<Intent> { new PlaceSiteIntent(vein, StructureKind.Mine) { PlayerId = ctx.PlayerId } });
+        }
+        var miners = ctx.OwnUnits.Where(u => (UnitRole)u.Role == UnitRole.Miner).ToList();
+        if (miners.Any(u => u.SurveyX >= 0)) return null;   // a sweep is under way — wait for it
+        ctx.Mem.OreStarved = miners.Count == 0;
+        if (ctx.NearestUnsurveyedMountain(range) is not { } slope) return null;   // every known slope proven barren
+        var miner = miners.Where(u => ctx.IsFree(u) && ctx.IsIdleStill(u)).OrderBy(u => u.Id).FirstOrDefault();
+        if (miner is null) return null;
+        return new Decision("forge", $"no known vein — sending a miner to survey {slope.X},{slope.Y}",
+            new List<Intent> { new Sim.Core.Mining.SurveyIntent(ctx.Reserve(miner).Id, slope)
+                { PlayerId = ctx.PlayerId } });
     }
 
     private static readonly StructureKind[] Chain =

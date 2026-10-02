@@ -600,8 +600,8 @@ public class RivalTests
     [Fact]
     public void Conquer_LeavesTheGarrison_AndWaitsOutTheTelegraph()
     {
-        // 10 soldiers, pop 48: peacetime = min(4 + 2/8, 6) = 4, so the
-        // campaign claims exactly 6 — the garrison never marches.
+        // 12 soldiers, pop 48: peacetime = min(4 + 2/8, 6) = 4, so the
+        // campaign claims exactly 8 — the garrison never marches.
         var cfg = new AiConfig();
         StructDto[] structures =
         [
@@ -609,7 +609,7 @@ public class RivalTests
             Struct(6, 5, StructureKind.Barracks, 0),
         ];
         var factions = new[] { new FactionDto { Id = 0 }, new FactionDto { Id = 1 } };
-        var soldiers = Enumerable.Range(0, 10)
+        var soldiers = Enumerable.Range(0, 12)
             .Select(i => Soldier(100 + i, 6, 5, owner: 0)).ToArray();  // all at the rally
 
         ViewDto Bench(RelationshipDto rel)
@@ -626,17 +626,18 @@ public class RivalTests
         var pending = Bench(new RelationshipDto { LoId = 0, HiId = 1,
             State = (int)RelationshipState.Neutral, PendingEffectiveTick = 9999 });
         Assert.Null(new ConquerRung().TryClaim(ThinkContext.Build(pending, cfg, mem, now: 100)));
-        Assert.Equal(6, mem.CampaignSoldiers.Count);
+        Assert.Equal(8, mem.CampaignSoldiers.Count);
         Assert.False(mem.CampaignLaunched);
 
-        // War effective: LAUNCH — six march orders onto the castle tile
-        // (GO gate: 18pw ×100 ≥ assumed 12pw ×150, exactly).
+        // War effective: LAUNCH — eight march orders onto the castle tile. M43: only the
+        // castle's attacker slots fight at full weight (5 × 3pw) and the other three are a
+        // reserve at half (3 × 3pw × 50%): 19pw ×100 ≥ assumed 12pw ×150.
         var effective = Bench(new RelationshipDto { LoId = 0, HiId = 1,
             State = (int)RelationshipState.Enemy });
         var d = new ConquerRung().TryClaim(ThinkContext.Build(effective, cfg, mem, now: 200));
         Assert.NotNull(d);
         Assert.Contains("LAUNCH", d!.Why);
-        Assert.Equal(6, d.Intents.Count);
+        Assert.Equal(8, d.Intents.Count);
         Assert.All(d.Intents, i =>
         {
             var m = Assert.IsType<MoveIntent>(i);
@@ -682,7 +683,7 @@ public class RivalTests
         // lab's subject; this test pins the campaign MACHINE (declare →
         // telegraph → assemble → march → siege → raze → game over).
         for (var i = 0; i < 10; i++)
-            sim.World.AddUnit(new Unit(900 + i, c1) { Role = UnitRole.Soldier, OwnerId = 1 });
+            sim.World.AddUnit(new Unit(900 + i, Sim.Core.Movement.TileCapacity.RoomNear(sim.World, c1, 1)) { Role = UnitRole.Soldier, OwnerId = 1 });   // beside the castle once it is full (14 since 2026-10-01)
         // A forward observer keeps the enemy castle on the intel map.
         sim.World.AddUnit(new Unit(950, new TileCoord(c0.X + 1, c0.Y))
             { Role = UnitRole.Scout, OwnerId = 1 });
@@ -698,6 +699,9 @@ public class RivalTests
             CampaignPopulationFloor = 1,
             WarAdvantageRatioPercent = 100,
             AttackOvermatchPercent = 100,
+            // The fog floor is a knob too: at the default 12 the GO gate hinged on the king
+            // happening to stand within his aura of the three campaigners (12 vs 12).
+            AssumedGarrisonPower = 6,
         };
         var rival = new AiPlayerDriver(1, cfg, BrainKind.Rival);
 
@@ -876,7 +880,7 @@ public class RivalTests
         // wall (recall doctrine sends the defender's civilians to the
         // castle tile — they shield it while they live).
         for (var i = 0; i < 12; i++)
-            sim.World.AddUnit(new Unit(900 + i, c1) { Role = UnitRole.Soldier, OwnerId = 1 });
+            sim.World.AddUnit(new Unit(900 + i, Sim.Core.Movement.TileCapacity.RoomNear(sim.World, c1, 1)) { Role = UnitRole.Soldier, OwnerId = 1 });   // beside the castle once it is full (14 since 2026-10-01)
         sim.World.AddUnit(new Unit(950, new TileCoord(c0.X + 1, c0.Y))
             { Role = UnitRole.Scout, OwnerId = 1 });
         CastleOf(sim, 1).Holdings[Resource.Food] = 3000;
@@ -958,7 +962,7 @@ public class RivalTests
         void Arm(Simulation sim)
         {
             for (var i = 0; i < 6; i++)
-                sim.World.AddUnit(new Unit(900 + i, c1) { Role = UnitRole.Soldier, OwnerId = 1 });
+                sim.World.AddUnit(new Unit(900 + i, Sim.Core.Movement.TileCapacity.RoomNear(sim.World, c1, 1)) { Role = UnitRole.Soldier, OwnerId = 1 });   // beside the castle once it is full (14 since 2026-10-01)
             sim.World.AddUnit(new Unit(950, new TileCoord(c0.X + 1, c0.Y))
                 { Role = UnitRole.Scout, OwnerId = 1 });
             CastleOf(sim, 1).Holdings[Resource.Food] = 3000;

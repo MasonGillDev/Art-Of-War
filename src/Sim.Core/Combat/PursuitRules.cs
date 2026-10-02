@@ -6,15 +6,15 @@ namespace Sim.Core.Combat;
 
 // M29 — the chase (docs/patrols.md).
 //
-// ONE HOP AT A TIME. Step() commits a single tile of movement toward the
-// target's CURRENT position and returns; the arrival handler calls it again.
+// ONE TILE AT A TIME. Step() commits the walk up to the next tile toward the
+// target's CURRENT position and returns; the end of that walk calls it again.
 // That is what makes it a pursuit rather than a walk to where the target used
-// to be — and it costs one A* per hop per pursuer, which is affordable because
-// only an engaged patrol pays it.
+// to be — and it costs one path search per tile per pursuer, which is affordable
+// because only an engaged patrol pays it.
 //
-// Committing one hop also means every pursuit arrival is a FINAL arrival, so
-// the re-entry point is MoveArrivalEvent's existing DispatchOnFinalArrival —
-// no new event type, no second scheduling path.
+// Committing one tile also means every pursuit arrival is a FINAL arrival, so
+// the re-entry point is the walk's existing Walk.DispatchOnArrival — no new
+// event type, no second scheduling path.
 //
 // FAIL CLEAN ON EVERY EXIT PATH. Release() is the only way this anchor ever
 // clears, and every terminating condition routes through it. The M28/M29 haul
@@ -48,7 +48,7 @@ public static class PursuitRules
         }
 
         // ---- 3. CAUGHT ----
-        // Co-location IS contact: MoveArrivalEvent already ran the combat
+        // Co-location IS contact: the tile entry already ran the combat
         // trigger for this tile before dispatching here, so the fight is
         // scheduled and the pin has landed. The chase's job is done.
         if (pursuer.Position == target.Position)
@@ -73,7 +73,7 @@ public static class PursuitRules
         // Step once the fight resolved; the un-pin is exactly that re-entry
         // (docs/combat-pin-strands-hauls.md). Every fight ends — by a death
         // or the no-progress guard — so the anchor can never brick.
-        if (world.CombatStates.ContainsKey(pursuer.Position))
+        if (pursuer.Board is not null || world.CombatStates.ContainsKey(pursuer.Position))
             return;
 
         // ---- 5. Leash ----
@@ -99,20 +99,15 @@ public static class PursuitRules
         }
 
         // ---- 7. Step toward them ----
-        // BeginMove plans the whole route, then we truncate to its first hop
-        // so the next arrival re-plans against wherever the target has moved
-        // to. Truncating AFTER planning (rather than pathing to an adjacent
-        // tile) keeps the step on a real route — around lakes and walls — so
-        // the pursuer doesn't walk face-first into an obstacle every hop.
-        // ACTIVITY BEFORE THE MOVE. TrySetActivity bumps AssignmentEpoch on a
-        // real change, and ScheduleNextHop stamps the arrival event with the
-        // epoch as it schedules — so flipping the flag afterwards fences the
-        // very event just created and the chase freezes on its first step
-        // (found by the catch test: the pursuer never left its tile).
+        // BeginMove plans the whole walk, then we cut it at the first tile it enters so
+        // the next arrival re-plans against wherever the target has moved to. Cutting
+        // AFTER planning (rather than pathing to an adjacent tile) keeps the leg on a real
+        // route, around lakes and walls, so the pursuer doesn't walk face-first into an
+        // obstacle every leg. (The activity is set first, as it always was.)
         pursuer.TrySetActivity(Activity.Moving);
         MoveIntent.BeginMove(sim, pursuer, target.Position);
 
-        if (pursuer.PathRemaining is null || pursuer.PathRemaining.Count == 0)
+        if (!pursuer.IsWalking)
         {
             // No route (walled off, another island). Not a failure state —
             // just an uncatchable target. Fail clean.
@@ -120,12 +115,9 @@ public static class PursuitRules
             return;
         }
 
-        // Keep only the first hop so the next arrival re-plans against wherever
-        // the target has moved to. PathFinalDest must match, or the arrival
-        // reads as mid-path and continues without consulting the chase.
-        var firstHop = pursuer.PathRemaining[0];
-        pursuer.PathRemaining = new List<TileCoord> { firstHop };
-        pursuer.PathFinalDest = firstHop;
+        // The leg ends on entering the next tile, and its PathFinalDest is that tile: the
+        // walk's end then reads as a final arrival and comes back here (Walk.DispatchOnArrival).
+        Sim.Core.Movement.Walk.EndAtNextTile(pursuer);
     }
 
     // THE ONLY exit. Clears the anchor and the movement it owned, and parks
@@ -134,10 +126,7 @@ public static class PursuitRules
     public static void Release(Unit pursuer)
     {
         pursuer.Pursuit = null;
-        pursuer.PathRemaining = null;
-        pursuer.PathFinalDest = null;
-        pursuer.NextArrivalTick = null;
-        pursuer.NextArrivalSeq = null;
+        Sim.Core.Movement.Walk.Stop(pursuer);
         pursuer.TrySetActivity(Activity.Idle);
     }
 

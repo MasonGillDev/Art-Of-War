@@ -11,19 +11,20 @@ using Sim.Server.Automation;
 
 namespace Sim.Tests;
 
-// The un-pin (docs/combat-pin-strands-hauls.md). CombatTrigger's pin clears a
-// belligerent's movement anchors and nothing else; before this fix a unit
-// caught mid-leg kept its obligation with no leg to finish it. Pins:
-//   * a hauler pinned on the return leg walks again the tick the fight ends
-//     and the deposit lands;
-//   * a hauler pinned ON its stop deposits without a move;
-//   * a goal walker (worker) pinned mid-route still reaches its post;
-//   * a pursuer pinned by a bystander still catches its target;
+// The un-pin (docs/combat-pin-strands-hauls.md), on the battlefield grid (M43). A unit caught by
+// a fight keeps its obligation and, when the board closes, its walk resumes from where it stands
+// (Walk.Resume, CombatRules.ResumeInterrupted). Before the un-pin a unit caught mid-leg kept its
+// obligation with no leg to finish it. Pins:
+//   * a hauler stopped by a fight on the return leg walks again the beat the board closes and
+//     the deposit lands;
+//   * a hauler that reaches its stop with a fight ON it deposits without waiting;
+//   * a goal walker (worker) stopped mid-route still reaches its post;
+//   * a pursuer stopped by a bystander still catches its target;
 //   * the driver names a stalled hand and releases its claim;
-//   * determinism: twin run and snapshot round-trip across a pinned haul.
+//   * determinism: twin run and snapshot round-trip across a stopped haul.
 //
-// Row 5 is paved so every route is the straight row and hop < round holds
-// (the same premise as CombatEngagementPinTests); config-derived throughout.
+// The one-hit bystander does not fight (a builder withdraws): the fight ends when the test has
+// it fall, which is the moment the un-pin is about.
 public class CombatPinResumeTests
 {
     private static readonly int RoadHop = System.Math.Max(RoadConstants.MIN_COST,
@@ -44,7 +45,7 @@ public class CombatPinResumeTests
         world.Players[1] = new Player(1);
         world.Players[2] = new Player(2);
         for (var x = 0; x < Size - 1; x++)
-            world.Roads[TileEdge.FromOwner(new TileCoord(x, Row), TileEdge.Axis.East)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
+            for (var s = 0; s < Sim.Core.Battlefields.Subtile.Size; s++) world.Roads[SubtileLink.FromOwner(new Sim.Core.Battlefields.WorldSubtile(x * Sim.Core.Battlefields.Subtile.Size + s, Row * Sim.Core.Battlefields.Subtile.Size + 1), SubtileLink.Axis.East)] = new RoadState(RoadConstants.CONDITION_MAX, 0);
         world.Diplomacy.SetState(FactionPair.Of(0, 1), RelationshipState.Enemy);
         world.Diplomacy.SetState(FactionPair.Of(0, 2), RelationshipState.Enemy);
 
@@ -82,8 +83,13 @@ public class CombatPinResumeTests
         while (!stop() && sim.Now < end) AdvanceTo(sim, sim.Now + 1);
     }
 
+    private static void Fall(Simulation sim, int id)
+    {
+        if (sim.World.Units.TryGetValue(id, out var u)) CombatRules.OnUnitDeath(sim, u);
+    }
+
     [Fact]
-    public void HaulResumesAfterCombatPin()
+    public void HaulResumesAfterTheFight()
     {
         var (sim, world) = MakeWorld();
         var hauler = world.AddUnit(new Unit(1, Keep) { Role = UnitRole.Hauler, OwnerId = 0 });
@@ -94,16 +100,16 @@ public class CombatPinResumeTests
         Assert.True(carried > 0, "fixture: the hauler never picked up");
         Blocker(world, 2, Ambush, owner: 1);                  // waits on the return leg
 
-        RunUntil(sim, () => world.CombatStates.ContainsKey(Ambush));
-        Assert.True(world.CombatStates.ContainsKey(Ambush), "fixture: the ambush never pinned the hauler");
-        Assert.Null(hauler.PathRemaining);                    // pinned: standing, still Hauling
+        RunUntil(sim, () => world.Battlefields.ContainsKey(Ambush));
+        Assert.True(world.Battlefields.ContainsKey(Ambush), "fixture: the hauler never met the ambush");
+        Assert.False(hauler.IsWalking);                       // stopped by the fight: standing, still Hauling
         Assert.Equal(Activity.Hauling, hauler.Activity);
         Assert.NotNull(hauler.HaulPlan);
 
-        RunUntil(sim, () => !world.CombatStates.ContainsKey(Ambush));
-        Assert.False(world.Units.ContainsKey(2));             // the bystander died
-        Assert.NotNull(hauler.PathRemaining);                 // walking again the tick the fight ended
-        Assert.True(hauler.Health < 10, "the fight should have cost the hauler health");
+        Fall(sim, 2);                                         // the bystander falls
+        RunUntil(sim, () => !world.Battlefields.ContainsKey(Ambush));
+        Assert.False(world.Battlefields.ContainsKey(Ambush));
+        Assert.True(hauler.IsWalking);                        // walking again the beat the board closed
 
         RunUntil(sim, () => hauler.HaulPlan is null);
         Assert.Equal(Activity.Idle, hauler.Activity);
@@ -112,7 +118,7 @@ public class CombatPinResumeTests
     }
 
     [Fact]
-    public void HaulResumesWhenPinnedAtTheStop()
+    public void HaulResumesWhenTheFightIsOnTheStop()
     {
         var (sim, world) = MakeWorld();
         var hauler = world.AddUnit(new Unit(1, Keep) { Role = UnitRole.Hauler, OwnerId = 0 });
@@ -126,25 +132,27 @@ public class CombatPinResumeTests
         Assert.Equal(Keep, hauler.Position);
         Assert.Equal(Activity.Idle, hauler.Activity);
         Assert.Equal(10 + carried, ((Castle)world.Structures[Keep]).AmountOf(Resource.Food));
-        // The deposit landed under the pin, before round 1 even fired; the
-        // fight then runs its one round and ends without disturbing it.
-        RunUntil(sim, () => !world.Units.ContainsKey(2));
-        Assert.False(world.Units.ContainsKey(2));
+        // The deposit landed as it reached the stop, under the fight; the fight then ends without
+        // disturbing it.
+        Fall(sim, 2);
+        RunUntil(sim, () => !world.Battlefields.ContainsKey(Keep));
         Assert.Equal(Activity.Idle, hauler.Activity);
     }
 
     [Fact]
-    public void GoalWalkerResumesAfterCombatPin()
+    public void GoalWalkerResumesAfterTheFight()
     {
         var (sim, world) = MakeWorld();
         var farmer = world.AddUnit(new Unit(1, Keep) { Role = UnitRole.Farmer, OwnerId = 0 });
         Blocker(world, 2, Ambush, owner: 1);
         sim.SubmitIntent(0, new AssignWorkersIntent(FarmAt, new[] { 1 }) { PlayerId = 0 });
 
-        RunUntil(sim, () => world.CombatStates.ContainsKey(Ambush));
-        Assert.NotNull(farmer.Goal);                          // pinned, goal intact
-        Assert.Null(farmer.PathRemaining);
+        RunUntil(sim, () => world.Battlefields.ContainsKey(Ambush));
+        Assert.True(world.Battlefields.ContainsKey(Ambush), "fixture: the farmer never met the ambush");
+        Assert.NotNull(farmer.Goal);                          // stopped, goal intact
+        Assert.False(farmer.IsWalking);
 
+        Fall(sim, 2);
         RunUntil(sim, () => farmer.Activity == Activity.Working);
         Assert.Equal(FarmAt, farmer.Position);
         Assert.Equal(FarmAt, farmer.Assignment);
@@ -152,7 +160,7 @@ public class CombatPinResumeTests
     }
 
     [Fact]
-    public void PursuitResumesAfterCombatPin()
+    public void PursuitResumesAfterTheFight()
     {
         // A chase needs the target inside the pursuer's own sight (radius 3),
         // so the quarry stands three tiles off with the bystander between.
@@ -166,18 +174,19 @@ public class CombatPinResumeTests
         sim.Run(0);
         Assert.NotNull(soldier.Pursuit);                      // fixture: the chase was issued
 
-        RunUntil(sim, () => world.CombatStates.ContainsKey(between));
-        Assert.True(world.CombatStates.ContainsKey(between), "fixture: the bystander never pinned the soldier");
-        Assert.NotNull(soldier.Pursuit);                      // pinned, chase suspended not ended
-        Assert.Null(soldier.PathRemaining);
+        RunUntil(sim, () => world.Battlefields.ContainsKey(between));
+        Assert.True(world.Battlefields.ContainsKey(between), "fixture: the soldier never met the bystander");
+        Assert.NotNull(soldier.Pursuit);                      // stopped, chase suspended not ended
+        Assert.False(soldier.IsWalking);
 
+        Fall(sim, 2);
         RunUntil(sim, () => soldier.Position == quarryAt);
         Assert.Equal(quarryAt, soldier.Position);             // caught up after the bystander fell
         Assert.False(world.Units.ContainsKey(2));
     }
 
     [Fact]
-    public void PinnedHaul_TwinRunAndSnapshot_HashesMatch()
+    public void AStoppedHaul_TwinRunAndSnapshot_HashesMatch()
     {
         static Simulation Run()
         {
@@ -185,6 +194,8 @@ public class CombatPinResumeTests
             var hauler = world.AddUnit(new Unit(1, Keep) { Role = UnitRole.Hauler, OwnerId = 0 });
             world.AddUnit(new Unit(2, Ambush) { Role = UnitRole.Builder, OwnerId = 1, Health = 1 });
             sim.SubmitIntent(0, new HaulIntent(1, FarmAt, Keep, Resource.Food) { PlayerId = 0 });
+            RunUntil(sim, () => world.Battlefields.ContainsKey(Ambush));
+            Fall(sim, 2);
             RunUntil(sim, () => hauler.HaulPlan is null && sim.Now > RoadHop * 20);
             return sim;
         }

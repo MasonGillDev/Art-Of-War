@@ -207,7 +207,7 @@ public sealed class HaulPickupEvent : ScheduledEvent
             // Hauling with no arrival scheduled is a zombie every selector
             // ignores. Idle it WITH its cargo — UnloadCargoIntent (which
             // now empties a slip-parked boat into its quay) is the recovery.
-            if (hauler.NextArrivalSeq is null)
+            if (!hauler.IsWalking)
             {
                 hauler.HaulPlan = null;
                 hauler.TrySetActivity(Activity.Idle);

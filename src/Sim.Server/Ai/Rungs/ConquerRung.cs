@@ -1,6 +1,7 @@
 using Sim.Core.Intents;
 using Sim.Core.Movement;
 using Sim.Core.World;
+using Sim.Server.Wire;
 
 namespace Sim.Server.Ai.Rungs;
 
@@ -62,8 +63,7 @@ public sealed class ConquerRung : IRung
         var roster = ctx.OwnUnits
             .Where(u => ctx.Mem.CampaignSoldiers.Contains(u.Id))
             .OrderBy(u => u.Id).ToList();
-        var campaignPower = roster.Sum(u => u.Power >= 0 ? u.Power
-            : Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower);
+        var campaignPower = AssaultPower(ctx, roster);
         var estimate = EnemyIntel.EstimateFactionPower(ctx, target, castle.Tile);
 
         // WITHDRAW — the Sparta abort (famine at home) or parity lost.
@@ -111,7 +111,11 @@ public sealed class ConquerRung : IRung
         var rally = ctx.OwnStructure(StructureKind.Barracks) is { } b
             ? ThinkContext.TileOf(b) : ctx.CastleTile;
         var toRally = roster
-            .Where(u => ctx.IsIdleStill(u) && (u.X != rally.X || u.Y != rally.Y))
+            .Where(u => ctx.IsIdleStill(u) && (u.X != rally.X || u.Y != rally.Y)
+                // M43: a full rally spills its extras onto the tile beside; they count as
+                // assembled there instead of being marched back every think.
+                && !(Math.Max(Math.Abs(u.X - rally.X), Math.Abs(u.Y - rally.Y)) <= 1
+                     && !ctx.HasRoomAt(rally)))
             .Select(u => (Intent)new MoveIntent(ctx.Reserve(u).Id, rally)
                 { PlayerId = ctx.PlayerId })
             .ToList();
@@ -122,8 +126,7 @@ public sealed class ConquerRung : IRung
         // (the telegraph pin lives here) and the odds must clear the GO
         // gate with fresh eyes.
         if (!ctx.AtWarWith(target)) return null;   // telegraph still running
-        campaignPower = roster.Sum(u => u.Power >= 0 ? u.Power
-            : Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower);
+        campaignPower = AssaultPower(ctx, roster);
         if (campaignPower * 100 < estimate * ctx.Cfg.AttackOvermatchPercent) return null;
 
         ctx.Mem.CampaignLaunched = true;
@@ -135,6 +138,13 @@ public sealed class ConquerRung : IRung
             $"LAUNCH: {roster.Count} soldiers ({campaignPower}pw vs ~{estimate}pw) on {target}",
             march);
     }
+
+    // The roster's worth at the castle gate: only CastleAttackerSlots of it fight at once
+    // (the board's per-side cap), the rest wait as a reserve.
+    private static int AssaultPower(ThinkContext ctx, List<UnitDto> roster) =>
+        EnemyIntel.AssaultPower(ctx, roster.Select(u => u.Power >= 0 ? u.Power
+            : Sim.Core.Combat.UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower),
+            ctx.Cfg.CastleAttackerSlots);
 
     // Clear the roster and walk the survivors home. Emitting and clearing
     // in the same think is safe: this think's context already carries the

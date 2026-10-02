@@ -1,3 +1,4 @@
+using Sim.Core.Battlefields;
 using Sim.Core.Persistence;
 using Sim.Core.Roads;
 using Sim.Core.World;
@@ -10,8 +11,8 @@ namespace Sim.Tests;
 // silent remainder-drop desync. Everything else here is structural.
 public class RoadDecayTests
 {
-    // M34: the road under test is the arc (1,1)-(2,1) (docs/roads-on-edges.md).
-    private static readonly TileEdge Arc = TileEdge.FromOwner(new TileCoord(1, 1), TileEdge.Axis.East);
+    // M43: the road under test is the link (5,5)-(6,5) between two subtiles.
+    private static readonly SubtileLink Arc = SubtileLink.FromOwner(new WorldSubtile(5, 5), SubtileLink.Axis.East);
 
     private static GameWorld MakeRoadWorld(int condition, long lastDecayTick)
     {
@@ -122,10 +123,10 @@ public class RoadDecayTests
 
         // No decay yet: max-condition cost, derived from the constants
         // (biome cost reduced by MAX_REDUCTION_PERCENT).
-        var biome = world.Grid.TerrainCost(Arc.B);
+        var biome = (int)Sim.Core.Battlefields.SubtileStepRules.StepTicks(world, Arc.B.Tile);
         var capCost = System.Math.Max(RoadConstants.MIN_COST,
             biome - (int)((long)biome * RoadConstants.MAX_REDUCTION_PERCENT / 100L));
-        Assert.Equal(capCost, Road.EffectiveCost(world, Arc.A, Arc.B, now: 0));
+        Assert.Equal(capCost, Road.EffectiveCost(world, Arc.A, Arc.B, 0, biome));
 
         // After enough decay for condition to reach 0: cost back to 10.
         // Decay rate = 1 per 100 ticks; CONDITION_MAX = 1000; so 100_000 ticks
@@ -133,8 +134,8 @@ public class RoadDecayTests
         var fullyDecayedAt = (long)RoadConstants.CONDITION_MAX
                              * RoadConstants.DECAY_PERIOD
                              / RoadConstants.DECAY_PER_PERIOD;
-        Assert.Equal(world.Grid.TerrainCost(Arc.B),
-                     Road.EffectiveCost(world, Arc.A, Arc.B, now: fullyDecayedAt));
+        Assert.Equal(biome,
+                     Road.EffectiveCost(world, Arc.A, Arc.B, fullyDecayedAt, biome));
     }
 
     // ====================================================================

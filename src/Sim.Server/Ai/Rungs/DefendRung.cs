@@ -109,12 +109,19 @@ public sealed class DefendRung : IRung
                     intents.Add(new UnassignWorkersIntent(ThinkContext.TileOf(ex), crew)
                         { PlayerId = ctx.PlayerId });
             }
+            // M43: the castle holds 16 of ours standing; past that a recall is re-aimed to the
+            // tile beside, so the ones who fit are sent and the rest stay put.
+            var room = Sim.Core.Battlefields.Subtile.Count
+                - ctx.OwnUnits.Count(u => u.X == ctx.CastleTile.X && u.Y == ctx.CastleTile.Y && u.DestX < 0);
             foreach (var u in ctx.OwnUnits.Where(u => ctx.IsIdleStill(u) && ctx.IsFree(u)
                          && (UnitRole)u.Role is not (UnitRole.Soldier or UnitRole.Archer)
                          && ctx.UnderThreat(new TileCoord(u.X, u.Y))
                          && (u.X != ctx.CastleTile.X || u.Y != ctx.CastleTile.Y)))
+            {
+                if (room-- <= 0) break;
                 intents.Add(new MoveIntent(ctx.Reserve(u).Id, ctx.CastleTile)
                     { PlayerId = ctx.PlayerId });
+            }
         }
 
         if (intents.Count == 0) return null;   // everyone already tasked/mid-march

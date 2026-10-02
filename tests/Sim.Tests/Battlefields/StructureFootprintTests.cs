@@ -40,10 +40,19 @@ public class StructureFootprintTests
     // ---- the patterns ----------------------------------------------------------------
 
     [Fact]
-    public void TheCastle_IsARingOfWall_WithOneOpenGap_AndAnOpenCourtyard()
+    public void TheCastle_IsARing_TowersAtTheCorners_AKeepAtTheBack_OneGap_AndAnOpenCourtyard()
     {
         var l = Layer(BlueCastle());
-        Assert.Equal(11, Count(l, s => l.KindAt(s) == SubtileKind.Wall));
+        Assert.Equal(5, Count(l, s => l.KindAt(s) == SubtileKind.Wall));
+        Assert.Equal(4, Count(l, s => l.KindAt(s) == SubtileKind.Tower));
+        foreach (var c in new[] { new Subtile(0, 0), new Subtile(3, 0), new Subtile(0, 3), new Subtile(3, 3) })
+        {
+            Assert.Equal(SubtileKind.Tower, l.KindAt(c));
+            Assert.Equal(Footprints.CastleTowerReach, l.ReachAt(c));
+        }
+        Assert.Equal(1, l.ReachAt(new Subtile(0, 1)));
+        foreach (var c in new[] { new Subtile(1, 3), new Subtile(2, 3) })   // the keep, on the back wall
+            Assert.Equal(SubtileKind.Blocked, l.KindAt(c));
         Assert.Equal(SubtileKind.Open, l.KindAt(new Subtile(1, 0)));   // the gap, facing north
         foreach (var c in new[] { new Subtile(1, 1), new Subtile(2, 1), new Subtile(1, 2), new Subtile(2, 2) })
             Assert.Equal(SubtileKind.Open, l.KindAt(c));
@@ -64,7 +73,10 @@ public class StructureFootprintTests
         var gap = new Subtile(gx, gy);
         Assert.Equal(SubtileKind.Open, l.KindAt(gap));
         Assert.True(gap.IsOnEdgeRow(facing));
-        Assert.Equal(11, Count(l, s => l.KindAt(s) == SubtileKind.Wall));
+        Assert.Equal(5, Count(l, s => l.KindAt(s) == SubtileKind.Wall));
+        Assert.Equal(4, Count(l, s => l.KindAt(s) == SubtileKind.Tower));
+        // The keep is on the wall opposite the gap.
+        Assert.Equal(2, Count(l, s => l.KindAt(s) == SubtileKind.Blocked && s.IsOnEdgeRow(facing.Opposite())));
     }
 
     [Fact]
@@ -95,7 +107,7 @@ public class StructureFootprintTests
     }
 
     [Fact]
-    public void TheRaiderCamp_IsAsDrawn_TheTowerTakesOnlyItsOwnArchers()
+    public void TheRaiderCamp_IsAsDrawn_AndAnyoneWhoGetsToItsTowerStandsOnIt()
     {
         var camp = new BanditCamp(new TileCoord(5, 5)) { OwnerId = Sim.Core.Bandits.BanditConstants.OwnerId };
         var l = Layer(camp);
@@ -109,10 +121,10 @@ public class StructureFootprintTests
         }
         var tower = new Subtile(3, 3);
         Assert.True(l.CanStand(tower, OwnerArcher));                       // a raider archer
-        Assert.False(l.CanStand(tower, Owner));                            // a raider soldier
-        Assert.False(l.CanStand(tower, new BoardMover(Friendly: false, Archer: true)));   // a player's archer
+        Assert.True(l.CanStand(tower, Owner));                             // a raider soldier (2026-10-01: the ground decides, not the role)
+        Assert.True(l.CanStand(tower, new BoardMover(Friendly: false, Archer: true)));   // a player's archer that got there
         Assert.Equal(new Subtile(2, 3), BattlePathing.FirstStepTo(l, OwnerArcher, new Subtile(1, 3), tower));
-        Assert.Equal(10, Count(l, c => l.CanStand(c, Enemy)));
+        Assert.Equal(11, Count(l, c => l.CanStand(c, Enemy)));
     }
 
     // The user's drawings: each kind's Blocked and Cover subtiles facing North,
@@ -183,11 +195,11 @@ public class StructureFootprintTests
             foreach (var c in Subtile.All())
                 Assert.Equal(b.Contains(c) ? SubtileKind.Blocked : cv.Contains(c) ? SubtileKind.Cover
                     : tw.Contains(c) ? SubtileKind.Tower : SubtileKind.Open, l.KindAt(c));
-            Assert.Equal(16 - blocked.Length - tw.Count, Count(l, c => l.CanStand(c, Enemy)));
+            Assert.Equal(16 - blocked.Length, Count(l, c => l.CanStand(c, Enemy)));   // a tower takes anyone
             foreach (var t in tw)
             {
                 Assert.True(l.CanStand(t, OwnerArcher));
-                Assert.False(l.CanStand(t, Owner));
+                Assert.True(l.CanStand(t, Owner));
                 Assert.Equal(1, l.ReachAt(t));
             }
         }
@@ -334,7 +346,7 @@ public class StructureFootprintTests
         var world = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: 60, Model: CombatModel.Grid),
+            Combat = new CombatConfig(RoundIntervalTicks: 60),
             FactionStarts = new[] { new FactionStartSpec { OwnerId = Blue, CastlePosition = new TileCoord(1, 1) } },
         });
         // An enclosure's north-east corner: a run west–east, turning south.
@@ -358,58 +370,96 @@ public class StructureFootprintTests
 
     // ---- who stands where ------------------------------------------------------------
 
+    // 2026-10-01 (user): the wall is its closed sides, not a rule about whose name is
+    // on it. Anyone who is inside may climb it; the keep's two subtiles are nobody's.
     [Fact]
-    public void OnACastle_TheOwnerMayStandOnAll16_AnEnemyOnlyOnTheGapAndCourtyard()
+    public void OnACastle_BothSidesMayStandOn14_TheKeepOnNobody()
     {
         var l = Layer(BlueCastle());
-        Assert.Equal(16, Count(l, s => l.CanStand(s, Owner)));
-        Assert.Equal(5, Count(l, s => l.CanStand(s, Enemy)));
+        Assert.Equal(14, Count(l, s => l.CanStand(s, Owner)));
+        Assert.Equal(14, Count(l, s => l.CanStand(s, Enemy)));
     }
 
     [Fact]
-    public void AWall_TheOwnerStepsOnFromInside_AndAlongIt_ButNeverOutThroughItsOuterSide()
+    public void AWall_IsSteppedOnFromInside_AndAlongIt_ButNeverThroughItsOuterSide_ByAnyone()
     {
         var l = Layer(BlueCastle());
-        Assert.True(l.CanStep(new Subtile(1, 1), new Subtile(0, 1), Owner));   // courtyard → west wall
-        Assert.True(l.CanStep(new Subtile(0, 1), new Subtile(0, 2), Owner));   // along the ring
-        Assert.False(l.CanStep(new Subtile(0, 1), new Subtile(-1, 1), Owner)); // out through the outer side
-        Assert.False(l.CanStep(new Subtile(-1, 1), new Subtile(0, 1), Owner)); // or in through it
-        Assert.False(l.CanStep(new Subtile(1, 1), new Subtile(0, 1), Enemy));  // enemies never enter a wall
+        foreach (var mover in new[] { Owner, Enemy })
+        {
+            Assert.True(l.CanStep(new Subtile(1, 1), new Subtile(0, 1), mover));   // courtyard → west wall
+            Assert.True(l.CanStep(new Subtile(0, 1), new Subtile(0, 2), mover));   // along the ring
+            Assert.True(l.CanStep(new Subtile(0, 1), new Subtile(0, 0), mover));   // up into the corner tower
+            Assert.False(l.CanStep(new Subtile(0, 1), new Subtile(-1, 1), mover)); // out through the outer side
+            Assert.False(l.CanStep(new Subtile(-1, 1), new Subtile(0, 1), mover)); // or in through it
+            Assert.False(l.CanStep(new Subtile(1, 2), new Subtile(1, 3), mover));  // nobody enters the keep
+        }
+        // From the rampart beside the gap, down into the gateway (a gatehouse's stair).
+        Assert.True(l.CanStep(new Subtile(0, 0), new Subtile(1, 0), Owner));
     }
 
     [Fact]
-    public void AnEnemy_ComesIntoTheCastleOnlyThroughTheGap()
+    public void AnEnemy_ComesIntoTheCastleOnlyThroughTheGap_AndOnceInsideReachesTheWalls()
     {
         var l = Layer(BlueCastle());
         var fromNorth = BattlePathing.ReachableFrom(l, Enemy, Heading.North);
         Assert.Contains(new Subtile(1, 0), fromNorth);
         Assert.Contains(new Subtile(2, 2), fromNorth);
-        Assert.Equal(5, fromNorth.Count);
+        Assert.Contains(new Subtile(0, 1), fromNorth);   // the west wall, from the courtyard
+        Assert.Contains(new Subtile(3, 3), fromNorth);   // a corner tower
+        Assert.Equal(14, fromNorth.Count);
         Assert.Empty(BattlePathing.ReachableFrom(l, Enemy, Heading.East));
         Assert.Empty(BattlePathing.ReachableFrom(l, Enemy, Heading.South));
     }
 
     [Fact]
-    public void AStandaloneWall_NobodyCrosses_ItAndAGateLetsOnlyTheOwnerThrough()
+    public void AStandaloneWall_NobodyCrosses_AnEnemyInsideMayClimbIt_AndAGateLetsOnlyTheOwnerThrough()
     {
         var wall = Layer(new Wall(new TileCoord(5, 5)) { OwnerId = Blue });
         Assert.Null(BattlePathing.FirstStepTo(wall, Owner, new Subtile(1, 2), new Subtile(1, 0)));
         Assert.Null(BattlePathing.FirstStepTo(wall, Enemy, new Subtile(1, 0), new Subtile(1, 2)));
         Assert.True(wall.CanStand(new Subtile(1, 1), Owner));
+        Assert.True(wall.CanStand(new Subtile(1, 1), Enemy));
+        Assert.Null(BattlePathing.FirstStepTo(wall, Enemy, new Subtile(1, 0), new Subtile(1, 1)));              // not from the outer side
+        Assert.Equal(new Subtile(1, 1), BattlePathing.FirstStepTo(wall, Enemy, new Subtile(1, 2), new Subtile(1, 1)));   // from the defended side
+        Assert.Null(BattlePathing.FirstStepTo(wall, Enemy, new Subtile(1, 2), new Subtile(1, 0)));              // and still never through
 
         var gate = Layer(new Gate(new TileCoord(5, 5)) { OwnerId = Blue });
         Assert.Equal(new Subtile(1, 1), BattlePathing.FirstStepTo(gate, Owner, new Subtile(1, 2), new Subtile(1, 0)));
         Assert.Equal(new Subtile(1, 1), BattlePathing.FirstStepTo(gate, Owner, new Subtile(1, 0), new Subtile(1, 2)));
         Assert.Null(BattlePathing.FirstStepTo(gate, Enemy, new Subtile(1, 0), new Subtile(1, 2)));
+        Assert.False(gate.CanStand(new Subtile(1, 1), Enemy));   // a gate is a door; only the owner's side has the key
     }
 
     [Fact]
-    public void ATower_TakesOnlyTheOwnersArchers()
+    public void ATower_TakesAnyoneWhoGetsToIt_OnlyArchersShootFromIt()
     {
         var l = Layer(new Tower(new TileCoord(5, 5)) { OwnerId = Blue });
         Assert.True(l.CanStand(new Subtile(1, 1), OwnerArcher));
-        Assert.False(l.CanStand(new Subtile(1, 1), Owner));
-        Assert.False(l.CanStand(new Subtile(1, 1), new BoardMover(Friendly: false, Archer: true)));
+        Assert.True(l.CanStand(new Subtile(1, 1), Owner));
+        Assert.True(l.CanStand(new Subtile(1, 1), new BoardMover(Friendly: false, Archer: true)));
+        Assert.Null(BattlePathing.FirstStepTo(l, Enemy, new Subtile(1, 0), new Subtile(1, 1)));   // its outer side is closed
+    }
+
+    [Fact]
+    public void ACastleCornerTower_ReachesTheGapAndTheNearestCourtyardSubtile()
+    {
+        var l = Layer(BlueCastle());
+        var reach = TurnResolver.InReach(l, new Subtile(0, 0), l.ReachAt(new Subtile(0, 0))).ToHashSet();
+        Assert.Equal(new HashSet<Subtile> { new(1, 0), new(0, 1), new(2, 0), new(1, 1), new(0, 2) }, reach);
+        var b = Board(l, Archer(1, Blue, 0, 0), Soldier(2, Red, 1, 1));
+        Assert.Equal(2, TurnResolver.ArcherTarget(b, b.Get(1)!)!.Id);
+    }
+
+    [Fact]
+    public void AnAttackerInside_ClimbsTheWall_AndDuelsTheDefenderOnIt()
+    {
+        var l = Layer(BlueCastle());
+        var b = Board(l, Soldier(1, Blue, 0, 1), Soldier(2, Red, 1, 1));
+        var steps = new Dictionary<int, PlannedStep> { [2] = new(new Subtile(0, 1)) };
+        var r = TurnResolver.Resolve(b, steps, Cfg);
+        Assert.Equal(new Subtile(0, 1), r.After.Get(2)!.At);
+        Assert.Equal(2, r.Hits.Count);
+        Assert.All(r.Hits, h => Assert.Equal(HitKind.Duel, h.Kind));
     }
 
     // ---- fighting from them -----------------------------------------------------------
@@ -508,7 +558,7 @@ public class StructureFootprintTests
         var world = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: 60, Model: CombatModel.Grid),
+            Combat = new CombatConfig(RoundIntervalTicks: 60),
             FactionStarts = new[]
             {
                 new FactionStartSpec { OwnerId = Blue, CastlePosition = Keep },
@@ -537,9 +587,9 @@ public class StructureFootprintTests
         RunToBattle(sim);
         Assert.True(sim.World.Battlefields.ContainsKey(Keep));
         var layer = Sim.Core.Battlefields.Battlefields.LayerFor(sim.World, Keep);
-        Assert.Equal(SubtileKind.Open, layer.KindAt(blue.Board!.At));
-        Assert.True(red.Board!.OnBoard);
-        Assert.True(layer.CanStand(red.Board.At, Enemy));
+        Assert.Equal(SubtileKind.Open, layer.KindAt(blue.Subtile!.Value));
+        Assert.NotNull(red.Board);
+        Assert.True(layer.CanStand(red.Subtile!.Value, Enemy));
     }
 
     [Fact]
@@ -551,8 +601,6 @@ public class StructureFootprintTests
         var sim = CastleWorld(new TileCoord(Keep.X + 1, Keep.Y), out _, out var red);
         sim.Run(until: 3000);
         Assert.NotEqual(new TileCoord(Keep.X + 1, Keep.Y), red.Position == Keep ? red.EnteredFrom : null);
-        if (red.Board is { } slot && !slot.OnBoard && slot.Tile == Keep)
-            Assert.NotEqual(Heading.East, slot.At.EdgeBeyond);
     }
 
     [Fact]

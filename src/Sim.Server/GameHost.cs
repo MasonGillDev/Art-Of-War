@@ -131,9 +131,9 @@ public sealed class GameHost : IDisposable
         // lifespan (death-by-age). The plain (GameWorld, seed) ctor would skip that and
         // leave starting units immortal.
         _sim = new Simulation(build.Spec, seed);
-        // M41 — the battle test bed's scenario setup (Scenarios/ScenarioHost):
-        // what a GenesisSpec can't say (gear, health, wars, doctrine, orders),
-        // applied before tick 0 and before anything below reads the world.
+        // The battle sandbox's setup (Sandbox/SandboxWorld): what a GenesisSpec
+        // can't say (composed people, gear, doctrine, marches), applied before
+        // tick 0 and before anything below reads the world.
         setup?.Invoke(_sim);
         _projector = new ViewProjector(build);
         // `ticksPerSecond` is the pace from the landing on (or throughout, with no
@@ -235,32 +235,8 @@ public sealed class GameHost : IDisposable
             last = now;
             lock (_gate)
             {
-                // M41 — the battle test bed's clock tools (dev only). A step
-                // jumps a paused clock to the next beat; holding at beats stops
-                // the clock on every beat while a battle is open (and when one
-                // opens), so both sides can plan without the turn running out.
-                // Host pace rules: the sim never knows.
-                if (_paused && _stepTarget is { } step)
-                {
-                    if (step > _virtualTick) accum = step;
-                    _stepTarget = null;
-                }
-                var target = (long)accum;
-                if (HoldAtBeats && target > _virtualTick)
-                {
-                    var rt = _sim.World.CombatConfig.RoundIntervalTicks;
-                    var nextBeat = (_virtualTick / rt + 1) * rt;
-                    if (_sim.World.Battlefields.Count > 0 && target >= nextBeat)
-                    {
-                        target = nextBeat;
-                        accum = nextBeat;
-                        _paused = true;
-                    }
-                }
-                _virtualTick = target;
+                _virtualTick = (long)accum;
                 _sim.Run(until: _virtualTick);
-                if (HoldAtBeats && _sim.World.Battlefields.Count > _battlesSeen) _paused = true;
-                _battlesSeen = _sim.World.Battlefields.Count;
                 // M16/M17 — the NPC brains read the freshly-advanced world and
                 // submit their intents (they resolve on the next Run). Same
                 // thread, under the lock: their pure reads can never race the sim.
@@ -281,25 +257,7 @@ public sealed class GameHost : IDisposable
         }
     }
 
-    // ---- M41 battle test bed: clock tools (dev only; Scenarios/ScenarioHost) ----
-    private long? _stepTarget;
-    private int _battlesSeen;
-
-    /// Stop the clock on every beat while a battle is open, and whenever one opens.
-    public volatile bool HoldAtBeats;
-
-    /// Run a paused clock on to the next beat (one battle turn), then stay paused.
-    public void StepTurn()
-    {
-        lock (_gate)
-        {
-            var rt = _sim.World.CombatConfig.RoundIntervalTicks;
-            _stepTarget = (_virtualTick / rt + 1) * rt;
-            _paused = true;
-        }
-    }
-
-    /// Resume a clock that a beat (or a new battle) stopped.
+    /// Un-pause the clock (the battle sandbox's Play, Sandbox/SandboxHost).
     public void Resume() => _paused = false;
 
     public bool IsPaused => _paused;
@@ -421,12 +379,12 @@ public sealed class GameHost : IDisposable
 
     // GET /v2/view/{playerId}: the slim per-tick view. Identical lock discipline and
     // notice/report attachment to BuildViewJson — only the tile encoding differs.
-    public string BuildViewV2Json(int playerId, bool reveal)
+    public string BuildViewV2Json(int playerId, bool reveal, bool revealOrders = false)
     {
         ViewV2Dto dto;
         lock (_gate)
         {
-            dto = _projector.ProjectV2(_sim, _sim.Now, playerId, reveal);
+            dto = _projector.ProjectV2(_sim, _sim.Now, playerId, reveal, revealOrders);
             if (_notices.TryGetValue(playerId, out var list)) dto.Notices = list.ToArray();
             if (_scoutReports.TryGetValue(playerId, out var reps)) dto.ScoutReports = reps.ToArray();
             // The pace this view was produced at, so the client's clock runs at the
@@ -466,6 +424,15 @@ public sealed class GameHost : IDisposable
                     continue;
                 case Sim.Core.Landing.LandingEvent landing when landing.Outcome.IsApplied:
                     AnnounceLanding(landing.At);
+                    continue;
+                // M44 — every survey ends out loud, to its owner only (vein
+                // knowledge is private; docs/stone-and-ore-land.md).
+                case Sim.Core.Mining.SurveyReportEvent sr:
+                    AddNotice(sr.OwnerId, sr.At, sr.Abandoned is { } why
+                        ? $"survey at {sr.Target.X},{sr.Target.Y} abandoned — {why}"
+                        : sr.Vein is { } v
+                            ? $"ore vein found at {v.X},{v.Y} — a Mine can go there"
+                            : $"survey at {sr.Target.X},{sr.Target.Y}: nothing in these slopes");
                     continue;
                 case Sim.Core.Sieges.GameOverEvent over:
                     Broadcast(over.At, over.WinnerId is { } w2

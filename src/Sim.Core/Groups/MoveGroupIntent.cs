@@ -1,18 +1,19 @@
+using Sim.Core.Movement;
+
 namespace Sim.Core.Groups;
 
-// Moves an Idle or Moving group toward a destination. Retasking a Moving
-// group bumps the MovementEpoch, fencing any GroupArrivalEvent already in
-// the queue from the prior chain. Same pattern as MoveIntent on a busy
-// unit (M2 Phase 0).
+// Moves an Idle or Moving group toward a destination tile (M43: the members walk).
 //
-// Forming groups cannot be moved — they're in their walk-to-rendezvous
-// integrity period. Player must wait or Disband.
+// Each member walks its OWN subtile route to the ordered tile, to a subtile of its own:
+// the free subtiles nearest the tile's centre, one each (`reserved` keeps them apart).
+// The group is Moving until the last member has stopped walking (PendingArrivals), then
+// Idle at the ordered tile. Step 5 of docs/m43-status.md will make a group keep its
+// members' relative places while it marches; today they take their own paths and set
+// the pace one by one.
 //
-// Path is computed using a GROUP cost delegate: max(memberCost(tile))
-// across members. Today every unit pays the same biome+road cost, so the
-// max reduces to the base cost. When future unit types differ (carts on
-// Mountain, horses on Grassland), the framework handles it without
-// engine refactor.
+// Retasking a Moving group replaces every member's walk. Forming groups cannot be
+// moved: they are in their walk-to-rendezvous integrity period. The player waits or
+// Disbands.
 public sealed class MoveGroupIntent : Intent
 {
     public int GroupId { get; }
@@ -39,132 +40,52 @@ public sealed class MoveGroupIntent : Intent
             return IntentOutcome.Reject(
                 $"destination {Destination.X},{Destination.Y} out of bounds");
 
-        if (group.Position == Destination)
+        if (group.Position == Destination && group.State != GroupState.Moving)
+            return IntentOutcome.Applied;   // already there
+
+        Halt(sim, group);
+        group.BumpEpoch();
+
+        // Every member walks to its own subtile of the ordered tile, planned as the
+        // owner sees the world (Walk.Begin). Lowest id first, so the same order gives
+        // the same places.
+        var reserved = new HashSet<Sim.Core.Battlefields.WorldSubtile>();
+        var walking = 0;
+        foreach (var id in group.Members)
         {
-            // Trivially "complete"; clear any prior path anchors so a Moving
-            // group going home becomes Idle.
-            ClearMovementAnchors(group);
-            group.State = GroupState.Idle;
-            return IntentOutcome.Applied;
+            if (!world.Units.TryGetValue(id, out var unit) || unit.IsEmbarked) continue;
+            Walk.Begin(sim, unit, Destination, reserved);
+            if (unit.IsWalking) walking++;
         }
 
-        var now = sim.Now;
-        // FOG-AWARE PLANNING: the group's owner is who the planner sees as.
-        // A* avoids visibly-crowded tiles but cannot route around fog'd
-        // congestion. See docs/movement-cost.md.
-        var visibleTiles = View.VisibleTiles(world, group.OwnerId);
-        var (path, dest) = PlanGroup(world, group, Destination, visibleTiles, now);
-        if (path is not null && path.Count == 1)
+        if (walking == 0)
         {
-            // Aimed at water right beside it: the nearest land is where it stands.
-            ClearMovementAnchors(group);
-            group.State = GroupState.Idle;
-            return IntentOutcome.Applied;
-        }
-        if (path is null || path.Count < 2)
+            // Nobody could walk: everyone is already there, or there is nowhere to go.
+            if (group.Members.All(id => !world.Units.TryGetValue(id, out var m) || m.Position == Destination || m.IsEmbarked))
+            {
+                group.Position = Destination;
+                return IntentOutcome.Applied;
+            }
             return IntentOutcome.Reject(
                 $"no path for group {GroupId} from {group.Position.X},{group.Position.Y} " +
                 $"to {Destination.X},{Destination.Y}");
+        }
 
-        // Retask: bump epoch so any stale GroupArrivalEvent from the prior
-        // chain no-ops on fire. Fresh chain captures the bumped epoch.
-        group.BumpEpoch();
-        group.PathRemaining = path.Skip(1).ToList();
-        group.PathFinalDest = dest;
+        group.PathFinalDest = Destination;
+        group.PendingArrivals = walking;
         group.State = GroupState.Moving;
-        ScheduleNextHop(sim, group);
-
         return IntentOutcome.Applied;
     }
 
-    // Used by FormGroupIntent for off-rendezvous members — wait, no: members
-    // walk solo via MoveIntent.BeginMove. This is the group analogue, for
-    // group-level moves. Exposed for re-arm paths in future (e.g. Disband
-    // doesn't need it; Split eventually might).
-    internal static void BeginGroupMove(Simulation sim, Group group, TileCoord dest)
+    // Stop the group's march: every member's walk is dropped where it stands and the group
+    // is Idle. (Retasking, a fight, a disband: the member walks ARE the group's movement.)
+    internal static void Halt(Simulation sim, Group group)
     {
-        if (group.Position == dest)
-        {
-            ClearMovementAnchors(group);
-            return;
-        }
-        var world = sim.World;
-        var now = sim.Now;
-        var visibleTiles = View.VisibleTiles(world, group.OwnerId);
-        var (path, to) = PlanGroup(world, group, dest, visibleTiles, now);
-        if (path is null || path.Count < 2)
-        {
-            ClearMovementAnchors(group);
-            return;
-        }
-        group.PathRemaining = path.Skip(1).ToList();
-        group.PathFinalDest = to;
-        ScheduleNextHop(sim, group);
-    }
-
-    // The group's plan to `dest`, fog-aware, following tile shapes; aimed at
-    // water, it plans to the nearest reachable land instead (MovementCost.LandNear)
-    // and says where it ends. A one-tile path: the nearest land is where it is.
-    private static (List<TileCoord>? Path, TileCoord Dest) PlanGroup(
-        GameWorld world, Group group, TileCoord dest, HashSet<TileCoord> visibleTiles, long now)
-    {
-        var cost = MovementCost.Planner(world, group.OwnerId, visibleTiles, now);
-        var rule = CrossingRule.Applies(world) ? CrossingRule.Planning(world, group.OwnerId, visibleTiles) : null;
-        if (!MovementCost.FeetKeepOffWater(world, dest))
-            return (Pathfinding.FindPath(world.Grid, group.Position, dest, cost, rule, null), dest);
-        foreach (var land in MovementCost.LandNear(world, dest))
-        {
-            if (land == group.Position) return (new List<TileCoord> { land }, land);
-            var path = Pathfinding.FindPath(world.Grid, group.Position, land, cost, rule, null);
-            if (path is not null) return (path, land);
-        }
-        return (null, dest);
-    }
-
-    // Schedules the next per-hop GroupArrivalEvent based on PathRemaining[0].
-    // Mirrors MoveIntent.ScheduleNextHop. Stashes the assigned Seq on the
-    // group's anchor for M4 recovery.
-    internal static void ScheduleNextHop(Simulation sim, Group group)
-    {
-        if (group.PathRemaining is null || group.PathRemaining.Count == 0
-            || group.PathFinalDest is null)
-            return;
-        var next = group.PathRemaining[0];
-        // M26 — GROUND-TRUTH fortification gate, the group flavor of
-        // MoveIntent.ScheduleNextHop's check: a wall the planner couldn't
-        // see (fog) or one that completed mid-march stops the whole column
-        // here. Yield-idle + epoch bump (fences any queued arrival), then
-        // open a siege if the blocker is hostile. docs/walls-and-gates.md.
-        if (Fortification.BlocksMover(sim.World, next, group.OwnerId)
-            || (CrossingRule.Applies(sim.World) && !CrossingRule.GroundTruth(sim.World, group.OwnerId).AllowsHop(
-                group.Position, null, next, final: next == group.PathFinalDest))
-            || MovementCost.ExecutionCost(sim.World, group.Position, next, sim.Now) >= Sim.Core.World.Biomes.Impassable)
-        {
-            ClearMovementAnchors(group);
-            group.State = GroupState.Idle;
-            group.BumpEpoch();
-            FortSiege.MaybeBeginSiegeAdjacentTo(sim, group.Position);
-            return;
-        }
-        // GROUND-TRUTH HOP COST: source crowding is what makes large groups
-        // slow — the group always sits on its own member crowd, so a
-        // 10-member group hops more slowly than a 2-member group on the
-        // same terrain. Destination crowding stretches caravans landing
-        // into bottlenecks (and triggers cap-rejection if it would push
-        // the destination over MaxUnitsPerTile — checked at arrival time).
-        var arrival = sim.Now + MovementCost.ExecutionCost(sim.World, group.Position, next, sim.Now);
-        group.NextArrivalTick = arrival;
-        group.NextArrivalSeq  = sim.Schedule(
-            arrival,
-            new GroupArrivalEvent(group.Id, next, group.PathFinalDest.Value, group.MovementEpoch));
-    }
-
-    internal static void ClearMovementAnchors(Group group)
-    {
-        group.PathRemaining = null;
+        foreach (var id in group.Members)
+            if (sim.World.Units.TryGetValue(id, out var m)) Walk.Stop(m);
         group.PathFinalDest = null;
-        group.NextArrivalTick = null;
-        group.NextArrivalSeq  = null;
+        group.PendingArrivals = 0;
+        if (group.State == GroupState.Moving) group.State = GroupState.Idle;
     }
 
     public override string Describe() =>

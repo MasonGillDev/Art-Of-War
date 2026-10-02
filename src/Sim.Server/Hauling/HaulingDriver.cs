@@ -109,7 +109,7 @@ public sealed class HaulingDriver
     private void RunLine(Simulation sim, int owner, List<HaulJob> line, Ledger ledger, long now)
     {
         var world = sim.World;
-        var free = FreeHaulers(world, owner);
+        var free = Pool.Read(world, owner);
         var sent = new Dictionary<int, int>();   // job → haulers sent this think
 
         // Walk the line, sending a served job to the back. Each send uses up
@@ -196,13 +196,13 @@ public sealed class HaulingDriver
         // Someone mid-walk: the crew is on its way. Someone tied up with no
         // walk (fighting, working): the crew waits for them.
         if (anyBusy)
-            return living.Any(u => u.PathRemaining is not null || u.NextArrivalTick is not null)
+            return living.Any(u => u.IsWalking)
                 ? RouteCrewState.Walking
                 : RouteCrewState.MemberBusy;
 
         if (allHere)
         {
-            sim.SubmitIntent(now, new ServeRouteStopIntent(route.RouteId, crew.CrewId, crew.CurrentStop)
+            sim.SubmitIntent(now, new ServeRouteStopIntent(route.RouteId, crew.CrewId, crew.CurrentStop, route.Revision)
                 { PlayerId = route.OwnerId });
             return RouteCrewState.Serving;
         }
@@ -218,15 +218,14 @@ public sealed class HaulingDriver
     // a marching unit can read Idle (the M16 pitfall).
     private static bool IsFree(Unit u) =>
         u.Activity == Activity.Idle
-        && u.PathRemaining is null
-        && u.NextArrivalTick is null
+        && !u.IsWalking
         && u.HaulPlan is null
         && u.Goal is null
         && u.Pursuit is null
         && !u.IsEmbarked;
 
     // One turn at the front of the line. True = a hauler was sent.
-    private static bool TrySend(Simulation sim, HaulJob job, List<Unit> free, Ledger ledger, long now)
+    private static bool TrySend(Simulation sim, HaulJob job, Pool free, Ledger ledger, long now)
     {
         var world = sim.World;
         if (!EndsHeld(world, job)) return false;
@@ -237,8 +236,7 @@ public sealed class HaulingDriver
         if (job.Kind == HaulJobKind.Salvage)
         {
             if (ledger.Haulers(job.JobId) >= job.Target) return false;
-            var picked = Nearest(free, job.Source);
-            free.Remove(picked);
+            var picked = free.Take(job.Source);
             ledger.Commit(job, picked.Id, picked.CargoCapacity);
             sim.SubmitIntent(now, new RequeueHaulJobIntent(job.JobId) { PlayerId = job.OwnerId });
             sim.SubmitIntent(now, new HaulIntent(
@@ -253,7 +251,7 @@ public sealed class HaulingDriver
         var available = ledger.Available(world, job, now);
         if (available <= 0) return false;
 
-        var hauler = Nearest(free, job.Source);
+        var hauler = free.Peek(job.Source);
         var amount = Math.Min(hauler.CargoCapacity, Math.Min(need, available));
         if (amount <= 0) return false;
 
@@ -287,22 +285,59 @@ public sealed class HaulingDriver
         && world.Structures.TryGetValue(job.Dest, out var d) && d.OwnerId == job.OwnerId;
 
     // How many haulers the owner has free right now. Pure read, for the HUD.
-    public static int CountFree(GameWorld world, int owner) => FreeHaulers(world, owner).Count;
+    // Haulers only: idle citizens are the overflow, not the crew.
+    public static int CountFree(GameWorld world, int owner) => Pool.Read(world, owner).Haulers.Count;
 
-    // The pool: the owner's haulers that are empty and dormant (idle, not
-    // marching, not grouped, not claimed by the AI substrate, not breeding,
-    // not on a route). Ascending id, so ties below resolve canonically.
-    private static List<Unit> FreeHaulers(GameWorld world, int owner)
+    // THE POOL (docs/citizen-hauling.md): the owner's free bodies, in two tiers.
+    // Haulers (cargo 25) are the crew; untrained citizens of ANY age (cargo 5)
+    // are the overflow, taken only when no hauler is free, so idle hands are
+    // never useless but a trained Hauler always wins the trip. No age gate on
+    // purpose: hauling is what a child does until it is old enough to train.
+    //
+    // Free = empty and dormant (idle, not marching, not grouped, not claimed by
+    // the AI substrate, not breeding, not on a route). Ascending id, so ties in
+    // Nearest resolve canonically.
+    private sealed class Pool
     {
-        var free = new List<Unit>();
-        foreach (var (_, u) in world.Units)
+        public readonly List<Unit> Haulers = new();
+        public readonly List<Unit> Citizens = new();
+        public int Count => Haulers.Count + Citizens.Count;
+
+        public static Pool Read(GameWorld world, int owner)
         {
-            if (u.OwnerId != owner || u.Role != UnitRole.Hauler) continue;
-            if (!u.Cargo.IsEmpty || u.HaulPlan is not null || u.Goal is not null) continue;
-            if (!ClaimLedger.IsDormant(world, u)) continue;
-            free.Add(u);
+            var pool = new Pool();
+            foreach (var (_, u) in world.Units)
+            {
+                if (u.OwnerId != owner) continue;
+                var tier = u.Role switch
+                {
+                    UnitRole.Hauler => pool.Haulers,
+                    UnitRole.None => pool.Citizens,
+                    _ => null,
+                };
+                if (tier is null) continue;
+                if (!u.Cargo.IsEmpty || u.HaulPlan is not null || u.Goal is not null) continue;
+                if (!ClaimLedger.IsDormant(world, u)) continue;
+                tier.Add(u);
+            }
+            return pool;
         }
-        return free;
+
+        // The body that would take a trip from `to`: the nearest hauler, else
+        // the nearest citizen.
+        public Unit Peek(TileCoord to) => Nearest(Haulers.Count > 0 ? Haulers : Citizens, to);
+
+        public Unit Take(TileCoord to)
+        {
+            var u = Peek(to);
+            Remove(u);
+            return u;
+        }
+
+        public void Remove(Unit u)
+        {
+            if (!Haulers.Remove(u)) Citizens.Remove(u);
+        }
     }
 
     // Nearest to the pickup tile: Chebyshev distance, then y, x, id — the

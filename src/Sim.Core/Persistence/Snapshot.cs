@@ -169,7 +169,31 @@ public static class Snapshot
     //       staging, living unit ids ascending).
     // v42 — structure footprints (docs/structure-footprints.md): every
     //       structure row gains a Facing byte after Health.
-    public const int FormatVersion = 42;
+    // v43 — subtile movement (docs/subtile-movement.md, M42): each unit's row in
+    //       the battlefield block gains a has-flag and its subtile (x, y) after
+    //       LeavingBoard, then a has-flag and the walk-in anchor (tick, Seq), then
+    //       (phase 3) a has-flag, the drawn subtile route (count, x/y pairs) and
+    //       its own has-flag and anchor (tick, Seq; absent while a battle pauses it).
+    //       Phase 4: a unit's battle slot no longer stores a subtile or a sheltered
+    //       flag (tile, last note, came-from, order only).
+    //       Units with a subtile now always have a row.
+    // v44 — one movement (docs/subtile-movement.md, M43); roads are subtile LINKS (the
+    //       road block keeps its shape: owner subtile x, y, axis, condition, last decay): a unit's row loses
+    //       PathRemaining and the next-arrival anchor (there are no tile hops; the walk
+    //       is the subtile route in the battlefield block, with its own anchor), keeping
+    //       PathFinalDest (the tile it was ordered to). The walk-in anchor and
+    //       LeavingBoard are gone from the battlefield-block rows. A group row loses its
+    //       path and arrival anchor (a group moves as its members' walks).
+    // v45 — stone and ore (docs/stone-and-ore-land.md, M44): each unit row gains
+    //       its survey anchor after the goal (has-flag, target x, y, nullable
+    //       complete tick, nullable complete seq); a new trailing section holds
+    //       the VeinConfig, the vein tiles, and each faction's known veins and
+    //       proven-barren tiles, all (y, x)-sorted.
+    // v46 — haul route UX (docs/m45-status.md, M45): a trailing section after the
+    //       veins holds, per route in id order, its name and revision, and per
+    //       crew (list order) its last serve (has-flag, stop, tick, loaded,
+    //       unloaded, notes byte).
+    public const int FormatVersion = 46;
 
     public static string Hash(Simulation sim)
     {
@@ -207,6 +231,8 @@ public static class Snapshot
             WriteCharts(bw, sim.World);         // M38 (v38)
             WriteLanding(bw, sim.World);        // two-act pacing (v40)
             WriteBattlefields(bw, sim.World);   // M41 battlefield grid (v41)
+            WriteVeins(bw, sim.World);          // M44 stone and ore (v45)
+            WriteRouteExtras(bw, sim.World);    // M45 haul route UX (v46)
         }
         return ms.ToArray();
     }
@@ -230,6 +256,7 @@ public static class Snapshot
         // World is constructed with a placeholder DiplomacyConfig; the real
         // config (from the snapshot) is restored in ReadDiplomacy below.
         var world = new GameWorld(grid);
+        world.Restoring = true;   // M42 — units and structures come back exactly as saved
         ReadPlayers(br, world);
         ReadUnits(br, world);
         ReadStructures(br, world);
@@ -250,7 +277,10 @@ public static class Snapshot
         ReadOmens(br, world);               // M37 (v37)
         ReadCharts(br, world);              // M38 (v38)
         ReadLanding(br, world);             // two-act pacing (v40)
-        ReadBattlefields(br, world);        // M41 battlefield grid (v41)
+        ReadBattlefields(br, world);        // M41 battlefield grid (v41); unit subtiles (v43)
+        ReadVeins(br, world);               // M44 stone and ore (v45)
+        ReadRouteExtras(br, world);         // M45 haul route UX (v46)
+        world.Restoring = false;
 
         var sim = new Simulation(world, seed);
         sim.Rng.SetState(rngState);
@@ -259,6 +289,61 @@ public static class Snapshot
         // next-event anchors. See Persistence/RegenerateQueue.cs.
         RegenerateQueue.From(sim);
         return sim;
+    }
+
+    // ----- haul route UX (M45, v46) ------------------------------------------
+    //
+    // Routes themselves are in the M36 haul block; this section adds what M45
+    // gave them, keyed by route id so a mismatch fails loudly instead of
+    // shifting fields onto the wrong route.
+
+    private static void WriteRouteExtras(BinaryWriter bw, GameWorld world)
+    {
+        bw.Write(world.HaulRoutes.Count);
+        foreach (var (_, route) in world.HaulRoutes)   // ascending id
+        {
+            bw.Write(route.RouteId);
+            bw.Write(route.Name);
+            bw.Write(route.Revision);
+            bw.Write(route.Crews.Count);
+            foreach (var crew in route.Crews)           // list order = ascending CrewId
+            {
+                bw.Write(crew.LastServe.HasValue);
+                if (crew.LastServe is not { } last) continue;
+                bw.Write(last.Stop);
+                bw.Write(last.Tick);
+                bw.Write(last.Loaded);
+                bw.Write(last.Unloaded);
+                bw.Write((byte)last.Notes);
+            }
+        }
+    }
+
+    private static void ReadRouteExtras(BinaryReader br, GameWorld world)
+    {
+        var count = br.ReadInt32();
+        if (count != world.HaulRoutes.Count)
+            throw new InvalidDataException(
+                $"route extras list {count} routes, the haul block restored {world.HaulRoutes.Count}");
+        for (var i = 0; i < count; i++)
+        {
+            var id = br.ReadInt32();
+            if (!world.HaulRoutes.TryGetValue(id, out var route))
+                throw new InvalidDataException($"route extras name route {id}, which the haul block lacks");
+            route.Name = br.ReadString();
+            route.Revision = br.ReadInt32();
+            var crews = br.ReadInt32();
+            if (crews != route.Crews.Count)
+                throw new InvalidDataException(
+                    $"route {id} extras list {crews} crews, the haul block restored {route.Crews.Count}");
+            foreach (var crew in route.Crews)
+            {
+                if (!br.ReadBoolean()) { crew.LastServe = null; continue; }
+                crew.LastServe = new Sim.Core.Hauling.ServeReport(
+                    br.ReadInt32(), br.ReadInt64(), br.ReadInt32(), br.ReadInt32(),
+                    (Sim.Core.Hauling.ServeNote)br.ReadByte());
+            }
+        }
     }
 
     // ----- battlefield grid (M41, v41) --------------------------------------
@@ -270,7 +355,6 @@ public static class Snapshot
 
     private static void WriteBattlefields(BinaryWriter bw, GameWorld world)
     {
-        bw.Write((byte)world.CombatConfig.Model);
         bw.Write(world.CombatConfig.LineSupport);
 
         bw.Write(world.Battlefields.Count);
@@ -286,7 +370,7 @@ public static class Snapshot
         }
 
         var rows = world.Units.Values
-            .Where(u => u.Board is not null || u.Doctrine is not null || u.EnteredFrom is not null || u.LeavingBoard is not null)
+            .Where(u => u.Board is not null || u.Doctrine is not null || u.EnteredFrom is not null || u.Subtile is not null || u.SubtileRoute is not null)
             .ToList();
         bw.Write(rows.Count);
         foreach (var u in rows)
@@ -294,7 +378,18 @@ public static class Snapshot
             bw.Write(u.Id);
             WriteNullableTileCoord(bw, u.EnteredFrom);
             bw.Write(u.EnteredTick);
-            WriteNullableTileCoord(bw, u.LeavingBoard);
+            bw.Write(u.Subtile is not null);   // M42 (v43)
+            if (u.Subtile is { } sub) { bw.Write(sub.X); bw.Write(sub.Y); }
+            bw.Write(u.SubtileRoute is not null);   // the walk (M42 phase 3, M43) and its anchor
+            if (u.SubtileRoute is { } route)
+            {
+                bw.Write(route.Count);
+                foreach (var w in route) { bw.Write(w.X); bw.Write(w.Y); }
+                bw.Write(u.SubtileRouteSeq is not null);
+                if (u.SubtileRouteSeq is { } routeSeq) { bw.Write(u.SubtileRouteTick!.Value); bw.Write(routeSeq); }
+                bw.Write(u.WaitingToEnter is not null);   // waiting at a battlefield's edge (M43)
+                if (u.WaitingToEnter is { } waiting) { WriteNullableTileCoord(bw, waiting); bw.Write(u.WaitingSince); }
+            }
             bw.Write(u.Doctrine is not null);
             if (u.Doctrine is { } d)
             {
@@ -306,9 +401,6 @@ public static class Snapshot
             {
                 bw.Write(s.Tile.X);
                 bw.Write(s.Tile.Y);
-                bw.Write(s.At.X);
-                bw.Write(s.At.Y);
-                bw.Write(s.Sheltered);
                 bw.Write((byte)s.LastNote);
                 bw.Write(s.CameFrom is not null);
                 if (s.CameFrom is { } cf) { bw.Write(cf.X); bw.Write(cf.Y); }
@@ -344,9 +436,8 @@ public static class Snapshot
 
     private static void ReadBattlefields(BinaryReader br, GameWorld world)
     {
-        var model = (Sim.Core.Combat.CombatModel)br.ReadByte();
         var lineSupport = br.ReadInt32();
-        world.RestoreCombatConfig(world.CombatConfig with { Model = model, LineSupport = lineSupport });
+        world.RestoreCombatConfig(world.CombatConfig with { LineSupport = lineSupport });
 
         var count = br.ReadInt32();
         for (var i = 0; i < count; i++)
@@ -368,15 +459,23 @@ public static class Snapshot
             var u = world.Units[br.ReadInt32()];
             u.EnteredFrom = ReadNullableTileCoord(br);
             u.EnteredTick = br.ReadInt64();
-            u.LeavingBoard = ReadNullableTileCoord(br);
+            if (br.ReadBoolean()) u.Subtile = new Sim.Core.Battlefields.Subtile(br.ReadInt32(), br.ReadInt32());   // M42 (v43)
+            if (br.ReadBoolean())
+            {
+                var steps = br.ReadInt32();
+                var route = new List<Sim.Core.Battlefields.WorldSubtile>(steps);
+                for (var k = 0; k < steps; k++) route.Add(new Sim.Core.Battlefields.WorldSubtile(br.ReadInt32(), br.ReadInt32()));
+                u.SubtileRoute = route;
+                if (br.ReadBoolean()) { u.SubtileRouteTick = br.ReadInt64(); u.SubtileRouteSeq = br.ReadInt64(); }
+                if (br.ReadBoolean()) { u.WaitingToEnter = ReadNullableTileCoord(br); u.WaitingSince = br.ReadInt64(); }
+            }
             if (br.ReadBoolean())
                 u.Doctrine = new Sim.Core.Battlefields.BattleDoctrine(
                     (Sim.Core.Battlefields.DoctrineBehaviour)br.ReadByte(), br.ReadInt32());
             if (br.ReadBoolean())
             {
                 var tile = new TileCoord(br.ReadInt32(), br.ReadInt32());
-                var at = new Sim.Core.Battlefields.Subtile(br.ReadInt32(), br.ReadInt32());
-                var slot = new Sim.Core.Battlefields.BoardSlot(tile, at, sheltered: br.ReadBoolean())
+                var slot = new Sim.Core.Battlefields.BoardSlot(tile)
                 {
                     LastNote = (Sim.Core.Battlefields.StepNote)br.ReadByte(),
                 };
@@ -978,11 +1077,8 @@ public static class Snapshot
             WriteCargo(bw, u.Cargo);
             bw.Write(u.AssignmentEpoch);
             bw.Write(u.OwnerId);
-            // M4: in-flight movement anchor.
-            WritePathRemaining(bw, u.PathRemaining);
+            // The tile the unit was ordered to (its walk is in the battlefield block).
             WriteNullableTileCoord(bw, u.PathFinalDest);
-            WriteNullableLong(bw, u.NextArrivalTick);
-            WriteNullableLong(bw, u.NextArrivalSeq);
             // M4: in-flight haul anchor.
             WriteHaulPlan(bw, u.HaulPlan);
             // M29 (v26): in-flight pursuit anchor. A chase running at
@@ -1015,6 +1111,7 @@ public static class Snapshot
             // still doing it, or the player's one decision quietly evaporates
             // across the restart. docs/goal-shaped-intents.md.
             WriteGoal(bw, u.Goal);
+            WriteSurvey(bw, u.Survey);               // M44 (v45)
             // M31 (v28): parentage. The dynasty's entire line question is a
             // pure read over these two, so losing them across a restore would
             // orphan every living child of the king.
@@ -1063,22 +1160,6 @@ public static class Snapshot
 
     private static int? ReadNullableInt(BinaryReader br) =>
         br.ReadByte() == 1 ? br.ReadInt32() : null;
-
-    private static void WritePathRemaining(BinaryWriter bw, List<TileCoord>? path)
-    {
-        if (path is null) { bw.Write(-1); return; }
-        bw.Write(path.Count);
-        foreach (var t in path) { bw.Write(t.X); bw.Write(t.Y); }
-    }
-
-    private static List<TileCoord>? ReadPathRemaining(BinaryReader br)
-    {
-        var n = br.ReadInt32();
-        if (n < 0) return null;
-        var list = new List<TileCoord>(capacity: n);
-        for (var i = 0; i < n; i++) list.Add(new TileCoord(br.ReadInt32(), br.ReadInt32()));
-        return list;
-    }
 
     private static void WriteNullableTileCoord(BinaryWriter bw, TileCoord? coord)
     {
@@ -1140,6 +1221,90 @@ public static class Snapshot
         bw.Write(goal.Arg);              // M30 follow-up (v29)
     }
 
+    private static void WriteSurvey(BinaryWriter bw, Sim.Core.Mining.SurveyPlan? survey)
+    {
+        if (survey is null) { bw.Write((byte)0); return; }
+        bw.Write((byte)1);
+        bw.Write(survey.Target.X); bw.Write(survey.Target.Y);
+        WriteNullableLong(bw, survey.CompleteTick);
+        WriteNullableLong(bw, survey.CompleteSeq);
+    }
+
+    private static Sim.Core.Mining.SurveyPlan? ReadSurvey(BinaryReader br)
+    {
+        if (br.ReadByte() == 0) return null;
+        var plan = new Sim.Core.Mining.SurveyPlan(new TileCoord(br.ReadInt32(), br.ReadInt32()));
+        plan.CompleteTick = ReadNullableLong(br);
+        plan.CompleteSeq = ReadNullableLong(br);
+        return plan;
+    }
+
+    // ----- veins (M44, v45) -------------------------------------------------
+    //
+    // The config, then the vein tiles, then per-faction known veins and
+    // proven-barren tiles. Every set is (y, x)-sorted by construction
+    // (TileOrder); factions in id order.
+
+    private static void WriteVeins(BinaryWriter bw, GameWorld world)
+    {
+        var c = world.VeinConfig;
+        bw.Write(c.OneIn);
+        bw.Write(c.Seed);
+        bw.Write(c.SurveyTicks);
+        bw.Write(c.SurveyRadius);
+        WriteTileSet(bw, world.Veins);
+        WritePlayerTileSets(bw, world.KnownVeins);
+        WritePlayerTileSets(bw, world.SurveyedBarren);
+    }
+
+    private static void ReadVeins(BinaryReader br, GameWorld world)
+    {
+        world.RestoreVeinConfig(new Sim.Core.Mining.VeinConfig(
+            OneIn: br.ReadInt32(),
+            Seed: br.ReadUInt64(),
+            SurveyTicks: br.ReadInt64(),
+            SurveyRadius: br.ReadInt32()));
+        foreach (var t in ReadTileList(br)) world.Veins.Add(t);
+        ReadPlayerTileSets(br, world.KnownVeins);
+        ReadPlayerTileSets(br, world.SurveyedBarren);
+    }
+
+    private static void WriteTileSet(BinaryWriter bw, SortedSet<TileCoord> tiles)
+    {
+        bw.Write(tiles.Count);
+        foreach (var t in tiles) { bw.Write(t.X); bw.Write(t.Y); }
+    }
+
+    private static List<TileCoord> ReadTileList(BinaryReader br)
+    {
+        var n = br.ReadInt32();
+        var list = new List<TileCoord>(n);
+        for (var i = 0; i < n; i++) list.Add(new TileCoord(br.ReadInt32(), br.ReadInt32()));
+        return list;
+    }
+
+    private static void WritePlayerTileSets(BinaryWriter bw, SortedDictionary<int, SortedSet<TileCoord>> sets)
+    {
+        bw.Write(sets.Count);
+        foreach (var (playerId, tiles) in sets)
+        {
+            bw.Write(playerId);
+            WriteTileSet(bw, tiles);
+        }
+    }
+
+    private static void ReadPlayerTileSets(BinaryReader br, SortedDictionary<int, SortedSet<TileCoord>> sets)
+    {
+        var players = br.ReadInt32();
+        for (var i = 0; i < players; i++)
+        {
+            var playerId = br.ReadInt32();
+            var set = new SortedSet<TileCoord>(TileOrder.Instance);
+            foreach (var t in ReadTileList(br)) set.Add(t);
+            sets[playerId] = set;
+        }
+    }
+
     private static GoalPlan? ReadGoal(BinaryReader br)
     {
         if (br.ReadByte() == 0) return null;
@@ -1186,10 +1351,7 @@ public static class Snapshot
             var cargo = ReadCargo(br);          // M36 (v35)
             var epoch = br.ReadByte();
             var ownerId = br.ReadInt32();
-            var pathRem = ReadPathRemaining(br);
             var pathDest = ReadNullableTileCoord(br);
-            var nextArrAt = ReadNullableLong(br);
-            var nextArrSeq = ReadNullableLong(br);
             var haulPlan = ReadHaulPlan(br);
             var pursuit = ReadPursuit(br);          // M29 (v26)
             var groupId = ReadNullableInt(br);
@@ -1208,6 +1370,7 @@ public static class Snapshot
             var isProtected = br.ReadBoolean();     // v22 automation substrate
             var routeId = ReadNullableInt(br);      // M36 (v35)
             var goal = ReadGoal(br);                // M30 (v27)
+            var survey = ReadSurvey(br);            // M44 (v45)
             var parentA = ReadNullableInt(br);      // M31 (v28)
             var parentB = ReadNullableInt(br);
 
@@ -1219,13 +1382,11 @@ public static class Snapshot
             u.EmbarkedOn = embarkedOn;
             foreach (var (r, a) in cargo) u.Cargo.Add(r, a);
 
-            u.PathRemaining = pathRem;
             u.PathFinalDest = pathDest;
-            u.NextArrivalTick = nextArrAt;
-            u.NextArrivalSeq  = nextArrSeq;
             u.HaulPlan = haulPlan;
             u.Pursuit  = pursuit;
             u.Goal     = goal;
+            u.Survey   = survey;
             u.GroupId  = groupId;
             u.Health   = health;
             foreach (var b in buffs) u.Buffs.Add(b);
@@ -1696,7 +1857,7 @@ public static class Snapshot
         }
     }
 
-    // ----- roads (sparse arcs, by owner y,x then axis; docs/roads-on-edges.md) ---
+    // ----- roads (sparse subtile links, by owner subtile y,x then axis; M43 v44) ---
 
     private static void WriteRoads(BinaryWriter bw, GameWorld world, long now)
     {
@@ -1728,10 +1889,10 @@ public static class Snapshot
         {
             var x = br.ReadInt32();
             var y = br.ReadInt32();
-            var axis = (TileEdge.Axis)br.ReadByte();
+            var axis = (SubtileLink.Axis)br.ReadByte();
             var condition = br.ReadInt32();
             var lastDecayTick = br.ReadInt64();
-            world.Roads[TileEdge.FromOwner(new TileCoord(x, y), axis)] = new RoadState(condition, lastDecayTick);
+            world.Roads[SubtileLink.FromOwner(new Sim.Core.Battlefields.WorldSubtile(x, y), axis)] = new RoadState(condition, lastDecayTick);
         }
     }
 
@@ -2437,11 +2598,7 @@ public static class Snapshot
             bw.Write(g.Members.Count);
             foreach (var memberId in g.Members) bw.Write(memberId);
 
-            // M4-style in-flight anchor.
-            WritePathRemaining(bw, g.PathRemaining);
             WriteNullableTileCoord(bw, g.PathFinalDest);
-            WriteNullableLong(bw, g.NextArrivalTick);
-            WriteNullableLong(bw, g.NextArrivalSeq);
             bw.Write(g.MovementEpoch);
         }
     }
@@ -2462,10 +2619,7 @@ public static class Snapshot
             var memberIds = new int[memCount];
             for (var m = 0; m < memCount; m++) memberIds[m] = br.ReadInt32();
 
-            var pathRem  = ReadPathRemaining(br);
             var pathDest = ReadNullableTileCoord(br);
-            var arrTick  = ReadNullableLong(br);
-            var arrSeq   = ReadNullableLong(br);
             var epoch    = br.ReadByte();
 
             var g = new Group(id) { OwnerId = ownerId };
@@ -2474,10 +2628,7 @@ public static class Snapshot
             g.State = state;
             g.RendezvousTile = rendez;
             g.PendingArrivals = pending;
-            g.PathRemaining = pathRem;
             g.PathFinalDest = pathDest;
-            g.NextArrivalTick = arrTick;
-            g.NextArrivalSeq  = arrSeq;
             g.RestoreMovementEpoch(epoch);
 
             world.Groups[id] = g;

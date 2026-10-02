@@ -1269,7 +1269,7 @@ static class RefiningDemo
     static Simulation Build()
     {
         var grid = new TileGrid(12, 8, Biome.Grassland);
-        grid.SetBiome(new TileCoord(2, 2), Biome.Hills);
+        grid.SetBiome(new TileCoord(2, 2), Biome.Mountain);   // M44 — ore is a mountain resource
         var world = new GameWorld(grid);
         world.Players[0] = new Player(0);
         world.AddStructure(new Castle(new TileCoord(0, 0)) { OwnerId = 0 });

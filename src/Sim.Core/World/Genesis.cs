@@ -55,6 +55,9 @@ public sealed record GenesisSpec
     public Sim.Core.Caches.CacheConfig Caches { get; init; } = new();
     // M38 — idols scattered in the fog, and their grade table.
     public Sim.Core.Scouting.IdolConfig Idols { get; init; } = new();
+    // M44 — ore veins: density, layout seed, survey knobs. Seeding draws no
+    // sim Rng (docs/stone-and-ore-land.md).
+    public Sim.Core.Mining.VeinConfig Veins { get; init; } = new();
     // M39 — bandit camp knobs.
     public Sim.Core.Bandits.CampConfig Camps { get; init; } = new();
     // Two-act pacing — the landing (day X). Default = no landing, a one-act
@@ -95,6 +98,12 @@ public sealed record FactionStartSpec
     // the trainer, the lock is unreachable. Null = no school (test
     // scenarios keep their minimal worlds).
     public TileCoord? SchoolPosition { get; init; }
+
+    // The human opening (docs/human-opening.md): the human seat is born with a
+    // House instead of a School, so its first lesson is to breed. The house
+    // starts EMPTY — no residents, no food — so nobody eats from a dry cache
+    // (the M19 harsh doctrine) until the player moves them in. Null = no house.
+    public TileCoord? HousePosition { get; init; }
 
     // M8: per-faction default starting age (years) for spawned units that
     // don't override via UnitSpawn.StartingAgeYears. 30 = productive adult.
@@ -174,6 +183,8 @@ public static class Genesis
         world.RestoreIdolConfig(spec.Idols);                 // M38 — same
         world.RestoreCampConfig(spec.Camps);                 // M39 — same
         world.RestoreLandingConfig(spec.Landing);            // two-act pacing — same
+        world.RestoreVeinConfig(spec.Veins);                 // M44 — same
+        Sim.Core.Mining.Veins.Seed(world);                   // M44 — terrain, before any sight
 
         // M16 — every world carries the bandit faction, usually empty: a
         // Player row with no castle, no holdings, no spawns. Registering it
@@ -214,6 +225,12 @@ public static class Genesis
                 var school = world.AddStructure(new School(schoolAt) { OwnerId = fs.OwnerId });
                 Sight.Reveal(world, school.OwnerId, school.At,
                     Sight.RadiusFor(StructureKind.School), now: 0);
+            }
+            if (fs.HousePosition is { } houseAt)
+            {
+                var house = world.AddStructure(new House(houseAt) { OwnerId = fs.OwnerId });
+                Sight.Reveal(world, house.OwnerId, house.At,
+                    Sight.RadiusFor(StructureKind.House), now: 0);
             }
 
             foreach (var u in fs.UnitSpawns)

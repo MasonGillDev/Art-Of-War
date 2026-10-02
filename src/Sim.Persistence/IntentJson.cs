@@ -85,8 +85,13 @@ public static class IntentJson
         [typeof(Sim.Core.Hauling.AddRouteCrewIntent)]            = "AddRouteCrewIntent",
         [typeof(Sim.Core.Hauling.RemoveRouteCrewIntent)]         = "RemoveRouteCrewIntent",
         [typeof(Sim.Core.Hauling.ServeRouteStopIntent)]          = "ServeRouteStopIntent",
+        // M45 — edit a running route in place, name it, change a queued job.
+        [typeof(Sim.Core.Hauling.UpdateHaulRouteIntent)]         = "UpdateHaulRouteIntent",
+        [typeof(Sim.Core.Hauling.RenameHaulRouteIntent)]         = "RenameHaulRouteIntent",
+        [typeof(Sim.Core.Hauling.UpdateHaulJobIntent)]           = "UpdateHaulJobIntent",
         // M20 — scouting dispatch.
         [typeof(Sim.Core.Scouting.DispatchScoutIntent)]          = "DispatchScoutIntent",
+        [typeof(Sim.Core.Mining.SurveyIntent)]                   = "SurveyIntent",
         [typeof(Sim.Core.Scouting.ActivateIdolIntent)]           = "ActivateIdolIntent",   // M38
         // M21 — canal digging (whole-path terrain-mutation build).
         [typeof(Sim.Core.Canals.PlaceCanalIntent)]               = "PlaceCanalIntent",
@@ -105,6 +110,8 @@ public static class IntentJson
         // M41 — battlefield orders and doctrine (docs/battlefield-grid.md).
         [typeof(Sim.Core.Battlefields.SetBattleOrderIntent)]     = "SetBattleOrderIntent",
         [typeof(Sim.Core.Battlefields.SetBattleDoctrineIntent)]  = "SetBattleDoctrineIntent",
+        // M42 — a drawn subtile route (docs/subtile-movement.md).
+        [typeof(Sim.Core.Battlefields.SubtileRouteIntent)]       = "SubtileRouteIntent",
     };
 
     public static (string TypeName, string Payload) Serialize(Intent intent)
@@ -157,7 +164,11 @@ public static class IntentJson
             "AddRouteCrewIntent"           => JsonSerializer.Deserialize<Sim.Core.Hauling.AddRouteCrewIntent>(payload, Options),
             "RemoveRouteCrewIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.RemoveRouteCrewIntent>(payload, Options),
             "ServeRouteStopIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.ServeRouteStopIntent>(payload, Options),
+            "UpdateHaulRouteIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.UpdateHaulRouteIntent>(payload, Options),
+            "RenameHaulRouteIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.RenameHaulRouteIntent>(payload, Options),
+            "UpdateHaulJobIntent"          => JsonSerializer.Deserialize<Sim.Core.Hauling.UpdateHaulJobIntent>(payload, Options),
             "DispatchScoutIntent"          => JsonSerializer.Deserialize<Sim.Core.Scouting.DispatchScoutIntent>(payload, Options),
+            "SurveyIntent"                 => JsonSerializer.Deserialize<Sim.Core.Mining.SurveyIntent>(payload, Options),
             "ActivateIdolIntent"           => JsonSerializer.Deserialize<Sim.Core.Scouting.ActivateIdolIntent>(payload, Options),
             "PlaceCanalIntent"             => JsonSerializer.Deserialize<Sim.Core.Canals.PlaceCanalIntent>(payload, Options),
             "LootCacheIntent"              => JsonSerializer.Deserialize<Sim.Core.Caches.LootCacheIntent>(payload, Options),
@@ -166,6 +177,7 @@ public static class IntentJson
             "DemolishStructureIntent"      => JsonSerializer.Deserialize<Sim.Core.Sieges.DemolishStructureIntent>(payload, Options),
             "EngageUnitIntent"             => JsonSerializer.Deserialize<Sim.Core.Combat.EngageUnitIntent>(payload, Options),
             "SetBattleOrderIntent"    => JsonSerializer.Deserialize<Sim.Core.Battlefields.SetBattleOrderIntent>(payload, Options),
+            "SubtileRouteIntent"      => JsonSerializer.Deserialize<Sim.Core.Battlefields.SubtileRouteIntent>(payload, Options),
             "SetBattleDoctrineIntent" => JsonSerializer.Deserialize<Sim.Core.Battlefields.SetBattleDoctrineIntent>(payload, Options),
             _ => throw new InvalidOperationException(
                 $"Unknown intent type-name '{typeName}'. The intent was logged by a build " +

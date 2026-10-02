@@ -48,34 +48,6 @@ public class CombatTriggerTests
     }
 
     [Fact]
-    public void EnemyArrival_StartsCombat()
-    {
-        var sim = new Simulation(Genesis.Build(MakeSpec()), seed: 0xC0F);
-        // Declare war and let it become effective.
-        sim.SubmitIntent(0, new DeclareWarIntent(0, 1));
-        sim.Run(until: Delay + 1);
-        Assert.True(sim.World.Diplomacy.AreHostile(0, 1));
-
-        // Both factions march to (10, 10): unit 1 walks 8 tiles, unit 2
-        // walks 7. Budget derives from the grassland cost — just past both
-        // arrivals, short enough to catch combat in progress before all
-        // units die.
-        sim.SubmitIntent(sim.Now, new MoveIntent(1, new TileCoord(10, 10)));
-        sim.SubmitIntent(sim.Now, new MoveIntent(2, new TileCoord(10, 10)) { PlayerId = 1 });
-        sim.Run(until: sim.Now + 9 * Biomes.MoveCost(Biome.Grassland));
-
-        // Either CombatStates has an entry on the tile (mid-fight), OR
-        // one of the units has already taken damage / been removed.
-        var contested = sim.World.CombatStates.ContainsKey(new TileCoord(10, 10));
-        var u1Dead = !sim.World.Units.ContainsKey(1);
-        var u2Dead = !sim.World.Units.ContainsKey(2);
-        var u1Damaged = !u1Dead && sim.World.Units[1].Health < 10;
-        var u2Damaged = !u2Dead && sim.World.Units[2].Health < 10;
-        Assert.True(contested || u1Dead || u2Dead || u1Damaged || u2Damaged,
-            "Combat should have started — tile not contested and no unit took damage.");
-    }
-
-    [Fact]
     public void NeutralArrival_NoCombat()
     {
         // No DeclareWarIntent — factions remain neutral.

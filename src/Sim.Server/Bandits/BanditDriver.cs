@@ -1,4 +1,6 @@
 using Sim.Core.Bandits;
+using Sim.Core.Battlefields;
+using Sim.Core.Combat;
 using Sim.Core.Engine;
 using Sim.Core.Logistics;
 using Sim.Core.Movement;
@@ -78,6 +80,15 @@ public sealed class BanditDriver
     // castle or carry loot): the census adopts them as ordinary raiders.
     // Ephemeral: a restarted driver re-derives it from the same two facts.
     private readonly HashSet<int> _released = new();
+    // M43 (docs/fix-combat-m43.md) — the brain leaves a fight to the board, and never sends
+    // the same order that didn't take twice. All ephemeral, like the parties: a restarted
+    // driver re-derives what it needs from the world.
+    //   _doctrines — the doctrine last set per unit (set once, again only if it changes);
+    //   _lastMove  — the last march each unit was sent on, to spot an order that didn't take;
+    //   _blocked   — destinations found unreachable or full, skipped until the cooldown ends.
+    private readonly Dictionary<int, DoctrineBehaviour> _doctrines = new();
+    private readonly Dictionary<int, (TileCoord Dest, long Tick)> _lastMove = new();
+    private readonly Dictionary<TileCoord, long> _blocked = new();
 
     public BanditDriver(BanditConfig cfg)
     {
@@ -93,14 +104,95 @@ public sealed class BanditDriver
 
         var world = sim.World;
         Census(world);
+        Forget(world, now);
         MaybeSpawn(sim, now, world);
         foreach (var party in _parties)
             Act(sim, now, world, party);
         foreach (var camp in world.Structures.Values.OfType<BanditCamp>()
                      .OrderBy(c => c.At.Y).ThenBy(c => c.At.X).ToList())
+        {
+            ActCampGarrison(sim, now, world, camp);
             ActCampRaid(sim, now, world, camp);
+        }
         foreach (var (_, host) in world.LandingHosts)   // target id order
             ActLanding(sim, now, world, host);
+    }
+
+    // ---- M43: leave the fight to the board ---------------------------------
+
+    private void Forget(GameWorld world, long now)
+    {
+        foreach (var id in _doctrines.Keys.Where(id => !world.Units.ContainsKey(id)).ToList()) _doctrines.Remove(id);
+        foreach (var id in _lastMove.Keys.Where(id => !world.Units.ContainsKey(id)).ToList()) _lastMove.Remove(id);
+        foreach (var t in _blocked.Where(kv => kv.Value <= now).Select(kv => kv.Key).ToList()) _blocked.Remove(t);
+    }
+
+    // A unit the brain may order: standing still, idle, and not in a fight. A unit on a board
+    // is never "walking" (the board owns its steps), so without the board test every fighting
+    // bandit was re-ordered each think, and the order overrode its doctrine.
+    private static bool Free(Unit u) => !IsMoving(u) && u.Activity == Activity.Idle && u.Board is null;
+
+    // Put `behaviour` on a bandit that is on a board: once, and again only if it changes. The
+    // withdraw threshold is a head count of its own side left on the board (BattleDoctrine), so
+    // it is a share of the party: fewer than that many of us left, and it leaves.
+    private void SetDoctrine(Simulation sim, long now, Unit u, DoctrineBehaviour behaviour, int partySize)
+    {
+        if (u.Board is null) return;
+        if (_doctrines.TryGetValue(u.Id, out var set) && set == behaviour) return;
+        var below = behaviour == DoctrineBehaviour.Withdraw ? 0
+            : Math.Clamp((int)Math.Ceiling(partySize * _cfg.WithdrawBelowPercent / 100.0), 0, Subtile.Count);
+        sim.SubmitIntent(now, new SetBattleDoctrineIntent(u.Id, (byte)behaviour, below) { PlayerId = BanditConstants.OwnerId });
+        _doctrines[u.Id] = behaviour;
+    }
+
+    // Every march goes through here. An order that is sent a second time for the same place
+    // means the first didn't take (the unit is still idle, not walking, not there): it had no
+    // path, or no room to stop. Check both before sending it again; if it can't work, block the
+    // place for a cooldown. `substitute`: go to the nearest tile with room instead (a seat, a
+    // staging point); false for a prize, which the caller then picks another of.
+    private void Go(Simulation sim, long now, GameWorld world, Unit u, TileCoord dest, bool substitute = true)
+    {
+        if (u.Board is not null || u.Position == dest) return;
+        if (_lastMove.TryGetValue(u.Id, out var last) && last.Dest == dest && now > last.Tick
+            && (!Walk.CanReach(world, u, dest) || !TileCapacity.HasRoom(world, dest, u.OwnerId)))
+        {
+            _blocked[dest] = now + _cfg.BlockedCooldownTicks;
+            if (!substitute) return;
+            var near = TileCapacity.RoomNear(world, dest, u.OwnerId, u.Traversal, except: dest);
+            if (near == dest || near == u.Position) return;
+            dest = near;
+        }
+        _lastMove[u.Id] = (dest, now);
+        sim.SubmitIntent(now, new MoveIntent(u.Id, dest) { PlayerId = BanditConstants.OwnerId });
+    }
+
+    // Join a fight already open on `tile` only at fair odds: the party's power against the power
+    // of everyone fighting there that isn't one of ours. A party with a member already on the
+    // tile is in it and isn't asked.
+    private bool WorthJoining(GameWorld world, List<Unit> units, TileCoord tile, long now)
+    {
+        if (!world.Battlefields.ContainsKey(tile) || units.Any(u => u.Position == tile)) return true;
+        long ours = 0, theirs = 0;
+        foreach (var u in units) ours += CombatRules.EffectivePower(world, u, now);
+        foreach (var o in world.Units.Values)
+            if (o.Position == tile && o.Board is not null && o.OwnerId != BanditConstants.OwnerId)
+                theirs += CombatRules.EffectivePower(world, o, now);
+        return ours * 100 >= theirs * _cfg.JoinPowerRatioPercent;
+    }
+
+    // A fleeing party's way to a dark tile mustn't cross a fight (a cheap test on the straight
+    // line of tiles: the pathfinder plans the real way, and taking an avoid-set into it would
+    // make it a global rule; docs/fix-combat-m43.md).
+    private static bool LineCrossesBoard(GameWorld world, TileCoord from, TileCoord to)
+    {
+        if (world.Battlefields.Count == 0) return false;
+        var n = Math.Max(Math.Abs(to.X - from.X), Math.Abs(to.Y - from.Y));
+        for (var i = 1; i < n; i++)
+        {
+            var t = new TileCoord(from.X + (to.X - from.X) * i / n, from.Y + (to.Y - from.Y) * i / n);
+            if (world.Battlefields.ContainsKey(t)) return true;
+        }
+        return false;
     }
 
     // ---- census: prune the dead, adopt the unknown ----------------------
@@ -204,12 +296,12 @@ public sealed class BanditDriver
                     _released.Add(id);
                     continue;
                 }
-                if (IsMoving(u) || u.Activity != Activity.Idle) continue;   // marching, or fighting
+                SetDoctrine(sim, now, u, DoctrineBehaviour.Advance, front.UnitIds.Count);
+                if (!Free(u)) continue;   // marching, or fighting: the board has it
                 var to = !assault ? front.Staging
                     : u.Position == front.Approach ? host.Seat
                     : front.Approach;
-                if (u.Position != to)
-                    sim.SubmitIntent(now, new MoveIntent(u.Id, to) { PlayerId = BanditConstants.OwnerId });
+                if (u.Position != to) Go(sim, now, world, u, to);
             }
     }
 
@@ -229,8 +321,10 @@ public sealed class BanditDriver
             if (u.Position == home && !IsMoving(u) && u.Activity == Activity.Idle && u.Cargo.Total > 0)
                 sim.SubmitIntent(now, new UnloadCargoIntent(u.Id) { PlayerId = BanditConstants.OwnerId });
 
+        foreach (var u in units) SetDoctrine(sim, now, u, DoctrineBehaviour.Advance, units.Count);
         var sated = units.All(u => u.CargoAmount >= u.CargoCapacity);
-        var target = sated ? null : FindTarget(world, units);
+        TileCoord? hold = null;
+        var target = sated ? null : FindTarget(world, units, now, out hold);
         if (target is { } dest)
         {
             foreach (var u in units)
@@ -243,11 +337,13 @@ public sealed class BanditDriver
                         && StealableResource(world, dest, u) is { } r)
                         sim.SubmitIntent(now, new LoadCargoIntent(u.Id, r) { PlayerId = BanditConstants.OwnerId });
                 }
-                else if (!IsMoving(u) && u.Activity == Activity.Idle)
-                    sim.SubmitIntent(now, new MoveIntent(u.Id, dest) { PlayerId = BanditConstants.OwnerId });
+                else if (Free(u))
+                    Go(sim, now, world, u, dest, substitute: false);
             }
             return;
         }
+        // A fight at a prize, at odds the raid won't take: hold and look again next think.
+        if (hold is not null && units.All(u => u.Cargo.Total == 0)) return;
 
         // Carrying anything with nothing left in sight, or the seat reached and
         // bare: home. Otherwise, march on the target's seat.
@@ -257,8 +353,16 @@ public sealed class BanditDriver
         var goHome = units.Any(u => u.Cargo.Total > 0) || seat is null || units.Any(u => u.Position == seat);
         var to = goHome ? home : seat!.Value;
         foreach (var u in units)
-            if (!IsMoving(u) && u.Activity == Activity.Idle && u.Position != to)
-                sim.SubmitIntent(now, new MoveIntent(u.Id, to) { PlayerId = BanditConstants.OwnerId });
+            if (Free(u) && u.Position != to) Go(sim, now, world, u, to);
+    }
+
+    // A camp's garrison holds its ground: whoever stands on the camp and isn't out raiding.
+    private void ActCampGarrison(Simulation sim, long now, GameWorld world, BanditCamp camp)
+    {
+        var guards = world.Units.Values
+            .Where(u => u.OwnerId == BanditConstants.OwnerId && u.Position == camp.At && !camp.Raiders.Contains(u.Id))
+            .OrderBy(u => u.Id).ToList();
+        foreach (var u in guards) SetDoctrine(sim, now, u, DoctrineBehaviour.Hold, guards.Count);
     }
 
     // ---- spawning: prosperity attracts wolves ---------------------------
@@ -309,14 +413,20 @@ public sealed class BanditDriver
 
         if (party.Mode == Mode.Ambush)
         {
-            if (FindTarget(world, units) is null) return;   // keep lurking
-            party.Mode = Mode.Raid;                          // sprung!
+            if (FindTarget(world, units, now, out _) is null) return;   // keep lurking
+            party.Mode = Mode.Raid;                                      // sprung!
         }
+
+        // M43: on a board a bandit follows its doctrine, not the brain's marches: raiders
+        // advance, a fleeing party withdraws.
+        foreach (var u in units)
+            SetDoctrine(sim, now, u, party.Mode == Mode.Flee ? DoctrineBehaviour.Withdraw : DoctrineBehaviour.Advance, units.Count);
 
         if (party.Mode == Mode.Raid)
         {
             var sated = units.All(u => u.CargoAmount >= u.CargoCapacity);
-            var target = sated ? null : FindTarget(world, units);
+            TileCoord? hold = null;
+            var target = sated ? null : FindTarget(world, units, now, out hold);
             if (target is { } dest)
             {
                 foreach (var u in units)
@@ -332,17 +442,20 @@ public sealed class BanditDriver
                             sim.SubmitIntent(now, new LoadCargoIntent(u.Id, r)
                                 { PlayerId = BanditConstants.OwnerId });
                     }
-                    else if (!IsMoving(u) && u.Activity == Activity.Idle && u.Position != dest)
+                    else if (Free(u) && u.Position != dest)
                     {
                         // Not there and not on the way (fresh order, or a
-                        // stalled/interrupted march) — (re)issue the move.
-                        sim.SubmitIntent(now, new MoveIntent(u.Id, dest)
-                            { PlayerId = BanditConstants.OwnerId });
+                        // stalled/interrupted march) — (re)issue the move, unless the
+                        // last one showed this place can't be reached or has no room.
+                        Go(sim, now, world, u, dest, substitute: false);
                     }
                 }
                 party.OrderedDest = dest;
                 return;
             }
+            // A fight at a prize, at odds the raid won't take: hold and look again next think
+            // (still carrying loot, it flees below instead).
+            if (hold is not null && units.All(u => u.Cargo.Total == 0)) return;
             if (units.Any(u => u.CargoAmount > 0))
             {
                 // Cargo full, or carrying something with nothing left in
@@ -354,9 +467,7 @@ public sealed class BanditDriver
             {
                 // M37 — an omen raid with nothing in sight yet: march on.
                 foreach (var u in units)
-                    if (!IsMoving(u) && u.Activity == Activity.Idle)
-                        sim.SubmitIntent(now, new MoveIntent(u.Id, seat)
-                            { PlayerId = BanditConstants.OwnerId });
+                    if (Free(u)) Go(sim, now, world, u, seat);
                 party.OrderedDest = seat;
                 return;
             }
@@ -371,9 +482,10 @@ public sealed class BanditDriver
         {
             var dest = party.OrderedDest;
             // (Re)pick an exit if none ordered or the old one got lit up.
-            if (dest is null || BanditRules.IsSeenByAnyPlayer(world, dest.Value))
+            if (dest is null || BanditRules.IsSeenByAnyPlayer(world, dest.Value)
+                || (_blocked.TryGetValue(dest.Value, out var until) && until > now))
             {
-                dest = PickDarkTile(world, now);
+                dest = PickDarkTile(world, now, units[0].Position);
                 if (dest is null) return;   // the world is lit — keep fighting, keep dying
                 party.OrderedDest = dest;
             }
@@ -389,30 +501,38 @@ public sealed class BanditDriver
                 return;
             }
             foreach (var u in units)
-                if (!IsMoving(u) && u.Activity == Activity.Idle && u.Position != dest.Value)
-                    sim.SubmitIntent(now, new MoveIntent(u.Id, dest.Value)
-                        { PlayerId = BanditConstants.OwnerId });
+                if (Free(u) && u.Position != dest.Value) Go(sim, now, world, u, dest.Value, substitute: false);
         }
     }
 
     // Nearest interesting tile any party member can SEE (Euclidean disc,
     // the same math as View.VisibleTiles): stealable structures first,
     // then player units (attack-move — combat triggers on co-location).
-    private static TileCoord? FindTarget(GameWorld world, List<Unit> units)
+    //
+    // M43: a place the last march showed unreachable or full is skipped for its cooldown, and a
+    // fight already open on a prize is joined only at fair odds (WorthJoining): `holdAt` is
+    // the prize that was passed over for its odds, so the caller waits instead of wandering off.
+    private TileCoord? FindTarget(GameWorld world, List<Unit> units, long now, out TileCoord? holdAt)
     {
         TileCoord? best = null;
+        TileCoord? held = null;
         var bestDist = int.MaxValue;
         var bestIsStealable = false;
 
         void Consider(TileCoord at, bool stealable)
         {
             if (!units.Any(u => WithinSight(u, at))) return;
+            if (_blocked.TryGetValue(at, out var until) && until > now) return;
             var d = units.Min(u => Chebyshev(u.Position, at));
             // Stealable beats fightable at any distance; within a class,
             // nearest wins.
             var better = (stealable && !bestIsStealable)
                 || (stealable == bestIsStealable && d < bestDist);
             if (!better) return;
+            if (!WorthJoining(world, units, at, now)) { held ??= at; return; }
+            // M43: a prize the party can't walk to (an island, a walled-in tile) is scenery,
+            // or the party re-orders itself every think and never arrives.
+            if (!Walk.CanReach(world, units[0], at)) return;
             best = at;
             bestDist = d;
             bestIsStealable = stealable;
@@ -432,6 +552,7 @@ public sealed class BanditDriver
             if (u.OwnerId == BanditConstants.OwnerId || u.IsEmbarked) continue;
             Consider(u.Position, stealable: false);
         }
+        holdAt = held;
         return best;
     }
 
@@ -476,7 +597,7 @@ public sealed class BanditDriver
     private void Wander(Simulation sim, long now, GameWorld world, Party party, List<Unit> units)
     {
         var lead = units[0];
-        if (units.Any(u => IsMoving(u) || u.Activity != Activity.Idle)) return;   // leg in progress
+        if (units.Any(u => IsMoving(u) || u.Activity != Activity.Idle || u.Board is not null)) return;   // leg in progress, or a fight
         for (var attempt = 0; attempt < 10; attempt++)
         {
             var dx = _rng.Next(-_cfg.WanderRadius, _cfg.WanderRadius + 1);
@@ -488,15 +609,13 @@ public sealed class BanditDriver
             var biome = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
                 world, t, now, world.BiomeDegradationConfig);
             if (biome is Biome.Water or Biome.None) continue;
-            foreach (var u in units)
-                sim.SubmitIntent(now, new MoveIntent(u.Id, t)
-                    { PlayerId = BanditConstants.OwnerId });
+            foreach (var u in units) Go(sim, now, world, u, t);
             party.OrderedDest = t;
             return;
         }
     }
 
-    private TileCoord? PickDarkTile(GameWorld world, long now)
+    private TileCoord? PickDarkTile(GameWorld world, long now, TileCoord? from = null)
     {
         for (var attempt = 0; attempt < _cfg.SpawnAttemptsPerThink; attempt++)
         {
@@ -507,6 +626,8 @@ public sealed class BanditDriver
             if (BanditRules.IsSeenByAnyPlayer(world, tile)) continue;
             if (BanditRules.ChebyshevToNearestPlayerPresence(world, tile)
                 < BanditConstants.MinSpawnDistance) continue;
+            if (_blocked.TryGetValue(tile, out var until) && until > now) continue;
+            if (from is { } origin && LineCrossesBoard(world, origin, tile)) continue;
             return tile;
         }
         return null;
@@ -514,9 +635,9 @@ public sealed class BanditDriver
 
     // Movement is anchored on the unit (M4 pattern), NOT reflected in
     // Activity — a marching unit reads Activity.Idle. This is the
-    // "am I between hops" check every move/load decision gates on.
+    // "am I walking" check every move/load decision gates on.
     private static bool IsMoving(Unit u) =>
-        u.NextArrivalTick is not null || (u.PathRemaining?.Count ?? 0) > 0;
+        u.IsWalking;
 
     private static bool WithinSight(Unit u, TileCoord at)
     {

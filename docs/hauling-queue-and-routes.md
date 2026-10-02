@@ -164,3 +164,32 @@ or pile that is nobody's, to a building of the player's. It keeps a crew of haul
 work instead of meeting an amount, and it ends when a hauler arrives and finds nothing.
 The rest of the queue is unchanged: one trip per turn, nearest free hauler to the
 pickup, to the back of the line.
+
+## Update 2026-10-01
+
+The pool is no longer Haulers only. Untrained citizens of any age are an
+overflow tier, dispatched only when no Hauler is free, at their own capacity of
+5. See `docs/citizen-hauling.md`.
+
+## Update 2026-10-01 — routes you can read and change (M45)
+
+The 2026-10-01 playtest found the route amounts hidden and frozen: the client's percent slider
+had collapsed to a dot, a rule's amount could not change after it was added, and a running route
+could not change at all. Status and phases: `docs/m45-status.md`. What changed in the rules:
+
+- **Every named crew member carries**, at its own capacity, except Soldiers and Archers, who stay
+  escort. A crew is the units the player picked; refusing to let a named citizen carry was the
+  old Hauler-only rule leaking through. Replaces "only Hauler-role members carry".
+- **A running route's stops change in place** (`UpdateHaulRouteIntent`). Lost: clear and recreate,
+  which released every crew, renumbered the route and restarted the crews. Each crew keeps its
+  place by tile (the stop it was walking to, else the next one that survives); its cargo rides on.
+  A serve already submitted against the old list is fenced off by the route's revision.
+- **Routes have names** (`SetHaulRouteIntent` name, `RenameHaulRouteIntent`), at most 32 characters.
+- **Each crew reports its last serve**: what came aboard and went out, and what got in the way
+  (store empty, drop refused, carrier full, not your building, no carriers). This is how a stop pin
+  says why a loop is stalled. It is sim state, written by the serve, so a restart shows the same.
+- **A queued job's amount or kind changes without losing its place in line**
+  (`UpdateHaulJobIntent`). Lost: clear and queue again, which sends the job to the back.
+- The percent stays the server's unit. The client shows it as units per carrier.
+
+Still deferred: escort engagement, per-job source sets, trade stops.

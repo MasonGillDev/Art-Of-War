@@ -59,10 +59,8 @@ public sealed class DisembarkIntent : Intent
             // the nearest tile that has (Movement.TileCapacity).
             p.Position = Sim.Core.Movement.TileCapacity.RoomNear(world, landingTile, p.OwnerId);
             p.EmbarkedOn = null;
-            p.PathRemaining = null;
-            p.PathFinalDest = null;
-            p.NextArrivalTick = null;
-            p.NextArrivalSeq = null;
+            Sim.Core.Battlefields.Placement.Seat(world, p);   // M42 — placed like any created unit
+            Sim.Core.Movement.Walk.Stop(p);
             // Bump epoch so any latent event (shouldn't exist, but
             // defensive) fences. Idle stays Idle.
             p.BumpEpoch();

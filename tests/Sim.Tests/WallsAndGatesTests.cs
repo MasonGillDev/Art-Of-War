@@ -44,6 +44,14 @@ public class WallsAndGatesTests
         public override void Apply(Simulation sim) { }
     }
 
+    // Run one tick at a time until a siege has opened on `wall`; the tick it opened on. (A walk
+    // ends a few steps after it enters the tile, so the opening tick is derived, never written in.)
+    private static long UntilSiege(Simulation sim, TileCoord wall)
+    {
+        for (var t = sim.Now + 1; t < 100_000 && !sim.World.CombatStates.ContainsKey(wall); t++) sim.Run(until: t);
+        return sim.Now;
+    }
+
     private static void AdvanceTo(Simulation sim, long tick)
     {
         if (tick <= sim.Now) return;
@@ -326,7 +334,7 @@ public class WallsAndGatesTests
         sim.Run();
 
         Assert.Equal(new TileCoord(3, 4), u.Position);
-        Assert.Null(u.PathRemaining);
+        Assert.False(u.IsWalking);
         Assert.Equal(Activity.Idle, u.Activity);
         // Neutral, not enemy — being locked out is not a casus belli.
         Assert.Empty(sim.World.CombatStates);
@@ -347,7 +355,7 @@ public class WallsAndGatesTests
 
         // The committed path is dead: the unit yields at the wall's face.
         Assert.Equal(3, u.Position.X);
-        Assert.Null(u.PathRemaining);
+        Assert.False(u.IsWalking);
         Assert.Equal(Activity.Idle, u.Activity);
         Assert.Empty(sim.World.CombatStates);   // neutral wall → no siege
     }
@@ -402,18 +410,18 @@ public class WallsAndGatesTests
         var b = AddUnit(sim, 2, new TileCoord(4, 2), owner: 0);
         Assert.True(new MoveIntent(a.Id, new TileCoord(3, 4)) { PlayerId = 0 }.Resolve(sim).IsApplied);
         Assert.True(new MoveIntent(b.Id, new TileCoord(4, 3)) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        sim.Run(until: 31);   // both single hops arrive at t=30; siege opens
+        var began = UntilSiege(sim, wallAt);   // both walks end on the wall's face; the siege opens
 
         Assert.True(sim.World.CombatStates.ContainsKey(wallAt));
 
         // One full round later the wall has taken both soldiers' power.
         var interval = sim.World.CombatConfig.RoundIntervalTicks;
         var perRound = 2 * CombatRules.EffectivePower(a, sim.Now);
-        AdvanceTo(sim, 30 + interval + 1);
+        AdvanceTo(sim, began + interval + 1);
         Assert.Equal(fullHealth - perRound, sim.World.Structures[wallAt].Health);
 
         // Attackers hold: another round, another bite.
-        AdvanceTo(sim, 30 + 2 * interval + 1);
+        AdvanceTo(sim, began + 2 * interval + 1);
         Assert.Equal(fullHealth - 2 * perRound, sim.World.Structures[wallAt].Health);
     }
 
@@ -435,7 +443,8 @@ public class WallsAndGatesTests
             .Resolve(sim).IsApplied);
 
         var interval = sim.World.CombatConfig.RoundIntervalTicks;
-        AdvanceTo(sim, 30 + interval + 1);
+        var began = UntilSiege(sim, wallAt);
+        AdvanceTo(sim, began + interval + 1);
         Assert.True(sim.World.Structures[wallAt].Health < fullHealth,
             "wall must take damage despite the defender behind it");
         // And no unit combat happened — they never co-located.
@@ -475,7 +484,8 @@ public class WallsAndGatesTests
         var u = AddUnit(sim, 1, new TileCoord(2, 4), owner: 0);
         Assert.True(new MoveIntent(u.Id, new TileCoord(3, 4)) { PlayerId = 0 }.Resolve(sim).IsApplied);
         var interval = sim.World.CombatConfig.RoundIntervalTicks;
-        AdvanceTo(sim, 30 + interval + 1);   // one round lands
+        var began = UntilSiege(sim, wallAt);
+        AdvanceTo(sim, began + interval + 1);   // one round lands
         var damaged = sim.World.Structures[wallAt].Health;
         Assert.True(damaged < StructureCatalog.Spec(StructureKind.Wall).BaseHealth);
 

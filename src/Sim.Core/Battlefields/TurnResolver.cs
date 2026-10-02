@@ -19,13 +19,19 @@ public readonly record struct BoardHit(int AttackerId, int TargetId, int Damage,
 
 // Everything one turn did, for the world to apply and the client to play back
 // (docs/battlefield-grid.md §5, §10).
+//
+// Besiegers and StructureDamage (2026-10-01): the units that worked on the tile's
+// structure this turn, and the HP it loses (docs/structure-footprints.md, Update
+// 2026-10-01 "Siege from the board").
 public sealed record TurnResult(
     BoardState After,
     IReadOnlyList<BoardMove> Moves,
     IReadOnlyDictionary<int, StepNote> Failed,
     IReadOnlyList<(int A, int B)> Clashes,
     IReadOnlyList<BoardHit> Hits,
-    IReadOnlyList<int> Deaths)
+    IReadOnlyList<int> Deaths,
+    IReadOnlyList<int> Besiegers,
+    int StructureDamage)
 {
     public IEnumerable<int> LeftIds => Moves.Where(m => m.Left).Select(m => m.UnitId);
 }
@@ -36,9 +42,16 @@ public sealed record TurnResult(
 // own primitives (health, death, world hops). Integer-only, no randomness, and
 // order-independent: every step resolves together by the collision rules,
 // ties between friends go to the lower unit id, never to who ordered first.
+//
+// `besieges` (2026-10-01): does a unit of this owner work on the tile's structure?
+// The world answers it (hostile to the structure's owner, not a bandit); null when
+// there is nothing on the tile to besiege. A unit that besieges and is NOT fighting
+// a unit this turn — no duel, no clash, no target for its bow — and did not move
+// deals its base damage to the structure (no morale: that is for fighting people).
 public static class TurnResolver
 {
-    public static TurnResult Resolve(BoardState board, IReadOnlyDictionary<int, PlannedStep> steps, BattleConfig config)
+    public static TurnResult Resolve(BoardState board, IReadOnlyDictionary<int, PlannedStep> steps, BattleConfig config,
+        Func<int, bool>? besieges = null)
     {
         var failed = new Dictionary<int, StepNote>();
         var moves = new List<BoardMove>();
@@ -163,6 +176,22 @@ public static class TurnResolver
         foreach (var h in hits)
             damage[h.TargetId] = damage.GetValueOrDefault(h.TargetId) + h.Damage;
 
+        // ---- 5b. The siege: whoever besieges, stood still and fought nobody works on
+        //          the structure. Simultaneous with the rest: a besieger shot dead this
+        //          turn still did its turn's work.
+        var besiegers = new List<int>();
+        var structureDamage = 0;
+        if (besieges is not null)
+        {
+            var fighting = new HashSet<int>(hits.Select(h => h.AttackerId));
+            foreach (var u in afterMoves.OnBoard)
+            {
+                if (!besieges(u.OwnerId) || ok.Contains(u.Id) || fighting.Contains(u.Id)) continue;
+                besiegers.Add(u.Id);
+                structureDamage += u.Damage;
+            }
+        }
+
         // ---- 6. The dead. ------------------------------------------------------
         var deaths = new List<int>();
         var survivors = new List<BoardUnit>();
@@ -173,7 +202,7 @@ public static class TurnResolver
             else survivors.Add(hp == u.Hp ? u : u with { Hp = hp });
         }
 
-        return new TurnResult(afterMoves.With(survivors), moves, failed, clashes, hits, deaths);
+        return new TurnResult(afterMoves.With(survivors), moves, failed, clashes, hits, deaths, besiegers, structureDamage);
     }
 
     // §5 "Morale": 100 + LineSupport per friend alongside on this board.
@@ -237,14 +266,16 @@ public static class TurnResolver
     }
 
     // Would a turn on this board do anything? False lets the world suspend an
-    // idle board (§5 "Idle battlefields") instead of resolving empty turns.
-    public static bool HasWork(BoardState board, IReadOnlyDictionary<int, PlannedStep> steps)
+    // idle board (§5 "Idle battlefields") instead of resolving empty turns. A
+    // besieger standing on the tile is work: the structure loses HP every turn.
+    public static bool HasWork(BoardState board, IReadOnlyDictionary<int, PlannedStep> steps, Func<int, bool>? besieges = null)
     {
         if (steps.Values.Any(s => s.To is not null)) return true;
         foreach (var u in board.OnBoard)
         {
             if (board.InDuel(u)) return true;
             if (u.Ranged && ArcherTarget(board, u) is not null) return true;
+            if (besieges is not null && besieges(u.OwnerId)) return true;
         }
         return false;
     }

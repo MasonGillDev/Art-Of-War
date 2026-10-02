@@ -24,7 +24,8 @@ public enum HaulJobKind : byte
 // queue, picks haulers and submits ordinary HaulIntents; this record only
 // holds what the player asked for and where the job sits in line.
 //
-// Mutated ONLY by SetHaulJobIntent / ClearHaulJobIntent (definition),
+// Mutated ONLY by SetHaulJobIntent / ClearHaulJobIntent / UpdateHaulJobIntent
+// (definition; Update replaces the record and keeps its line position),
 // RequeueHaulJobIntent (QueueStamp, QueuedAtTick) and HaulDepositEvent
 // (Delivered, and removal of a finished Once job).
 public sealed class HaulJob

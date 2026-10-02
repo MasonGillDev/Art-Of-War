@@ -12,46 +12,30 @@ namespace Sim.Core.Hauling;
 // "draw a route for these people" has to be one intent. The crew is checked
 // exactly as AddRouteCrewIntent checks it; if it fails, the route is not
 // created either (fail clean).
+//
+// Name (optional, M45): the player's name for the route, cleaned by
+// RouteNames. Older logged intents carry none and stay unnamed.
 public sealed class SetHaulRouteIntent : Intent
 {
     public List<RouteStop> Stops { get; }
     public List<int> Crew { get; }
+    public string Name { get; }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public SetHaulRouteIntent(List<RouteStop> stops, List<int>? crew = null)
+    public SetHaulRouteIntent(List<RouteStop> stops, List<int>? crew = null, string? name = null)
     {
         Stops = stops ?? new();
         Crew = crew ?? new();
+        Name = name ?? "";
     }
 
     public override IntentOutcome Resolve(Simulation sim)
     {
         var world = sim.World;
-        if (Stops.Count == 0)
-            return IntentOutcome.Reject("a route needs at least one stop");
-        if (Stops.Count > HaulingConstants.MaxStopsPerRoute)
-            return IntentOutcome.Reject(
-                $"route of {Stops.Count} stops exceeds cap {HaulingConstants.MaxStopsPerRoute}");
-
-        foreach (var stop in Stops)
-        {
-            if (stop is null)
-                return IntentOutcome.Reject("null stop");
-            if (!world.Grid.InBounds(stop.Tile))
-                return IntentOutcome.Reject($"stop {stop.Tile.X},{stop.Tile.Y} out of bounds");
-            if (stop.Rules.Count > HaulingConstants.MaxRulesPerStop)
-                return IntentOutcome.Reject(
-                    $"stop {stop.Tile.X},{stop.Tile.Y} has {stop.Rules.Count} rules (cap {HaulingConstants.MaxRulesPerStop})");
-            foreach (var rule in stop.Rules)
-            {
-                if (rule.Resource == Resource.None)
-                    return IntentOutcome.Reject("a stop rule needs a resource");
-                if (rule.Op != StopRuleOp.Pickup && rule.Op != StopRuleOp.Drop)
-                    return IntentOutcome.Reject($"unknown stop rule op {(byte)rule.Op}");
-                if (rule.Percent < 1 || rule.Percent > 100)
-                    return IntentOutcome.Reject($"percent {rule.Percent} must be 1..100");
-            }
-        }
+        if (RouteStops.Check(world, Stops) is { } why)
+            return IntentOutcome.Reject(why);
+        if (RouteNames.Clean(Name, out var name) is { } badName)
+            return IntentOutcome.Reject(badName);
 
         var owned = 0;
         foreach (var (_, r) in world.HaulRoutes)
@@ -60,15 +44,13 @@ public sealed class SetHaulRouteIntent : Intent
             return IntentOutcome.Reject(
                 $"player {PlayerId} already has {owned} routes (cap {HaulingConstants.MaxRoutesPerPlayer})");
 
-        // Deep copy: the intent's lists belong to the durable log, the
-        // route's to the world.
         var id = world.NextHaulRouteId++;
         world.HaulRoutes.Add(id, new HaulRoute
         {
             RouteId = id,
             OwnerId = PlayerId,
-            Stops = Stops.Select(s => new RouteStop { Tile = s.Tile, Rules = new List<StopRule>(s.Rules) })
-                .ToList(),
+            Stops = RouteStops.Copy(Stops),
+            Name = name,
         });
 
         if (Crew.Count > 0)

@@ -266,10 +266,11 @@ public class RecoveryTests
         {
             var w = Genesis.Build(MakeSpec());
             w.Diplomacy.SetState(FactionPair.Of(0, 1), RelationshipState.Enemy);
+            // (M43: a board fight; soldiers set to Advance so the blows fall)
             for (var i = 0; i < 2; i++)
-                w.AddUnit(new Unit(100 + i, tile) { Role = UnitRole.Builder, OwnerId = 0 });
+                w.AddUnit(new Unit(100 + i, tile) { Role = UnitRole.Soldier, OwnerId = 0, Doctrine = Sim.Core.Battlefields.BattleDoctrine.Advance });
             for (var i = 0; i < 2; i++)
-                w.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Builder, OwnerId = 1 });
+                w.AddUnit(new Unit(200 + i, tile) { Role = UnitRole.Soldier, OwnerId = 1, Doctrine = Sim.Core.Battlefields.BattleDoctrine.Advance });
             var s = new Simulation(w, seed: LocalSeed);
             CombatTrigger.MaybeBeginCombatOnTile(s, tile);
             return s;
@@ -286,8 +287,8 @@ public class RecoveryTests
 
         var simB = BuildAndStart();
         snaps.SaveSnapshot(0, Snapshot.FormatVersion, Snapshot.Serialize(simB));
-        simB.Run(until: 30); // mid-fight (rounds at ticks 10, 20, 30)
-        Assert.True(simB.World.CombatStates.ContainsKey(tile));
+        simB.Run(until: 25); // mid-fight (turns at ticks 10, 20, 30)
+        Assert.True(simB.World.Battlefields.ContainsKey(tile));
         snaps.SaveSnapshot(simB.Now, Snapshot.FormatVersion, Snapshot.Serialize(simB));
         // sim falls out of scope = crash.
 

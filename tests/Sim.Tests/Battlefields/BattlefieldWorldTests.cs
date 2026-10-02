@@ -17,12 +17,12 @@ public class BattlefieldWorldTests
     private const long Turn = 60;
     private static readonly TileCoord Field = new(10, 10);
 
-    private static GameWorld World(CombatModel model = CombatModel.Grid)
+    private static GameWorld World()
     {
         var world = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: Turn, Model: model),
+            Combat = new CombatConfig(RoundIntervalTicks: Turn),
             FactionStarts = new[]
             {
                 new FactionStartSpec { OwnerId = Blue, CastlePosition = new TileCoord(1, 1) },
@@ -58,30 +58,19 @@ public class BattlefieldWorldTests
     }
 
     [Fact]
-    public void AnArrivalOntoAnEnemy_OpensABoard_ArrivalOnItsEdgeRow_DefenderInTheCentre()
+    public void AnArrivalOntoAnEnemy_OpensABoard_ArrivalOnItsEntryEdge_DefenderWhereItStood()
     {
         var sim = Meeting(out var blue, out var red);
+        var stood = red.Subtile;                     // where the defender was placed before anyone came
         sim.Run(until: 40);
         var bf = Assert.Single(sim.World.Battlefields.Values);
         Assert.Equal(Field, bf.Tile);
-        Assert.True(blue.Board!.OnBoard);
-        Assert.Equal(0, blue.Board.At.X);            // the west edge row: it came from the west
-        Assert.Equal(1, red.Board!.At.Y);            // the centre rows
+        Assert.NotNull(blue.Board);
+        Assert.Equal(0, blue.Subtile!.Value.X);      // the west edge: it came from the west
+        Assert.NotNull(red.Board);
+        Assert.Equal(stood, red.Subtile);            // a battle opens with everyone where they stood
         Assert.Equal(0, bf.NextTurnTick % Turn);     // on the beat
         Assert.True(bf.NextTurnTick - bf.OpenedTick >= Turn / 2);
-    }
-
-    [Fact]
-    public void APooledWorld_NeverOpensABoard()
-    {
-        var w = World(CombatModel.Pooled);
-        Add(w, 2, Red, Field);
-        Add(w, 1, Blue, new TileCoord(Field.X - 1, Field.Y));
-        var sim = new Simulation(w, seed: 7);
-        Move(sim, 1, Blue, Field);
-        sim.Run(until: 200);
-        Assert.Empty(sim.World.Battlefields);
-        Assert.Null(sim.World.Units[1].Board);
     }
 
     [Fact]
@@ -92,7 +81,7 @@ public class BattlefieldWorldTests
         var bf = sim.World.Battlefields[Field];
         Assert.True(bf.Suspended);                   // two soldiers holding apart: nothing to do
 
-        Order(sim, 1, Blue, BattleOrderKind.MoveTo, red.Board!.At);
+        Order(sim, 1, Blue, BattleOrderKind.MoveTo, red.Subtile!.Value);
         sim.Run(until: sim.Now + 1);
         Assert.False(bf.Suspended);
         sim.Run(until: 40 * Turn);
@@ -115,7 +104,7 @@ public class BattlefieldWorldTests
     }
 
     [Fact]
-    public void Withdraw_LeavesOnTheBeat_ThenWalksAWorldHop_AndNoLongerCounts()
+    public void Withdraw_LeavesOnTheBeat_ByStepAcrossTheEdge_AndNoLongerCounts()
     {
         var sim = Meeting(out var blue, out var red);
         sim.Run(until: 40);
@@ -123,16 +112,12 @@ public class BattlefieldWorldTests
         var beat = sim.World.Battlefields[Field].NextTurnTick;
         sim.Run(until: beat);
         Assert.Null(blue.Board);
-        Assert.Equal(Field, blue.LeavingBoard);
-        Assert.Equal(Field, blue.Position);          // still mid-hop
-        Assert.Empty(sim.World.Battlefields);        // Red alone: the board closed
-        sim.Run(until: beat + 200);
-        Assert.Equal(new TileCoord(Field.X - 1, Field.Y), blue.Position);
-        Assert.Null(blue.LeavingBoard);
+        Assert.Equal(new TileCoord(Field.X - 1, Field.Y), blue.Position);   // stepped across the edge it came in by
+        Assert.Empty(sim.World.Battlefields);                               // Red alone: the board closed
     }
 
     [Fact]
-    public void AnArrivalOntoAnOpenBoard_WaitsOutsideItsLane_AndComesOnAtTheBeat()
+    public void AnArrivalOntoAnOpenBoard_JoinsAtOnce_OnTheSubtileItSteppedOnto()
     {
         var w = World();
         Add(w, 2, Red, Field);
@@ -141,27 +126,30 @@ public class BattlefieldWorldTests
         var sim = new Simulation(w, seed: 1);
         Move(sim, 1, Blue, Field);
         sim.Run(until: 40);
+        Assert.True(sim.World.Battlefields.ContainsKey(Field));
         Move(sim, 3, Blue, Field);
-        sim.Run(until: 100);
-        Assert.True(late.Board!.Waiting);
-        Assert.Equal(Heading.North, late.Board.At.EdgeBeyond);
-        var beat = sim.World.Battlefields[Field].NextTurnTick;
-        sim.Run(until: beat);
-        Assert.True(late.Board.OnBoard);
-        Assert.Equal(0, late.Board.At.Y);
+        var joined = -1L;
+        for (var t = sim.Now + 1; t <= 20 * Turn && joined < 0; t++)
+        {
+            sim.Run(until: t);
+            if (late.Position == Field) joined = t;
+        }
+        Assert.True(joined > 0, "it never reached the tile");
+        Assert.NotNull(late.Board);                              // on the board the moment it stepped in, no beat waited
+        Assert.NotNull(late.Subtile);
     }
 
     [Fact]
-    public void Overflow_PastSixteenASide_TheRestShelter()
+    public void Overflow_PastSixteenASide_TheRestHaveNoPlaceAndAreNotOnTheBoard()
     {
         var w = World();
         for (var i = 0; i < 20; i++) Add(w, 100 + i, Blue, Field, UnitRole.Farmer);
         Add(w, 1, Red, Field);
         var sim = new Simulation(w, seed: 1);
         CombatTrigger.MaybeBeginCombatOnTile(sim, Field);
-        var blues = sim.World.Units.Values.Where(u => u.OwnerId == Blue && u.Board is not null).ToList();
-        Assert.Equal(Subtile.Count, blues.Count(u => u.Board!.OnBoard));
-        Assert.Equal(4, blues.Count(u => u.Board!.Sheltered));
+        var blues = sim.World.Units.Values.Where(u => u.OwnerId == Blue).ToList();
+        Assert.Equal(Subtile.Count, blues.Count(u => u.Board is not null));
+        Assert.Equal(4, blues.Count(u => u.Board is null && u.Subtile is null));   // no subtile, no part in the fight
     }
 
     [Fact]
@@ -185,8 +173,11 @@ public class BattlefieldWorldTests
         var east = new TileCoord(Field.X + 2, Field.Y);
         Move(sim, 1, Blue, east);
         sim.Run(until: sim.Now + 1);
-        Assert.Equal(BattleOrderKind.MoveTo, blue.Board!.Order!.Kind);
-        Assert.Equal(Heading.East, blue.Board.Order.Destination.EdgeBeyond);
+        // The tile walk became a battle ROUTE: the steps inside this tile, then the subtile just
+        // outside the edge it leaves by.
+        Assert.Equal(BattleOrderKind.Route, blue.Board!.Order!.Kind);
+        Assert.Equal(Heading.East, blue.Board.Order.Waypoints[^1].EdgeBeyond);
+        Assert.Equal(east, blue.PathFinalDest);                            // and it remembers where it was going
         sim.Run(until: 30 * Turn);
         Assert.Equal(east, blue.Position);
     }
@@ -247,7 +238,7 @@ public class BattlefieldLootingTests
         var world = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: 60, Model: CombatModel.Grid),
+            Combat = new CombatConfig(RoundIntervalTicks: 60),
             FactionStarts = new[]
             {
                 new FactionStartSpec { OwnerId = 0, CastlePosition = new TileCoord(10, 10),

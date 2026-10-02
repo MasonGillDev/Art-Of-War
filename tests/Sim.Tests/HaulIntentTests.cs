@@ -61,12 +61,13 @@ public class HaulIntentTests
         castle.Deposit(Resource.Wood, 10);
         AddHauler(sim, 1, new TileCoord(0, 0));
 
+        // No move-to-source leg means total ticks = the walk to the dest only, derived from the
+        // same step rules the sim walks by.
+        var expected = TestMarch.TicksFor(sim.World, sim.World.Units[1], new TileCoord(3, 0));
         sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(3, 0), Resource.Wood));
         sim.Run();
 
-        // No move-to-source leg means total ticks = move-to-dest only:
-        // 3 grassland tiles at the derived biome cost.
-        Assert.Equal(3 * Biomes.MoveCost(Biome.Grassland), sim.Now);
+        Assert.Equal(expected, sim.Now);
         Assert.Equal(10, stockpile.AmountOf(Resource.Wood));
     }
 

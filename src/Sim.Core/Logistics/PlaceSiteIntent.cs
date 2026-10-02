@@ -132,6 +132,13 @@ public sealed class PlaceSiteIntent : Intent
                     $"{Kind} requires {spec.RequiredBiome} but tile is {biome}");
         }
 
+        // M44 — a Mine stands only on an ore vein the placer KNOWS: found by
+        // a Miner's survey, or seen under someone else's mine. An unknown
+        // vein and bare rock read the same to a faction that hasn't looked.
+        if (spec.RequiresVein && !Sim.Core.Mining.Veins.Knows(sim.World, PlayerId, Tile))
+            return IntentOutcome.Reject(
+                $"{Kind} needs a known ore vein at {Tile.X},{Tile.Y}; send a Miner to survey");
+
         // M26 — blocking kinds (the Gate here; Wall rejects above) need a
         // land tile: no fortifications standing in open water.
         if (spec.BlocksMovement)
@@ -209,6 +216,8 @@ public sealed class PlaceSiteIntent : Intent
         };
         if (claim is not null) site.ClaimTiles.AddRange(claim);
         sim.World.AddStructure(site);
+        // M44 — a mine going up is a vein given away to anyone watching.
+        if (spec.RequiresVein) Sim.Core.Mining.Veins.OnMineRaised(sim, Tile);
         // God mode (docs/god-mode.md): same validation, same site, no wait.
         if (Construction.IsGodBuild(sim.World, PlayerId))
             Construction.Complete(sim, site);

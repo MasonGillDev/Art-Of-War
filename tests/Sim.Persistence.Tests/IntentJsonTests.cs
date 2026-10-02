@@ -124,6 +124,28 @@ public class IntentJsonTests
     }
 
     [Fact]
+    public void M42_ASubtileRoutePayload_ParsesAndRoundTrips()
+    {
+        // A drawn route names each step on the whole map (tile × 4 + subtile).
+        var route = Assert.IsType<Sim.Core.Battlefields.SubtileRouteIntent>(IntentJson.Deserialize("SubtileRouteIntent",
+            "{\"UnitId\":12,\"Route\":[{\"X\":23,\"Y\":21},{\"X\":24,\"Y\":21},{\"X\":24,\"Y\":22}],\"PlayerId\":1}"));
+        Assert.Equal(12, route.UnitId);
+        Assert.Equal(3, route.Route.Count);
+        Assert.Equal(new Sim.Core.Battlefields.WorldSubtile(24, 22), route.Route[2]);
+        Assert.Equal(1, route.PlayerId);
+
+        var (name, payload) = IntentJson.Serialize(route);
+        Assert.Equal("SubtileRouteIntent", name);
+        var back = Assert.IsType<Sim.Core.Battlefields.SubtileRouteIntent>(IntentJson.Deserialize(name, payload));
+        Assert.Equal(route.Route, back.Route);
+
+        // An empty route (cancel) survives too.
+        var cancel = Assert.IsType<Sim.Core.Battlefields.SubtileRouteIntent>(IntentJson.Deserialize("SubtileRouteIntent",
+            "{\"UnitId\":12,\"Route\":[],\"PlayerId\":1}"));
+        Assert.Empty(cancel.Route);
+    }
+
+    [Fact]
     public void M40_TheClientsSalvagePayload_Parses()
     {
         // The EXACT bytes the prod client sends for a salvage (SetHaulJob, kind 3,
@@ -362,6 +384,62 @@ public class IntentJsonTests
         Assert.Equal(2, Assert.IsType<Sim.Core.Hauling.RemoveRouteCrewIntent>(IntentJson.Deserialize(tn, pl)).CrewId);
         (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ClearHaulRouteIntent(3) { PlayerId = 1 });
         Assert.Equal(3, Assert.IsType<Sim.Core.Hauling.ClearHaulRouteIntent>(IntentJson.Deserialize(tn, pl)).RouteId);
+    }
+
+    // M45 — the three edit intents round-trip with every field, and a serve
+    // logged before M45 (no ExpectedRevision) replays with the fence off.
+    [Fact]
+    public void M45_EditIntents_RoundTrip_AndOldServesSkipTheRevisionFence()
+    {
+        var update = new Sim.Core.Hauling.UpdateHaulRouteIntent(4, new()
+        {
+            new() { Tile = new TileCoord(2, 3), Rules = new() { new(Resource.Wood, Sim.Core.Hauling.StopRuleOp.Pickup, 60) } },
+            new() { Tile = new TileCoord(7, 1) },
+        }) { PlayerId = 1 };
+        var (tn, pl) = IntentJson.Serialize(update);
+        var u = Assert.IsType<Sim.Core.Hauling.UpdateHaulRouteIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal(4, u.RouteId);
+        Assert.Equal(2, u.Stops.Count);
+        Assert.Equal(update.Stops[0].Rules, u.Stops[0].Rules);
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.RenameHaulRouteIntent(4, "Wood loop") { PlayerId = 1 });
+        var r = Assert.IsType<Sim.Core.Hauling.RenameHaulRouteIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((4, "Wood loop"), (r.RouteId, r.Name));
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.UpdateHaulJobIntent(9, Sim.Core.Hauling.HaulJobKind.Once, 40) { PlayerId = 1 });
+        var j = Assert.IsType<Sim.Core.Hauling.UpdateHaulJobIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((9, Sim.Core.Hauling.HaulJobKind.Once, 40), (j.JobId, j.Kind, j.Target));
+
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.SetHaulRouteIntent(new() { new() { Tile = new TileCoord(1, 1) } },
+            name: "North") { PlayerId = 1 });
+        Assert.Equal("North", Assert.IsType<Sim.Core.Hauling.SetHaulRouteIntent>(IntentJson.Deserialize(tn, pl)).Name);
+
+        var old = Assert.IsType<Sim.Core.Hauling.ServeRouteStopIntent>(IntentJson.Deserialize("ServeRouteStopIntent",
+            "{\"RouteId\":3,\"CrewId\":2,\"ExpectedStop\":5,\"PlayerId\":0}"));
+        Assert.Equal(-1, old.ExpectedRevision);
+    }
+
+    // M45 — Aow.Net.IntentFactory's JsonUtility output for the edit intents, verbatim.
+    [Fact]
+    public void M45_TheClientsEditPayloads_DeserializeVerbatim()
+    {
+        var u = Assert.IsType<Sim.Core.Hauling.UpdateHaulRouteIntent>(IntentJson.Deserialize("UpdateHaulRouteIntent",
+            "{\"RouteId\":4,\"Stops\":[{\"Tile\":{\"X\":1,\"Y\":2},\"Rules\":[{\"Resource\":1,\"Op\":1,\"Percent\":60}]}," +
+            "{\"Tile\":{\"X\":6,\"Y\":2},\"Rules\":[]}],\"PlayerId\":0}"));
+        Assert.Equal((4, 2), (u.RouteId, u.Stops.Count));
+        Assert.Equal(new Sim.Core.Hauling.StopRule(Resource.Wood, Sim.Core.Hauling.StopRuleOp.Pickup, 60), u.Stops[0].Rules[0]);
+
+        var r = Assert.IsType<Sim.Core.Hauling.RenameHaulRouteIntent>(IntentJson.Deserialize("RenameHaulRouteIntent",
+            "{\"RouteId\":4,\"Name\":\"North farms\",\"PlayerId\":0}"));
+        Assert.Equal((4, "North farms"), (r.RouteId, r.Name));
+
+        var j = Assert.IsType<Sim.Core.Hauling.UpdateHaulJobIntent>(IntentJson.Deserialize("UpdateHaulJobIntent",
+            "{\"JobId\":9,\"Kind\":2,\"Target\":40,\"PlayerId\":0}"));
+        Assert.Equal((9, Sim.Core.Hauling.HaulJobKind.Once, 40), (j.JobId, j.Kind, j.Target));
+
+        var set = Assert.IsType<Sim.Core.Hauling.SetHaulRouteIntent>(IntentJson.Deserialize("SetHaulRouteIntent",
+            "{\"Stops\":[{\"Tile\":{\"X\":1,\"Y\":2},\"Rules\":[]}],\"Crew\":[11],\"Name\":\"\",\"PlayerId\":0}"));
+        Assert.Equal("", set.Name);
     }
 
     [Fact]

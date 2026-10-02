@@ -20,10 +20,15 @@ public static class RegenerateQueue
         var world = sim.World;
 
         // Units in id order (matches snapshot canonical order). Each unit can
-        // contribute at most one queued event — its NextArrivalTick.
+        // contribute at most one queued event — its next walk step.
         foreach (var (id, unit) in world.Units)
         {
-            RegenerateUnitMoveAnchor(sim, unit);
+            // M43 — a unit on a walk owes one step event.
+            if (unit.SubtileRouteTick is { } routeAt && unit.SubtileRouteSeq is { } routeSeq)
+                sim.ScheduleWithSeq(routeAt, routeSeq, new Sim.Core.Battlefields.SubtileRouteStepEvent(unit.Id));
+            // M44 — a Miner digging at a survey slope owes his report.
+            if (unit.Survey is { CompleteTick: { } surveyAt, CompleteSeq: { } surveySeq })
+                sim.ScheduleWithSeq(surveyAt, surveySeq, new Sim.Core.Mining.SurveyCompleteEvent(unit.Id));
         }
 
         // Structures in (y, x) order. Each contributes at most one queued
@@ -41,10 +46,7 @@ public static class RegenerateQueue
             }
         }
 
-        // Groups in id order. Each contributes at most one queued
-        // GroupArrivalEvent based on its anchor.
-        foreach (var (_, group) in world.Groups)
-            RegenerateGroupMoveAnchor(sim, group);
+        // Groups have no events of their own (M43): a group moves as its members' walks.
 
         // M6: relationships with pending hostile transitions. Each contributes
         // at most one queued WarBecomesEffectiveEvent. Iterated in canonical
@@ -174,18 +176,6 @@ public static class RegenerateQueue
             sim.ScheduleWithSeq(world.LandingConfig.Tick, landingSeq, new Sim.Core.Landing.LandingEvent());
     }
 
-    private static void RegenerateUnitMoveAnchor(Simulation sim, Unit unit)
-    {
-        if (unit.NextArrivalTick is not { } at) return;
-        if (unit.NextArrivalSeq is not { } seq) return;
-        if (unit.PathRemaining is null || unit.PathRemaining.Count == 0) return;
-        if (unit.PathFinalDest is not { } dest) return;
-
-        var to = unit.PathRemaining[0];
-        var ev = new MoveArrivalEvent(unit.Id, to, dest, unit.AssignmentEpoch);
-        sim.ScheduleWithSeq(at, seq, ev);
-    }
-
     private static void RegenerateExtractorAnchor(Simulation sim, Extractor ex)
     {
         if (!ex.TickArmed) return;
@@ -199,17 +189,5 @@ public static class RegenerateQueue
         if (site.ScheduledCompletion is not { } at) return;
         if (site.BuildCompleteSeq is not { } seq) return;
         sim.ScheduleWithSeq(at, seq, new BuildCompleteEvent(site.At));
-    }
-
-    private static void RegenerateGroupMoveAnchor(Simulation sim, Group group)
-    {
-        if (group.NextArrivalTick is not { } at) return;
-        if (group.NextArrivalSeq is not { } seq) return;
-        if (group.PathRemaining is null || group.PathRemaining.Count == 0) return;
-        if (group.PathFinalDest is not { } dest) return;
-
-        var to = group.PathRemaining[0];
-        sim.ScheduleWithSeq(at, seq,
-            new GroupArrivalEvent(group.Id, to, dest, group.MovementEpoch));
     }
 }

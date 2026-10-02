@@ -333,13 +333,15 @@ public class AiPlayerTests
                 sim.Run(until: t);
                 foreach (var dr in drivers) dr.Think(sim, projector, t);
                 if (!sim.World.Units.TryGetValue(id, out var u)) break;   // died — also extinction
-                if (u.Position == school.At && u.Activity == Activity.Idle)
+                if (u.Position == school.At && !u.IsWalking && u.Activity == Activity.Idle)   // arrived: a walk ends a few steps after it enters the tile
                 {
                     sim.SubmitIntent(t, new TrainUnitIntent(id, UnitRole.Farmer) { PlayerId = 1 });
                     sim.Run(until: t + 1);
                     break;
                 }
-                if (u.Position != school.At)
+                // Re-issue only when it isn't already walking there: a re-issue re-anchors the
+                // step, and a slow step (a ford) longer than the think period would never land.
+                if (u.Position != school.At && u.PathFinalDest != school.At)
                     sim.SubmitIntent(t, new MoveIntent(id, school.At) { PlayerId = 1 });
             }
         }

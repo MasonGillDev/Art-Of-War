@@ -1451,3 +1451,149 @@ and never hashed.
   structure and return values.
 - The board layer is rebuilt from the structure every time it is needed, so it is never
   saved.
+
+## Subtile movement addendum (2026-09-29, docs/subtile-movement.md, M42 phase 1)
+
+| State | Written only by |
+|---|---|
+| `Unit.Subtile` | `Battlefields.Placement` (`Seat`, `Reseat`, `SeparateNonHostile`), called from `GameWorld.AddUnit`, `GameWorld.AddStructure`, `MoveArrivalEvent` and `GroupArrivalEvent` (interim, until phase 2), `DisembarkIntent`, `EmbarkIntent` / `EmbarkGoal` (clear), and `RespondToProposalIntent`; restored by `Snapshot.ReadBattlefields` (v43) |
+| `GameWorld.Restoring` | `Snapshot.Restore` only; while set, nothing is placed or popped |
+
+- Placement is a pure function of the world at the moment it runs: candidate subtiles in a
+  fixed order (centre rows, lowest lane, open before walls), holders read from `world.Units`,
+  the pop search breadth-first in N, E, S, W order, units in ascending id order.
+- Nothing reads placement to decide something else yet, so a call site can't make the result
+  depend on who looked first.
+- **Test:** `SubtilePlacementTests.ATwinRun_HashesEqual_WithSubtilesInTheState` and
+  `SubtilesSurviveASaveAndRestore_AndRestoreDoesNotReplaceAnyone`.
+
+**M42 phase 2:** `Unit.SubtileWalkTick/Seq` (the walk-in anchor) is written only by
+`SubtileWalk` (`Begin`, `Step`, `Clear`) and cleared by `TileEntry.Enter`; restored by
+`Snapshot.ReadBattlefields` and rebuilt into a `SubtileStepEvent` by `RegenerateQueue` at its
+original (tick, Seq). `SubtileWalk.NextStep` and `Placement.EntryLane` are pure reads (candidate
+order fixed, holders read from `world.Units`, breadth-first N, E, S, W). A group's landing in
+files takes members in id order. Tests: `SubtileWalkInTests.ASaveMidWalk_RestoresAndRunsToTheSameEnd`
+and `ATwinRun_OfAColumnArriving_HashesEqual`.
+
+**M42 phase 3:** `Unit.SubtileRoute` and `SubtileRouteTick/Seq` are written only by
+`SubtileRoutes` (`Begin`, `Step`, `Cancel`, `Resume`) and `SubtileRouteIntent` (which calls
+`Begin`); `MoveIntent.BeginMove` cancels; `Battlefields.Close` resumes. Restored by
+`Snapshot.ReadBattlefields`; the step event is rebuilt by `RegenerateQueue` at its original
+(tick, Seq), and a route paused by a battle has no anchor and no event. `SubtileRoutes.Check`
+and `StepProblem` are pure reads. Tests: `SubtileRouteTests.ASaveMidRoute_RestoresAndRunsToTheSameEnd`
+and `ATwinRun_OfSeveralRoutes_HashesEqual`.
+
+**M42 phase 4:** `Unit.Board` (now: tile, last note, came-from, order) is still written only by
+`Battlefields` and `SetBattleOrderIntent`; a unit's place on a board is `Unit.Subtile`, written by
+`Placement`, `SubtileWalk`, `SubtileRoutes` and, on the beat, `Battlefields.Apply`. Enrolment
+(`Enroll`, `AdoptRoute`) runs in id order at open, admit and the start of each turn. A hop put
+off to a beat is rescheduled at `NextBeat` with the same epoch and keeps its anchor, so
+`RegenerateQueue` rebuilds it unchanged. Tests: the existing M41 twin-run and mid-battle
+restore test (`BattlefieldWorldTests`) run on the new model.
+
+## Update 2026-09-29: M43 step 1, the subtile pathfinder
+
+`SubtilePathfinder.Find` and `SubtileStepRules` are **pure reads** (architecture §2.2): they read
+the grid, structures, diplomacy and (for planning) the caller's visible set, and write nothing.
+Per-query caches are local to one `SubtileStepRules` / one search and never stored. Determinism of the
+result: integer costs only, neighbours in N, E, S, W order, ties broken by (f, subtile index), so the
+same query on the same state gives the same path. Pinned by
+`SubtilePathfinderTests.ASearch_IsAPureRead_AndTheSameQueryGivesTheSamePath` (100 queries, snapshot
+hash unchanged). No new state, no new anchor, no snapshot change. Fog: the planner treats structures
+it can't see as open ground and the walk's ground-truth check (the same rules with `visible` null)
+stops the unit, so a hidden wall is never revealed by a plan's success or failure.
+
+## Update 2026-09-29: M43, one movement (steps 2 to 4)
+
+**Movement state.** A unit that is going somewhere is *walking*: `Unit.SubtileRoute` (the steps left)
+plus its anchor `SubtileRouteTick`/`SubtileRouteSeq` (the M4 fencing token of the one queued
+`SubtileRouteStepEvent`), and `Unit.PathFinalDest` (the tile it was ordered to; null for a drawn route).
+`PathRemaining`, `NextArrivalTick`/`Seq`, `SubtileWalkTick`/`Seq` and `LeavingBoard` are gone; so are
+`MoveArrivalEvent`, `GroupArrivalEvent` and the group anchors. A group has no events of its own: it
+moves as its members' walks (`Group.PendingArrivals` counts the walkers still going).
+
+**Mutation points (one each).**
+- The walk's step: `SubtileRoutes.Step` is THE writer of `Unit.Subtile` and `Unit.Position` along a walk
+  (a step across a tile edge goes through `TileEntry.Enter`), the **road link wear**
+  (`Road.CreditTraffic`, the one mutation point for road condition, now per step and per link), and the
+  re-aim of a walk that would stop on a friend. `Walk.Begin/Resume/Finished/Halt/Stop` are the only other
+  writers of the walk's fields; `Battlefields` (open, admit, leave, close) is the only other writer of
+  `Unit.Board`, and `AdoptRoute` turns a walk into a battle order (the destination tile is kept in
+  `PathFinalDest`; the unit re-plans from where it lands, a pure function of the world at that tick).
+- Stale steps fence on the anchor (`(tick, Seq)` must match), not on `AssignmentEpoch`: retasking replaces
+  the route and reschedules, and an old event no-ops.
+
+**Pure reads.** `SubtilePathfinder.Find`, `SubtileStepRules` (incl. `StepCost(..., now)`,
+`CheapestStep`), `Road.EffectiveCost`/`ConditionAt`, `Walk.PickGoal`/`NearestFree`/`HeldByStanding`. None
+writes. Pinned by `SubtilePathfinderTests` and `RoadLinkTests.PathSearches_ArePureReads_AcrossARoadSet`.
+
+**Fog.** The planner (`Walk.Begin`, the drawn-route check) uses the owner's visible tiles; the walk's
+per-step check is ground truth. A hidden wall is met by walking into it (`Walk.Halt`), never revealed by a
+plan.
+
+**Snapshot v44.** A unit row keeps `PathFinalDest` and loses the path and arrival anchor; the walk is in
+the battlefield block with its anchor; roads are subtile links (owner subtile x, y, axis, condition, last
+decay), sorted by owner (y, x, axis). `RegenerateQueue` rebuilds one step event per walking unit.
+`CombatConfig` no longer carries a model (the grid is the only one).
+
+## M44 addendum (2026-10-01) - stone and ore (docs/stone-and-ore-land.md)
+
+**New state.** `GameWorld.VeinConfig` (genesis-set, immutable), `GameWorld.Veins` (terrain),
+`GameWorld.KnownVeins` and `GameWorld.SurveyedBarren` (per-faction knowledge, only grows), and
+`Unit.Survey` (a Miner's in-flight survey, with its `SurveyCompleteEvent` anchor). All (y, x)-sorted
+`SortedSet`s keyed by faction id in a `SortedDictionary`.
+
+**Mutation points.**
+- `Veins.Seed` is THE writer of `GameWorld.Veins`, called once from `Genesis.Build` before any sight.
+  It draws no sim `Rng`: a vein is `hash(VeinConfig.Seed, x, y) mod OneIn == 0` plus one per
+  vein-less 8-connected mountain range (its lowest-hash tile). Pinned by
+  `MiningSurveyTests.Genesis_VeinSeeding_DrawsNoSimRng`.
+- `Veins.Learn` / `Veins.MarkBarren` are the only writers of `KnownVeins` / `SurveyedBarren`. Callers:
+  `SurveyRules.Complete` (from `SurveyCompleteEvent`), `Veins.OnSight` (from `Sight.AfterReveal`) and
+  `Veins.OnMineRaised` (from `PlaceSiteIntent` on a Mine site). All event-driven; views never write.
+- `SurveyRules.Begin / OnArrival / Cancel / Complete` are the only writers of `Unit.Survey`. Cancel hooks:
+  `Retask.Release` (any new order) and `Walk.Halt` (the walk to the slope failed).
+  `CombatRules.ResumeInterrupted` re-issues a pinned surveyor's walk.
+
+**Anchor.** `SurveyPlan.CompleteTick/CompleteSeq`, set when the dig starts. `RegenerateQueue` rebuilds
+the event; `SurveyCompleteEvent` fences on the plan existing and `CompleteTick == At`. Pinned by
+`MiningSurveyTests.Snapshot_MidDig_RoundTrips_AndFinishesIdentically` and
+`Survey_CountermandedByANewOrder_AbandonsOutLoud_StaleEventNoOps`.
+
+**Pure reads.** `Veins.IsVein / Knows / ProvenBarren`; the projector's `FillSecrets` vein block;
+`ThinkContext.NearestFreeVein / NearestUnsurveyedMountain`.
+
+**Quarry claims.** The Quarry now claims Hills (`ClaimCount 6`) with `DegradeAmount 0`: the M15 claim
+writers are unchanged, `OnProductionTransition` stays a no-op for it, and off-ladder Hills never get a
+`Fertility` entry. Pinned by `StoneAndOreTests.Quarry_RunsAYear_HillsNeverWear_RateStaysFull`.
+
+**Snapshot v45.** A unit row gains the survey (flag, target, nullable tick, nullable seq) after the goal;
+a trailing section holds `VeinConfig`, the vein tiles, and the per-faction known and barren sets.
+
+## M45 — haul route UX (2026-10-01, `docs/m45-status.md`)
+
+**New state.** `HaulRoute.Name`, `HaulRoute.Revision`, `RouteCrew.LastServe` (a `ServeReport`:
+stop, tick, loaded, unloaded, `ServeNote` flags).
+
+**Mutation points.**
+- `HaulRoute.Stops` is replaced whole only by `UpdateHaulRouteIntent` (it was fixed at Set before).
+  The same intent remaps every crew's `CurrentStop` (`RouteStops.Remap`, a pure function of the old and
+  new lists), clears each crew's `LastServe` and bumps `Revision`.
+- `HaulRoute.Name`: `SetHaulRouteIntent` and `RenameHaulRouteIntent`, both through `RouteNames.Clean`.
+- `RouteCrew.LastServe`: written only by `ServeRouteStopIntent`; cleared only by `UpdateHaulRouteIntent`.
+- `GameWorld.HaulJobs`: `UpdateHaulJobIntent` replaces a job record whole, keeping `JobId`,
+  `QueueStamp` and `QueuedAtTick`, or removes a Once job whose new amount is already met.
+
+**Fence.** `ServeRouteStopIntent` carries `ExpectedRevision` (the driver passes `route.Revision`) and
+no-ops when the stop list changed under it. `-1` (logs from before M45) skips the fence. Pinned by
+`HaulRouteEditTests.AServeSubmittedBeforeTheEdit_NoOps_OnTheRevisionFence`.
+
+**Carriers.** `RouteCrews.Carries` (every role but Soldier and Archer) replaces the Hauler-only test
+in the serve. Pure.
+
+**Snapshot v46.** A trailing section after the veins: per route (id order) its id, name and revision,
+per crew its last serve. Pinned by `HaulRouteEditTests.Snapshot_CarriesNameRevisionAndLastServe_AndRecovers`
+and `TwinRun_WithAnEditMidway_SameHash`.
+
+**Pure reads.** The projector's `FillHaul` (unit `CargoCapacity`, `HaulRouteId`) and the route block's
+`Name` and `Last*` fields.

@@ -12,18 +12,18 @@ using Sim.Server;
 
 var options = ServerOptions.Parse(args);
 
-// M41 — the battle test bed: small scenario worlds and the /v2/dev/* routes
-// instead of a full game (Scenarios/ScenarioHost, docs/m41-status.md).
-if (options.Scenario is { } scenarioArg)
+// The battle sandbox: small worlds built from compositions, and the /v2/dev/*
+// routes, instead of a full game (Sandbox/SandboxHost, docs/battle-sandbox.md).
+if (options.Sandbox is { } sandboxDir)
 {
-    using var scenarios = new Sim.Server.Scenarios.ScenarioHost(scenarioArg);
-    using var devApi = new HttpApi(scenarios.Current, options.Port) { Dev = scenarios };
-    scenarios.Api = devApi;
-    Console.WriteLine($"Sim.Server BATTLE TEST BED on http://localhost:{options.Port}/  (scenario '{scenarios.Scenario.Name}')");
-    foreach (var f in scenarios.List())
-        Console.WriteLine($"  {f.Name,-24} {f.Title}");
-    Console.WriteLine("  GET /v2/dev/scenarios · POST /v2/dev/scenario · POST /v2/dev/reset · POST /v2/dev/clock");
-    Console.CancelKeyPress += (_, e) => { e.Cancel = true; devApi.Stop(); scenarios.Current.Stop(); };
+    using var sandbox = new Sim.Server.Sandbox.SandboxHost(sandboxDir);
+    using var devApi = new HttpApi(sandbox.Current, options.Port) { Dev = sandbox };
+    sandbox.Api = devApi;
+    Console.WriteLine($"Sim.Server BATTLE SANDBOX on http://localhost:{options.Port}/  (compositions in '{sandboxDir}')");
+    foreach (var name in sandbox.Saved())
+        Console.WriteLine($"  {name}");
+    Console.WriteLine("  GET /v2/dev/sandbox · PUT /v2/dev/composition · POST /v2/dev/play · POST /v2/dev/edit");
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; devApi.Stop(); sandbox.Current.Stop(); };
     devApi.Run();
     return;
 }

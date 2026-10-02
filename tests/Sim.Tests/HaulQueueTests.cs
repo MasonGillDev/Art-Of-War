@@ -265,6 +265,59 @@ public class HaulQueueTests
         Assert.Equal(HaulJobState.WaitingForHauler, driver.Reports[job].State);
     }
 
+    // docs/citizen-hauling.md — untrained citizens of any age are the
+    // overflow tier: taken only when no hauler is free, carrying their own 5.
+    private static Unit Citizen(GameWorld world, int id, TileCoord at, int ageYears = 30) =>
+        world.AddUnit(new Unit(id, at)
+        {
+            Role = UnitRole.None,
+            BornTick = -(long)ageYears * world.PopulationConfig.TicksPerYear,
+        });
+
+    [Fact]
+    public void NoHaulerFree_AnIdleCitizen_TakesTheTrip_AtCitizenCapacity()
+    {
+        var sim = MakeSim(out var world);
+        Pile(world, Src, wood: 500);
+        SetJob(sim, Src, Pile(world, new TileCoord(8, 2)).At, 100);
+        var citizen = Citizen(world, 1, Src);
+
+        Think(Driver(), sim);
+
+        Assert.NotNull(citizen.HaulPlan);
+        Assert.Equal(UnitCargoCatalog.DefaultCapacity, citizen.HaulPlan!.Amount);
+    }
+
+    [Fact]
+    public void AFreeHauler_IsPreferred_OverANearerCitizen()
+    {
+        var sim = MakeSim(out var world);
+        Pile(world, Src, wood: 500);
+        SetJob(sim, Src, Pile(world, new TileCoord(8, 2)).At, Cap);   // one hauler load
+        var citizen = Citizen(world, 1, Src);
+        var hauler = Hauler(world, 2, new TileCoord(10, 8));
+
+        Think(Driver(), sim);
+
+        Assert.NotNull(hauler.HaulPlan);
+        Assert.Null(citizen.HaulPlan);
+    }
+
+    [Fact]
+    public void Children_HaulToo_ButTrainedWorkersDoNot()
+    {
+        var sim = MakeSim(out var world);
+        Pile(world, Src, wood: 500);
+        var job = SetJob(sim, Src, Pile(world, new TileCoord(8, 2)).At, 100);
+        var child = Citizen(world, 1, Src, ageYears: 1);
+        var farmer = world.AddUnit(new Unit(2, Src) { Role = UnitRole.Farmer, BornTick = -30 * world.PopulationConfig.TicksPerYear });
+
+        Think(Driver(), sim);
+
+        Assert.NotNull(child.HaulPlan);
+        Assert.Null(farmer.HaulPlan);
+    }
+
     [Fact]
     public void LostEnd_LeavesTheJobUnserviceable()
     {

@@ -136,17 +136,9 @@ public class MoveOnBusyTests
         Assert.Equal(20, hauler.CargoAmount);
         Assert.Equal(Resource.Wood, hauler.CargoResource);
 
-        // The fence intercepts at the move-chain level: stale
-        // MoveArrivalEvents from the original haul's walk-to-stockpile leg
-        // fire after the retask and no-op via epoch mismatch. The
-        // HaulDepositEvent is never even reached because the chain that
-        // would have scheduled it fenced first — exactly what we want.
-        var fencedMoves = sim.ResolvedLog.OfType<MoveArrivalEvent>()
-            .Where(e => e.UnitId == 1
-                && e.Outcome.IsRejected
-                && e.Outcome.Reason == "stale (epoch mismatch)")
-            .ToList();
-        Assert.NotEmpty(fencedMoves);
+        // The retask replaced the walk: the original haul's walk-to-stockpile leg is
+        // fenced by the walk's anchor (a stale step event no-ops), so the
+        // HaulDepositEvent is never even reached — exactly what we want.
         // No deposit was ever scheduled because the chain fenced first.
         Assert.Empty(sim.ResolvedLog.OfType<HaulDepositEvent>());
     }
@@ -204,12 +196,8 @@ public class MoveOnBusyTests
         Assert.Equal(Activity.Idle, hauler.Activity);
         Assert.Equal(stockB, hauler.Position);
 
-        // The original Haul #1's move chain fenced via MoveArrival epoch
-        // mismatch (the chain never reached the deposit, so no deposit got
-        // scheduled for it).
-        Assert.Contains(sim.ResolvedLog.OfType<MoveArrivalEvent>(),
-            e => e.UnitId == 1 && e.Outcome.IsRejected
-                && e.Outcome.Reason == "stale (epoch mismatch)");
+        // The original Haul #1's walk was replaced (the chain never reached the deposit,
+        // so no deposit got scheduled for it).
         // Exactly one HaulDepositEvent applied — the new stone haul. The wood
         // was returned via UnloadCargoIntent (a direct deposit, not a haul),
         // confirming no cross-task damage.

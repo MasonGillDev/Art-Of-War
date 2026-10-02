@@ -7,7 +7,7 @@ namespace Sim.Core.Groups;
 //   * Members' GroupId is cleared.
 //   * If members were mid-walk (Forming-state rendezvous walks OR a Moving
 //     group's per-hop arrivals), their pending events fence cleanly:
-//       - Group.MovementEpoch bumps → in-flight GroupArrivalEvents fence.
+//       - the members' walks are dropped (Walk.Stop).
 //       - For each Forming member walking solo, Unit.BumpEpoch() →
 //         their MoveArrivalEvents fence and the walk stops at next pop.
 //     The members stay wherever the previous arrival left them.
@@ -27,27 +27,12 @@ public sealed class DisbandGroupIntent : Intent
         if (group.OwnerId != PlayerId)
             return IntentOutcome.Reject($"group {GroupId} not owned by player {PlayerId}");
 
-        // Fence any in-flight GroupArrivalEvent from the group's own chain.
+        // Drop every member's walk (a Moving group's march or a Forming member's
+        // rendezvous walk); they stay wherever they are.
         group.BumpEpoch();
-        MoveGroupIntent.ClearMovementAnchors(group);
-
-        // Clear membership + cancel any per-member rendezvous walk.
+        MoveGroupIntent.Halt(sim, group);
         foreach (var memberId in group.Members)
-        {
-            if (!world.Units.TryGetValue(memberId, out var unit)) continue;
-            unit.GroupId = null;
-            // If the member was walking solo to a rendezvous, fence their
-            // MoveArrivalEvents and clear the path. Their position stays at
-            // wherever the last arrival left them.
-            if (unit.PathRemaining is not null)
-            {
-                unit.BumpEpoch();
-                unit.PathRemaining = null;
-                unit.PathFinalDest = null;
-                unit.NextArrivalTick = null;
-                unit.NextArrivalSeq  = null;
-            }
-        }
+            if (world.Units.TryGetValue(memberId, out var unit)) unit.GroupId = null;
 
         world.Groups.Remove(GroupId);
         return IntentOutcome.Applied;

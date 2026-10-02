@@ -57,7 +57,7 @@ public static class ClaimLedger
     //   * Activity.Idle          — not working / building / hauling
     //   * not marching           — anchors are the truth, never Activity
     //                             (the M16 pitfall: a marching unit reads
-    //                             Idle). PathRemaining/NextArrivalTick.
+    //                             Idle). Unit.IsWalking.
     //   * not in a Group         — group members move as one; pulling one
     //                             out from under an order is not dormancy
     //   * not embarked           — aboard a boat is not available
@@ -81,8 +81,7 @@ public static class ClaimLedger
     // selector answers "are they the right kind?".
     public static bool IsDormant(GameWorld world, Unit unit) =>
         unit.Activity == Activity.Idle
-        && unit.PathRemaining is null
-        && unit.NextArrivalTick is null
+        && !unit.IsWalking
         && unit.GroupId is null
         && !unit.IsEmbarked
         && !world.Claims.ContainsKey(unit.Id)

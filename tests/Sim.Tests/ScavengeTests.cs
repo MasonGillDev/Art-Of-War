@@ -269,7 +269,7 @@ public class ScavengeTests
         var c1 = CastleOf(sim, 1).At;
         var nextId = 9000;
         for (var i = 0; i < 10; i++)
-            sim.World.AddUnit(new Unit(nextId++, c1) { Role = UnitRole.Soldier, OwnerId = 1 });
+            sim.World.AddUnit(new Unit(nextId++, Sim.Core.Movement.TileCapacity.RoomNear(sim.World, c1, 1)) { Role = UnitRole.Soldier, OwnerId = 1 });   // beside the castle once it is full (14 since 2026-10-01)
         sim.World.AddUnit(new Unit(nextId, new TileCoord(c0.X + 1, c0.Y))
             { Role = UnitRole.Scout, OwnerId = 1 });
         CastleOf(sim, 1).Holdings[Resource.Food] = 4000;
@@ -285,6 +285,7 @@ public class ScavengeTests
             CampaignPopulationFloor = 1,
             WarAdvantageRatioPercent = 100,
             AttackOvermatchPercent = 100,
+            AssumedGarrisonPower = 6,   // see RivalTests.Rival_RazesUndefendedCastle_GameOverFires
         };
         var rival = new AiPlayerDriver(1, cfg, BrainKind.Rival);
         var stoneBefore = CastleOf(sim, 1).Holdings.GetValueOrDefault(Resource.Stone);

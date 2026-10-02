@@ -208,7 +208,7 @@ public class BuildIntentTests
     {
         var sim = MakeSim();
         var siteTile = new TileCoord(2, 2);
-        sim.World.Grid.SetBiome(siteTile, Biome.Mountain); // Quarry needs 2 builders
+        sim.World.Grid.SetBiome(siteTile, Biome.Hills); // Quarry needs 2 builders
         var site = sim.World.AddStructure(new ConstructionSite(siteTile, StructureKind.Quarry));
         var spec = StructureCatalog.Spec(StructureKind.Quarry);
         foreach (var (r, n) in spec.BuildCost) site.Deposit(r, n);

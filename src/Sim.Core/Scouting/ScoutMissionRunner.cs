@@ -52,7 +52,7 @@ public static class ScoutMissionRunner
             {
                 scout.BumpEpoch(); // fence any stale move events from a prior leg
                 MoveIntent.BeginMove(sim, scout, dest);
-                if (scout.PathRemaining is { Count: > 0 }) return; // marching; wait for arrival
+                if (scout.IsWalking) return; // marching; wait for arrival
                 // else: unreachable — fall through and advance as if arrived
             }
 

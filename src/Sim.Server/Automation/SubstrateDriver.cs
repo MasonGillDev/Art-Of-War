@@ -927,16 +927,14 @@ public sealed class SubstrateDriver
     // driver hand.
     private static bool IsStalled(Unit u) =>
         !IsFreeForWork(u)
-        && u.PathRemaining is null
-        && u.NextArrivalTick is null
+        && !u.IsWalking
         && u.Activity == Activity.Hauling
         && !u.IsEmbarked;
 
     // Free = idle body with no in-flight anchors. Anchors, never Activity.
     private static bool IsFreeForWork(Unit u) =>
         u.Activity == Activity.Idle
-        && u.PathRemaining is null
-        && u.NextArrivalTick is null
+        && !u.IsWalking
         && u.HaulPlan is null
         && !u.IsEmbarked;
 

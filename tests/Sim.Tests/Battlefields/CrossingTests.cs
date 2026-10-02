@@ -20,7 +20,7 @@ public class CrossingTests
         var world = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: 60, Model: CombatModel.Grid),
+            Combat = new CombatConfig(RoundIntervalTicks: 60),
             FactionStarts = new[]
             {
                 new FactionStartSpec { OwnerId = Blue, CastlePosition = Keep },
@@ -125,19 +125,6 @@ public class CrossingTests
         Assert.DoesNotContain(path!, p => w.Grid.BiomeAt(p) == Biome.Water);
     }
 
-    [Fact]
-    public void InTheDefaultGame_FeetStillWade()
-    {
-        var w = Genesis.Build(new GenesisSpec
-        {
-            Width = 21, Height = 21,
-            FactionStarts = new[] { new FactionStartSpec { OwnerId = Blue, CastlePosition = new TileCoord(1, 1) } },
-        });
-        w.Grid.SetBiome(new TileCoord(10, 10), Biome.Water);
-        Assert.False(MovementCost.FeetKeepOffWater(w, new TileCoord(10, 10)));
-        Assert.True(MovementCost.ExecutionCost(w, new TileCoord(9, 10), new TileCoord(10, 10), 0) < Biomes.Impassable);
-    }
-
     // ---- canals: follow them, never cross them --------------------------------------------
 
     // A north–south canal at x = 10 from y = 4 (dug from a lake tile at (10, 3))
@@ -183,7 +170,7 @@ public class CrossingTests
     public void FinishingACanal_InAGridWorld_LeavesCanalTiles()
     {
         var w = new GameWorld(new TileGrid(12, 12, Biome.Grassland));
-        w.RestoreCombatConfig(new CombatConfig(60, CombatModel.Grid));
+        w.RestoreCombatConfig(new CombatConfig(60));
         w.Grid.SetBiome(new TileCoord(5, 0), Biome.Water);
         var sim = new Simulation(w, seed: 1);
         var path = new List<TileCoord> { new(5, 1), new(5, 2), new(5, 3) };

@@ -325,10 +325,14 @@ public class GoalShapedIntentsTests
 
 
     [Fact]
-    public void AWaitingParentCannotBeQuietlyRetasked()
+    public void AWaitingParentSentToWork_IsCountermandedLikeAMarch_AndTheMatchIsAnnouncedBroken()
     {
-        // Activity.Waiting is a NON-Idle state precisely so that every
-        // existing Idle-gated intent refuses it without being touched.
+        // Until 2026-10-01 Activity.Waiting hid behind the assign intents' Idle
+        // gate, so a farm order on a waiting parent did nothing. A MARCH always
+        // did countermand the wait (only a conceived cycle outranks a move), and
+        // the assign intents now retask exactly as a march does. What must still
+        // hold: nothing is quiet — the match is torn down for BOTH parents and
+        // announced, never left half-reserved.
         var sim = BuildBreedingWorld(out var house, foodInHouse: 0);
         sim.World.Units[1].Position = HouseAt;
         sim.World.Units[2].Position = HouseAt;
@@ -338,12 +342,14 @@ public class GoalShapedIntentsTests
         sim.Run(0);
         Assert.Equal(Activity.Waiting, sim.World.Units[1].Activity);
 
-        // A farm assignment must not steal a waiting parent.
         sim.SubmitIntent(sim.Now, new AssignWorkersIntent(FarmAt, new[] { 1 }) { PlayerId = 0 });
         sim.Run(sim.Now);
 
-        Assert.Equal(Activity.Waiting, sim.World.Units[1].Activity);
-        Assert.NotNull(house.PendingBreed);
+        Assert.Equal(GoalKind.AssignWorker, sim.World.Units[1].Goal?.Kind);
+        Assert.Null(house.PendingBreed);
+        Assert.Null(sim.World.Units[2].Goal);
+        Assert.Equal(Activity.Idle, sim.World.Units[2].Activity);
+        Assert.Equal(2, sim.ResolvedLog.Count(e => e is GoalDissolvedEvent d && d.Kind == GoalKind.Breed));
     }
 
     [Fact]

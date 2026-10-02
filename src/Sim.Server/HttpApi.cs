@@ -11,7 +11,9 @@ namespace Sim.Server;
 //     GET  /map/elevation   — full per-tile elevation grid (client-side terrain erosion)
 //   v2 (production client — Wire/WireV2.cs):
 //     GET  /v2/world              — static genesis payload, fetched ONCE per session
-//     GET  /v2/view/{playerId}[?reveal=1]  — slim per-tick view (fog runs, no tile arrays)
+//     GET  /v2/view/{playerId}[?reveal=1][&orders=1]  — slim per-tick view (fog runs, no tile
+//                                   arrays). reveal lifts the fog; orders also shows
+//                                   other sides' battle orders (both dev switches)
 //   both:
 //     POST /intent
 //     GET/POST /v2/pace           — host pause + speed override, a DEV/ADMIN tool (the
@@ -23,9 +25,9 @@ public sealed class HttpApi : IDisposable
     private GameHost _host;
     private readonly HttpListener _listener = new();
 
-    // M41 — the battle test bed (Scenarios/ScenarioHost) serves /v2/dev/* and
-    // swaps the host when it loads a scenario. Null in every ordinary game.
-    public Scenarios.ScenarioHost? Dev { get; set; }
+    // The battle sandbox (Sandbox/SandboxHost) serves /v2/dev/* and swaps the
+    // host on every rebuild. Null in every ordinary game.
+    public Sandbox.SandboxHost? Dev { get; set; }
 
     // Requests are handled one at a time on the listener thread, so a swap made
     // from a dev route never races another request.
@@ -74,7 +76,7 @@ public sealed class HttpApi : IDisposable
                     WriteJson(ctx, 400, "{\"error\":\"bad playerId\"}");
                     return;
                 }
-                WriteJson(ctx, 200, _host.BuildViewV2Json(v2pid, req.QueryString["reveal"] == "1"));
+                WriteJson(ctx, 200, _host.BuildViewV2Json(v2pid, req.QueryString["reveal"] == "1", req.QueryString["orders"] == "1"));
                 return;
             }
 

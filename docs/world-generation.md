@@ -112,3 +112,15 @@ precisely because it is sim state captured by the snapshot, off the float/replay
 path. A worldgen *feature pass* that stamped biomes would still have to run
 before the freeze; a sim-time terrain change must run as an event and be
 snapshotted — which is exactly what canals do.
+
+
+## Update 2026-10-01 — ore veins (M44)
+
+Genesis seeds ore veins onto Mountain tiles. A tile has a vein when
+`hash(VeinConfig.Seed, x, y) mod OneIn == 0`. `OneIn` is 3, so about a
+third of mountain tiles have one. Every 8-connected mountain range gets at
+least one vein. `WorldFactory` passes the map seed into `VeinConfig.Seed`.
+Seeding draws no sim Rng. The vein set is frozen and snapshotted like
+terrain, never re-derived. Starts are not moved toward mountains;
+measured 2026-10-01 at 252×252, mountains are about 5% of land. See
+`docs/stone-and-ore-land.md`.

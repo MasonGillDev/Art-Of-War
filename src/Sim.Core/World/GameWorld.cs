@@ -11,13 +11,13 @@ public sealed class GameWorld
     // by Snapshot — see Persistence/Snapshot.cs.
     public Dictionary<TileCoord, Structure> Structures { get; } = new();
 
-    // Sparse: only ARCS (the lane between two adjacent tiles, docs/roads-on-
-    // edges.md) with non-zero road condition live here. Mutated
-    // exclusively by Roads.CreditTraffic (called from MoveArrivalEvent —
+    // Sparse: only road LINKS (the step between two adjacent subtiles, M43,
+    // docs/subtile-movement.md) with non-zero road condition live here. Mutated
+    // exclusively by Roads.CreditTraffic (called from the walk's step —
     // the one mutation point). Read by Roads.EffectiveCost / ConditionAt
     // from pathfinding and views — those reads must NEVER write. See
     // Roads/Roads.cs for the contract.
-    public Dictionary<TileEdge, RoadState> Roads { get; } = new();
+    public Dictionary<SubtileLink, RoadState> Roads { get; } = new();
 
     // Player registry. Genesis seeds player 0; multi-player scenarios add
     // more. Minimal for M3 — no factions / economies / win conditions yet.
@@ -81,6 +81,11 @@ public sealed class GameWorld
     public Population.PopulationConfig PopulationConfig { get; private set; }
     public int NextUnitId { get; internal set; } = 1;
 
+    // A fresh unit id from the same counter, for a host that creates people
+    // before tick 0 (the battle sandbox, docs/battle-sandbox.md), so its ids
+    // can never collide with a later birth or spawn.
+    public int TakeUnitId() => NextUnitId++;
+
     // M9 — biome-degradation config (thresholds, baselines, recovery, radius)
     // + sparse per-tile fertility deviation. Only tiles whose Deviation != 0
     // live in the dict (matches the Roads pattern). The latch is IMPLICIT
@@ -135,8 +140,8 @@ public sealed class GameWorld
     public long NextHaulStamp { get; internal set; } = 1;
 
     // M36 — NAMED HAUL ROUTES, sparse by route id. Mutated ONLY by
-    // Set/ClearHaulRouteIntent, Add/RemoveRouteCrewIntent and
-    // ServeRouteStopIntent (a crew's cursor).
+    // Set/Clear/Update/RenameHaulRouteIntent, Add/RemoveRouteCrewIntent and
+    // ServeRouteStopIntent (a crew's cursor and last serve).
     public SortedDictionary<int, Sim.Core.Hauling.HaulRoute> HaulRoutes { get; } = new();
     public int NextHaulRouteId { get; internal set; } = 1;
 
@@ -177,6 +182,19 @@ public sealed class GameWorld
     public SortedDictionary<int, Sim.Core.Scouting.VisionGrant> VisionGrants { get; } = new();
     public int NextVisionGrantId { get; internal set; } = 1;
     internal void RestoreIdolConfig(Sim.Core.Scouting.IdolConfig config) => IdolConfig = config;
+
+    // M44 — ore veins (docs/stone-and-ore-land.md). VeinConfig is set at
+    // genesis and immutable after. Veins is TERRAIN: seeded once by
+    // Sim.Core.Mining.Veins.Seed at genesis, then never written. KnownVeins
+    // and SurveyedBarren are per-faction knowledge that only grows; written
+    // ONLY through Veins.Learn / Veins.MarkBarren (from SurveyRules.Complete
+    // and Sight.Reveal), read by views and the AI — the inverted pure-read
+    // wall. All (y, x)-sorted, snapshotted (v45).
+    public Sim.Core.Mining.VeinConfig VeinConfig { get; private set; } = new();
+    internal void RestoreVeinConfig(Sim.Core.Mining.VeinConfig config) => VeinConfig = config;
+    public SortedSet<TileCoord> Veins { get; } = new(TileOrder.Instance);
+    public SortedDictionary<int, SortedSet<TileCoord>> KnownVeins { get; } = new();
+    public SortedDictionary<int, SortedSet<TileCoord>> SurveyedBarren { get; } = new();
 
     // M39 — bandit camp knobs (genesis-set, snapshotted v39).
     public Sim.Core.Bandits.CampConfig CampConfig { get; private set; } = new();
@@ -263,6 +281,7 @@ public sealed class GameWorld
         Units.Add(id, u);
         InitCombatStatsIfFresh(u);
         BumpPopulationCount(u);
+        Seat(u);
         return u;
     }
 
@@ -271,7 +290,20 @@ public sealed class GameWorld
         Units.Add(unit.Id, unit);
         InitCombatStatsIfFresh(unit);
         BumpPopulationCount(unit);
+        Seat(unit);
         return unit;
+    }
+
+    // M42 — set while Snapshot.Restore rebuilds the world: units and
+    // structures come back exactly as saved (their saved subtiles), never
+    // placed or popped.
+    internal bool Restoring { get; set; }
+
+    // M42 — a new unit gets a subtile (not while restoring: a saved world comes back
+    // exactly as saved).
+    private void Seat(Unit unit)
+    {
+        if (!Restoring) Sim.Core.Battlefields.Placement.Seat(this, unit);
     }
 
     // M13 — Player.PopulationCount is maintained as
@@ -306,6 +338,15 @@ public sealed class GameWorld
     {
         Structures.Add(s.At, s);
         InitStructureHealthIfFresh(s);
+        // A castle's gate must open onto the map: a castle on the edge that faces off it can
+        // neither be left nor entered (feet only cross a castle tile by its gate). Turn it to
+        // the first edge, N E S W, that has a tile beside it. (Not while restoring: a saved
+        // world comes back exactly as saved.)
+        if (!Restoring && s is Castle)
+            for (var turns = 0; turns < 4 && !Grid.InBounds(Sim.Core.Battlefields.Battlefields.Across(s.At, s.Facing)); turns++)
+                s.Facing = (Sim.Core.Battlefields.Heading)(((int)s.Facing + 1) % 4);
+        // M42 — the footprint may not let a unit standing here stay where it is.
+        if (!Restoring) Sim.Core.Battlefields.Placement.Reseat(this, s.At);
         return s;
     }
 

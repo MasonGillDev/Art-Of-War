@@ -650,3 +650,18 @@ Continued in `docs/structure-footprints.md`, which covers:
 - the castle ring;
 - the edge rule for world movement;
 - the per-side unit cap.
+
+## Update 2026-09-29 — units always stand on a subtile (M42)
+
+Decided with the user: every unit always stands on a subtile, not only while a battle is
+open. Movement comes at two resolutions:
+- **world moves** as today (tile pathfinding, the road bonus between tiles);
+- **subtile routes** the player draws exactly, walked at a quarter of the world hop per
+  step, within the 3×3 block of world tiles around the unit.
+
+On a battlefield the same routes are walked one subtile per turn. A world move loads each
+tile back to front from the edge it entered by.
+
+This replaces seating at battle open and the overflow shelter (build decision D1), and
+settles pre-battle formations: your formation is where your units stand. See
+`docs/subtile-movement.md` and `docs/m42-status.md`.

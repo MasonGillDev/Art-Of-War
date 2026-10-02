@@ -139,7 +139,7 @@ public class SubstrateCrewStatusTests
             // Every held hand is walking for the line, except the one just sent
             // (which is dispatched this tick and reads free until its haul resolves).
             var idleHeld = held.Count(id => sim.World.Units.TryGetValue(id, out var u)
-                                            && u.PathRemaining is null && u.CargoAmount == 0);
+                                            && !u.IsWalking && u.CargoAmount == 0);
             Assert.True(idleHeld <= 1, $"tick {t}: {idleHeld} idle hands benched");
         }
         Assert.True(fired, "the line never fired");
@@ -173,7 +173,7 @@ public class SubstrateCrewStatusTests
             driver.Think(sim, t);
             sim.Run(t);
             if (journal.Last(order.OrderId)?.Outcome == JournalOutcome.Blocked
-                && sim.World.Units.Values.All(u => u.PathRemaining is null)) break;
+                && sim.World.Units.Values.All(u => !u.IsWalking)) break;
         }
         Assert.Equal(JournalOutcome.Blocked, journal.Last(order.OrderId)!.Value.Outcome);
         Assert.Empty(ClaimLedger.UnitsOf(sim.World, order.OrderId));

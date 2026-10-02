@@ -13,14 +13,14 @@ public enum SubtileKind : byte
     // Nobody enters or stands here.
     Blocked = 1,
 
-    // The owner and allies stand here, entering from any side but a closed one
-    // (the wall's outer side). Enemies never enter. Only archers deal damage
-    // from it (a unit on it can't be reached for a duel, so this holds by
-    // construction).
+    // Anyone stands here who got here through an open side: the wall is its closed
+    // side (the outer one), not a rule about whose name is on it (user, 2026-10-01;
+    // before that only the owner and allies could enter). An enemy that is inside
+    // can climb it and fight the defenders on it.
     Wall = 2,
 
-    // As Wall, but only the owner's and allies' archers stand here, and they
-    // reach the subtile in front and the two beside that one.
+    // As Wall; an archer standing here reaches the subtile in front and the two
+    // beside that one, or further where the footprint says (ReachAt).
     Tower = 3,
 
     // The way through a wall: the owner and allies cross it from any side.
@@ -39,7 +39,9 @@ public enum SubtileKind : byte
 }
 
 // Who is asking to move. Friendly = the unit's owner is the layer's owner or an
-// ally of it (the structure's side). Archer = its role is ranged.
+// ally of it (the structure's side): what a Gate lets through. Archer = its role
+// is ranged; since 2026-10-01 it decides nothing about where a unit may stand
+// (role rules say what you can DO on a subtile, the ground says where you may be).
 public readonly record struct BoardMover(bool Friendly, bool Archer);
 
 public sealed class SubtileLayer
@@ -104,11 +106,13 @@ public sealed class SubtileLayer
     public bool CanStand(Subtile s, BoardMover m)
     {
         if (!s.IsOnBoard) return false;
+        // A wall or tower keeps people out with its closed sides (CanStep), never by
+        // who they are; a gate is a door, and only the owner's side has the key.
         return _kinds[s.Index] switch
         {
             SubtileKind.Open or SubtileKind.Cover or SubtileKind.Bridge => true,
-            SubtileKind.Wall or SubtileKind.Gate => m.Friendly,
-            SubtileKind.Tower => m.Friendly && m.Archer,
+            SubtileKind.Wall or SubtileKind.Tower => true,
+            SubtileKind.Gate => m.Friendly,
             _ => false,
         };
     }

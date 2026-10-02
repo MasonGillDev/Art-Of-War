@@ -577,3 +577,20 @@ still raise the full chain by day 200. What remains is the honest price of
 an armoury: 5–30 % of day-200 population across seeds and runs, never a
 famine the unarmed twin avoided (the A/B pin). That price is the user's
 dial — `Arm`, `ArmPopulationFloor`, `ArmMineWorkers`/`ArmSmelterWorkers`.
+
+
+## Update 2026-10-01 — stone from hills, ore from surveyed veins (M44)
+
+- **FortifyRung** puts its quarry on the best known **Hills pocket** that
+  can host the quarry's 6-tile claim (`NearestPocketTile`), not on any
+  mountain.
+- **ForgeRung**'s mine link changes:
+  1. If the brain knows a free vein (`NearestFreeVein`), place the Mine
+     there.
+  2. Otherwise, if a Miner is already surveying, wait.
+  3. Otherwise, send an idle Miner to survey the nearest unsurveyed known
+     mountain (`NearestUnsurveyedMountain`).
+  4. With no Miner at all, set `AiMemory.OreStarved`. **TrainRung** then
+     schools one Miner, and Miners are kept out of the retraining pool.
+- The view feeds all of this through `ViewDto.Veins` / `BarrenX` /
+  `BarrenY` and `UnitDto.Survey*`. See `docs/stone-and-ore-land.md`.

@@ -15,12 +15,12 @@ public class TileCapacityTests
     private static readonly TileCoord Keep = new(10, 10);
     private static readonly TileCoord Field = new(5, 5);
 
-    private static GameWorld World(CombatModel model = CombatModel.Grid)
+    private static GameWorld World()
     {
         var w = Genesis.Build(new GenesisSpec
         {
             Width = 21, Height = 21,
-            Combat = new CombatConfig(RoundIntervalTicks: 60, Model: model),
+            Combat = new CombatConfig(RoundIntervalTicks: 60),
             FactionStarts = new[]
             {
                 new FactionStartSpec { OwnerId = Blue, CastlePosition = Keep },
@@ -49,16 +49,16 @@ public class TileCapacityTests
     {
         var w = World();
         Assert.Equal(16, TileCapacity.For(w, Field, Blue));
-        Assert.Equal(16, TileCapacity.For(w, Keep, Blue));   // the castle: ring and courtyard
-        Assert.Equal(5, TileCapacity.For(w, Keep, Red));     // attackers: the gap and courtyard
+        Assert.Equal(14, TileCapacity.For(w, Keep, Blue));   // the castle: ring and courtyard, less the keep
+        Assert.Equal(14, TileCapacity.For(w, Keep, Red));    // attackers too: anyone inside may climb the walls (2026-10-01)
         w.AddStructure(new School(new TileCoord(3, 3)) { OwnerId = Blue });
         Assert.Equal(12, TileCapacity.For(w, new TileCoord(3, 3), Red));
         w.AddStructure(new Barracks(new TileCoord(3, 7)) { OwnerId = Blue });
-        Assert.Equal(12, TileCapacity.For(w, new TileCoord(3, 7), Blue));   // the tower is an archer's post, not counted
+        Assert.Equal(13, TileCapacity.For(w, new TileCoord(3, 7), Blue));   // three blocked; the tower takes anyone
     }
 
     [Fact]
-    public void ASeventeenthUnit_StopsOnTheTileBefore_ButAnEnemyStillGetsIn()
+    public void ASeventeenthUnit_ReAimsBesideTheFullTile_ButAnEnemyStillGetsIn()
     {
         var w = World();
         Fill(w, Blue, Field, 16);
@@ -68,9 +68,11 @@ public class TileCapacityTests
         sim.SubmitIntent(0, new MoveIntent(late.Id, Field) { PlayerId = Blue });
         sim.SubmitIntent(0, new MoveIntent(foe.Id, Field) { PlayerId = Red });
         sim.Run(until: 400);
-        Assert.Equal(new TileCoord(Field.X - 1, Field.Y), late.Position);
-        Assert.Equal(Field, foe.Position);
-        Assert.Equal(16, TileCapacity.SideCount(w, Field, Blue));
+        // A walk that would STOP on a tile with no room for its side is re-aimed at the nearest free
+        // subtile (M43), which is on a tile beside it.
+        Assert.NotEqual(Field, late.Position);
+        Assert.True(Math.Abs(late.Position.X - Field.X) + Math.Abs(late.Position.Y - Field.Y) <= 1);
+        Assert.Equal(Field, foe.Position);                                    // an enemy always gets in
     }
 
     [Fact]
@@ -85,24 +87,4 @@ public class TileCapacityTests
         Assert.Equal(new TileCoord(Field.X, Field.Y - 1), baby.Position);   // nearest, then north first
     }
 
-    [Fact]
-    public void ThePlanner_RoutesRoundATileItSeesIsFull()
-    {
-        var w = World();
-        // The straight way runs through a tile full of the player's own: it goes round.
-        Fill(w, Blue, Field, 16);
-        var visible = Sim.Core.Vision.View.VisibleTiles(w, Blue);
-        var path = Pathfinding.FindPath(w.Grid, new TileCoord(Field.X - 1, Field.Y), new TileCoord(Field.X + 1, Field.Y),
-            MovementCost.Planner(w, Blue, visible, 0));
-        Assert.NotNull(path);
-        Assert.DoesNotContain(Field, path!);
-    }
-
-    [Fact]
-    public void InTheDefaultGame_ThereIsNoPerSideCap()
-    {
-        var w = World(CombatModel.Pooled);
-        Fill(w, Blue, Field, 20);
-        Assert.True(TileCapacity.HasRoom(w, Field, Blue));
-    }
 }

@@ -176,11 +176,11 @@ public class SnapshotRoundTripTests
             site.ClaimTiles);
 
         // Empty claims (non-claiming kinds / unfilled fixtures) stay empty:
-        // the Mountain quarry in BuildRichWorld has none... it has no
-        // extractor — assert via a fresh non-claiming extractor instead.
+        // BuildRichWorld has no non-claiming extractor — assert via a fresh
+        // one instead (M44: the Mine; the Quarry claims hills now).
         var grid = new TileGrid(4, 4, Biome.Mountain);
         var w2 = new GameWorld(grid);
-        w2.AddStructure(new Extractor(StructureKind.Quarry, new TileCoord(1, 1)));
+        w2.AddStructure(new Extractor(StructureKind.Mine, new TileCoord(1, 1)));
         var sim2 = new Simulation(w2, seed: 7);
         var restored2 = Snapshot.Restore(Snapshot.Serialize(sim2), seed: 7);
         Assert.Empty(((Extractor)restored2.World.Structures[new TileCoord(1, 1)]).ClaimTiles);

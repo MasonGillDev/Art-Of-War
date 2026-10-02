@@ -110,18 +110,22 @@ public class ProductionTests
         Assert.Equal(Activity.Working, sim.World.Units[1].Activity);
     }
 
+    // 2026-10-01: a busy body is RETASKED, as a march would retask it. The old
+    // rule skipped it, so "put him to work there" did nothing while "walk there"
+    // worked (RetaskOnAssignTests covers the structure-side cleanup).
     [Fact]
-    public void AssignWorkers_NotIdle_Skipped()
+    public void AssignWorkers_NotIdle_IsRetasked()
     {
         var (sim, ex, tile) = MakeStaffableExtractor();
         AddIdleUnit(sim, 1, tile, UnitRole.Lumberjack);
         sim.World.Units[1].TrySetActivity(Activity.Hauling); // pre-busy
 
         sim.SubmitIntent(0, new AssignWorkersIntent(tile, new[] { 1 }));
-        sim.Run();
+        sim.Run(until: 0);
 
-        Assert.Empty(ex.Workers);
-        Assert.True(sim.ResolvedLog[^1].Outcome.IsRejected);
+        Assert.Contains(1, ex.Workers);
+        Assert.Equal(Activity.Working, sim.World.Units[1].Activity);
+        Assert.True(sim.ResolvedLog[^1].Outcome.IsApplied);
     }
 
     [Fact]

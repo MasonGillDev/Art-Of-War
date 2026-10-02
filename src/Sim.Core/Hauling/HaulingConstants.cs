@@ -17,4 +17,6 @@ public static class HaulingConstants
     public const int MaxRulesPerStop = 8;
     public const int MaxCrewsPerRoute = 8;
     public const int MaxMembersPerCrew = 12;
+    // M45 — a route's name, in characters after trimming.
+    public const int MaxRouteNameLength = 32;
 }

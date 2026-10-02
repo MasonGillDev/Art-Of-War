@@ -387,12 +387,11 @@ public class WireV2Tests
         }
     }
 
-    // C2 — the current hop. Without it the client draws units at tile centres and
-    // they teleport 100 world units four times a second; nothing ever reads as
-    // marching. The numbers must be the SIM'S, not an estimate, or the animation
-    // drifts out of step with where the unit actually is.
+    // C2/M43 — the current step. Without it the client draws units at tile centres and
+    // they teleport; nothing ever reads as marching. The numbers must be the SIM'S, not an
+    // estimate, or the animation drifts out of step with where the unit actually is.
     [Fact]
-    public void Hop_MatchesTheSimsOwnArrivalTickAndCost()
+    public void SubtileStep_MatchesTheSimsOwnStepAnchorAndCost()
     {
         var (sim, projector, _) = MakeWorld();
 
@@ -402,29 +401,28 @@ public class WireV2Tests
         sim.SubmitIntent(sim.Now, new Sim.Core.Movement.MoveIntent(mover.Id, dest) { PlayerId = 0 });
         sim.Run(until: sim.Now + 1);
 
-        // The sim must actually be mid-hop, or the assertions below are vacuous.
-        Assert.NotNull(mover.NextArrivalTick);
-        Assert.NotEmpty(mover.PathRemaining!);
+        // The sim must actually be mid-walk, or the assertions below are vacuous.
+        Assert.True(mover.IsWalking);
+        Assert.NotNull(mover.SubtileRouteTick);
 
-        var expectedTo = mover.PathRemaining![0];
-        var expectedCost = Sim.Core.Movement.MovementCost.ExecutionCost(
-            sim.World, mover.Position, expectedTo, sim.Now, mover.Traversal);
+        var here = Sim.Core.Battlefields.WorldSubtile.Of(mover.Position, mover.Subtile!.Value);
+        var next = mover.SubtileRoute![0];
+        var expectedCost = Sim.Core.Battlefields.SubtileRoutes.StepCost(sim.World, mover, here, next, mover.SubtileRouteTick!.Value);
 
         var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
         var dto = v2.Units.Single(u => u.Id == mover.Id);
 
-        Assert.Equal(expectedTo.X, dto.HopToX);
-        Assert.Equal(expectedTo.Y, dto.HopToY);
-        Assert.Equal(mover.NextArrivalTick!.Value, dto.HopArriveTick);
-        Assert.Equal(expectedCost, dto.HopTotalTicks);
-        Assert.True(dto.HopTotalTicks > 0, "a hop with no duration cannot be interpolated");
+        Assert.Equal((next.X, next.Y), (dto.SubStepX, dto.SubStepY));
+        Assert.Equal(mover.SubtileRouteTick!.Value, dto.SubStepArriveTick);
+        Assert.Equal(expectedCost, dto.SubStepTotalTicks);
+        Assert.True(dto.SubStepTotalTicks > 0, "a step with no duration cannot be interpolated");
     }
 
     // A step is PUBLIC where a destination is PRIVATE: you can see which way an army
-    // is walking, but not where it is ultimately headed. If the hop were redacted
+    // is walking, but not where it is ultimately headed. If the step were redacted
     // like DestX/DestY, every foreign unit would slide around without animating.
     [Fact]
-    public void Hop_IsPublicEvenThoughTheDestinationIsNot()
+    public void SubtileStep_IsPublicEvenThoughTheDestinationIsNot()
     {
         var (sim, projector, _) = MakeWorld(128);
 
@@ -433,7 +431,7 @@ public class WireV2Tests
         sim.SubmitIntent(sim.Now,
             new Sim.Core.Movement.MoveIntent(foreign.Id, dest) { PlayerId = foreign.OwnerId });
         sim.Run(until: sim.Now + 1);
-        Assert.NotNull(foreign.NextArrivalTick);
+        Assert.True(foreign.IsWalking);
 
         // reveal:true so the foreign unit is in the payload at all.
         var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
@@ -441,14 +439,15 @@ public class WireV2Tests
 
         Assert.Equal(-1, dto.DestX);          // the plan stays private
         Assert.Equal(-1, dto.DestY);
-        Assert.True(dto.HopToX >= 0, "the step a visible unit is taking is observable");
-        Assert.True(dto.HopTotalTicks > 0);
+        Assert.Empty(dto.RouteX);
+        Assert.True(dto.SubStepX >= 0, "the step a visible unit is taking is observable");
+        Assert.True(dto.SubStepTotalTicks > 0);
     }
 
-    // A unit standing still has no hop, and -1 is what says so. A client that
-    // interpolated a stale hop would walk idle units off their tile.
+    // A unit standing still has no step, and -1 is what says so. A client that
+    // interpolated a stale step would walk idle units off their subtile.
     [Fact]
-    public void Hop_IsAbsentForAStandingUnit()
+    public void SubtileStep_IsAbsentForAStandingUnit()
     {
         var (sim, projector, _) = MakeWorld();
         var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false);
@@ -457,11 +456,81 @@ public class WireV2Tests
         Assert.NotEmpty(still);
         foreach (var u in still)
         {
-            Assert.Equal(-1, u.HopToX);
-            Assert.Equal(-1, u.HopToY);
-            Assert.Equal(-1, u.HopArriveTick);
-            Assert.Equal(-1, u.HopTotalTicks);
+            Assert.Equal(-1, u.SubStepX);
+            Assert.Equal(-1, u.SubStepY);
+            Assert.Equal(-1, u.SubStepArriveTick);
+            Assert.Equal(-1, u.SubStepTotalTicks);
         }
+    }
+
+    // M42 — where a unit stands on its tile is a physical fact (public); the route
+    // it was told to walk is an order (own units only).
+    [Fact]
+    public void Subtile_IsPublic_ButTheDrawnRouteIsOwnUnitsOnly()
+    {
+        var (sim, projector, _) = MakeWorld(128);
+
+        var mine = sim.World.Units.Values.First(u => u.OwnerId == 0);
+        var foreign = sim.World.Units.Values.First(u => u.OwnerId != 0);
+        var route = new List<Sim.Core.Battlefields.WorldSubtile>
+        {
+            new(mine.Position.X * 4 + 1, mine.Position.Y * 4 + 1),
+            new(mine.Position.X * 4 + 2, mine.Position.Y * 4 + 1),
+        };
+        mine.Subtile = new Sim.Core.Battlefields.Subtile(1, 2);
+        mine.SubtileRoute = route;
+        foreign.Subtile = new Sim.Core.Battlefields.Subtile(3, 0);
+        foreign.SubtileRoute = new List<Sim.Core.Battlefields.WorldSubtile>
+        {
+            new(foreign.Position.X * 4 + 3, foreign.Position.Y * 4 + 1),
+        };
+
+        var v2 = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: true);
+        var m = v2.Units.Single(u => u.Id == mine.Id);
+        var f = v2.Units.Single(u => u.Id == foreign.Id);
+
+        Assert.Equal((1, 2), (m.SubX, m.SubY));
+        Assert.Equal(route.Select(r => r.X), m.RouteX);
+        Assert.Equal(route.Select(r => r.Y), m.RouteY);
+
+        Assert.Equal((3, 0), (f.SubX, f.SubY));           // seen, like the hop
+        Assert.Empty(f.RouteX);                           // the plan stays private
+        Assert.Empty(f.RouteY);
+    }
+
+    // M42 — a unit mid-route shows the step it is taking (public, like the hop), and
+    // one that is not stepping shows none.
+    [Fact]
+    public void SubtileStep_ShowsTheRoutesNextStep_AndIsAbsentWhenStanding()
+    {
+        var (sim, projector, _) = MakeWorld(128);
+        var u = sim.World.Units.Values.First(x => x.OwnerId == 0);
+        var still = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false).Units.Single(x => x.Id == u.Id);
+        Assert.Equal(-1, still.SubStepX);
+        Assert.Equal(-1, still.SubStepTotalTicks);
+
+        u.Subtile = new Sim.Core.Battlefields.Subtile(1, 1);
+        var here = Sim.Core.Battlefields.WorldSubtile.Of(u.Position, u.Subtile.Value);
+        var next = new Sim.Core.Battlefields.WorldSubtile(here.X + 1, here.Y);
+        u.SubtileRoute = new List<Sim.Core.Battlefields.WorldSubtile> { next };
+        u.SubtileRouteTick = sim.Now + 9;
+
+        var dto = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false).Units.Single(x => x.Id == u.Id);
+        Assert.Equal((next.X, next.Y), (dto.SubStepX, dto.SubStepY));
+        Assert.Equal(sim.Now + 9, dto.SubStepArriveTick);
+        Assert.True(dto.SubStepTotalTicks > 0);
+    }
+
+    [Fact]
+    public void Subtile_IsMinusOneWhenAUnitHasNone()
+    {
+        var (sim, projector, _) = MakeWorld();
+        var u0 = sim.World.Units.Values.First(u => u.OwnerId == 0);
+        u0.Subtile = null;
+        var dto = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false).Units.Single(u => u.Id == u0.Id);
+        Assert.Equal(-1, dto.SubX);
+        Assert.Equal(-1, dto.SubY);
+        Assert.Empty(dto.RouteX);
     }
 
     // The breeding UI has to say WHY a citizen is ineligible — too young, past the

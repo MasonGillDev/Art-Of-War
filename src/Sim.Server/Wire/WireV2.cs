@@ -136,6 +136,25 @@ public sealed class WorldDto
     /// lie the first time the roster is retuned. Static and public: what a soldier
     /// is made of is common knowledge, not intelligence about anyone's soldier.
     public UnitOptionDto[] Units { get; set; } = [];
+
+    /// The battle doctrines, straight off Sim.Core's DoctrineCatalog
+    /// (docs/battle-sandbox.md). The game's battle panel and the sandbox inspector
+    /// both build their doctrine choices from this, so a new doctrine appears in
+    /// the client with no client work. Static and public: what a doctrine means is
+    /// common knowledge; which one a unit stands on is not (BattleUnitDto).
+    public DoctrineOptionDto[] Doctrines { get; set; } = [];
+}
+
+/// One doctrine a unit may stand on. Id is DoctrineBehaviour (the value
+/// SetBattleDoctrineIntent takes and BattleUnitDto.Doctrine reports). Roles empty =
+/// anyone; otherwise only those roles (plus any role whose default it is).
+public sealed class DoctrineOptionDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public bool TakesWithdrawBelow { get; set; }
+    public int[] Roles { get; set; } = [];
 }
 
 /// What a role IS: the maxima the per-unit view fields are fractions of.
@@ -274,6 +293,10 @@ public sealed class BuildOptionDto
     /// does not know this will not understand why their next building is refused.
     public int ClaimCount { get; set; }
     public int ClaimRange { get; set; }
+
+    /// M44 — the site tile must be an ore vein the player knows (the Mine).
+    /// docs/stone-and-ore-land.md.
+    public bool RequiresVein { get; set; }
 
     // P2 — what a fortification IS, straight off StructureSpec. A wall the menu
     // cannot say "nobody walks through this" about is a wall the player builds

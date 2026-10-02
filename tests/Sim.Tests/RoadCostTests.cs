@@ -1,3 +1,4 @@
+using Sim.Core.Battlefields;
 using Sim.Core.Engine;
 using Sim.Core.Persistence;
 using Sim.Core.Roads;
@@ -7,13 +8,21 @@ namespace Sim.Tests;
 
 // Phase A of M2: EffectiveCost reads hand-set road condition smoothly,
 // floored, and never mutates. Decay is NOT yet applied (Phase B).
-// M34: a road is an ARC between two tiles (docs/roads-on-edges.md); the
-// priced hop is From -> To and the arc is the one between them.
+// M43: a road is a LINK between two adjacent subtiles (docs/subtile-movement.md); the
+// priced step is From -> To and the link is the one between them. The base cost is the
+// step's, a quarter of the tile's hop: the tests derive it from the same rule.
 public class RoadCostTests
 {
-    private static readonly TileCoord From = new(0, 1);
-    private static readonly TileCoord To = new(1, 1);
-    private static readonly TileEdge Arc = TileEdge.Between(From, To);
+    // Two neighbouring subtiles inside tile (0, 1) and tile (1, 1): the step crosses a tile edge.
+    private static readonly WorldSubtile From = new(3, 5);
+    private static readonly WorldSubtile To = new(4, 5);
+    private static readonly SubtileLink Arc = SubtileLink.Between(From, To);
+
+    // The plain cost of that step on this ground: a quarter of the hop, rounded up.
+    private static int Plain(GameWorld world) => (int)SubtileStepRules.StepTicks(world, To.Tile);
+
+    private static int Cost(GameWorld world, long now = 0) =>
+        Road.EffectiveCost(world, From, To, now, Plain(world));
 
     private static GameWorld GrasslandWorld(int w = 4, int h = 4)
     {
@@ -26,7 +35,7 @@ public class RoadCostTests
     // (At cap: reduction = biomeCost × MAX_REDUCTION_PERCENT %, floored at MIN_COST.)
     private static int CapCost(Biome b)
     {
-        var c = Biomes.MoveCost(b);
+        var c = (Biomes.MoveCost(b) + Subtile.Size - 1) / Subtile.Size;
         var reduced = c - (int)((long)c * RoadConstants.MAX_REDUCTION_PERCENT / 100L);
         return reduced < RoadConstants.MIN_COST ? RoadConstants.MIN_COST : reduced;
     }
@@ -35,20 +44,20 @@ public class RoadCostTests
     public void NoRoad_ReturnsBiomeCost()
     {
         var world = GrasslandWorld();
-        Assert.Equal(world.Grid.TerrainCost(To), Road.EffectiveCost(world, From, To, now: 0));
+        Assert.Equal(Plain(world), Cost(world));
     }
 
     [Fact]
     public void CostDecreasesSmoothly_AsConditionRises()
     {
         var world = GrasslandWorld();
-        var biomeCost = world.Grid.TerrainCost(To); // 10
+        var biomeCost = Plain(world);
         var prev = biomeCost + 1;
 
         for (var condition = 0; condition <= RoadConstants.CONDITION_MAX; condition += 50)
         {
             world.Roads[Arc] = new RoadState(condition, 0);
-            var cost = Road.EffectiveCost(world, From, To, now: 0);
+            var cost = Cost(world);
             Assert.True(cost <= prev,
                 $"Cost increased between condition steps: prev={prev}, cur={cost} at condition={condition}");
             prev = cost;
@@ -63,7 +72,7 @@ public class RoadCostTests
         var world = GrasslandWorld();
 
         world.Roads[Arc] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        var cost = Road.EffectiveCost(world, From, To, now: 0);
+        var cost = Cost(world);
         Assert.True(cost >= RoadConstants.MIN_COST,
             $"Cost {cost} below MIN_COST {RoadConstants.MIN_COST}");
 
@@ -80,9 +89,9 @@ public class RoadCostTests
         var grid = new TileGrid(4, 4, Biome.Forest);
         var world = new GameWorld(grid);
         world.Roads[Arc] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        var cost = Road.EffectiveCost(world, From, To, now: 0);
+        var cost = Cost(world);
         Assert.Equal(CapCost(Biome.Forest), cost);
-        Assert.True(cost * 2 < Biomes.MoveCost(Biome.Forest),
+        Assert.True(cost * 2 < (Biomes.MoveCost(Biome.Forest) + Subtile.Size - 1) / Subtile.Size,
             "a maxed road should at least halve forest cost");
     }
 
@@ -96,9 +105,9 @@ public class RoadCostTests
         var grid = new TileGrid(4, 4, Biome.Mountain);
         var world = new GameWorld(grid);
         world.Roads[Arc] = new RoadState(RoadConstants.CONDITION_MAX, 0);
-        var cost = Road.EffectiveCost(world, From, To, now: 0);
+        var cost = Cost(world);
         Assert.Equal(CapCost(Biome.Mountain), cost);
-        Assert.True(cost * 2 < Biomes.MoveCost(Biome.Mountain),
+        Assert.True(cost * 2 < (Biomes.MoveCost(Biome.Mountain) + Subtile.Size - 1) / Subtile.Size,
             "a maxed road should at least halve mountain cost");
     }
 
@@ -110,7 +119,7 @@ public class RoadCostTests
         // double-reduce by reading a sentinel).
         var world = GrasslandWorld();
         world.Roads[Arc] = new RoadState(0, 0);
-        Assert.Equal(world.Grid.TerrainCost(To), Road.EffectiveCost(world, From, To, now: 0));
+        Assert.Equal(Plain(world), Cost(world));
     }
 
     [Fact]
@@ -121,14 +130,14 @@ public class RoadCostTests
         var world = GrasslandWorld(8, 8);
         var sim = new Simulation(world, seed: 1);
         for (var i = 0; i < 5; i++)
-            world.Roads[TileEdge.FromOwner(new TileCoord(i, i), TileEdge.Axis.East)] = new RoadState(200 + 100 * i, 7);
+            world.Roads[SubtileLink.FromOwner(new WorldSubtile(i, i), SubtileLink.Axis.East)] = new RoadState(200 + 100 * i, 7);
         var beforeHash = Snapshot.Hash(sim);
 
         for (var i = 0; i < 100; i++)
         {
             for (var x = 0; x < 7; x++)
                 for (var y = 0; y < 8; y++)
-                    Road.EffectiveCost(world, new TileCoord(x, y), new TileCoord(x + 1, y), now: 0);
+                    Road.EffectiveCost(world, new WorldSubtile(x, y), new WorldSubtile(x + 1, y), 0, 8);
         }
 
         Assert.Equal(beforeHash, Snapshot.Hash(sim));
@@ -139,7 +148,7 @@ public class RoadCostTests
     {
         var world = GrasslandWorld();
         var sim = new Simulation(world, seed: 1);
-        var arc = TileEdge.FromOwner(new TileCoord(0, 0), TileEdge.Axis.East);
+        var arc = SubtileLink.FromOwner(new WorldSubtile(0, 0), SubtileLink.Axis.East);
         world.Roads[arc] = new RoadState(500, 7);
         var beforeHash = Snapshot.Hash(sim);
 
@@ -182,9 +191,9 @@ public class RoadCostTests
     public void Snapshot_RoundTripsRoadSet()
     {
         var world = GrasslandWorld(8, 8);
-        var a = TileEdge.FromOwner(new TileCoord(1, 2), TileEdge.Axis.East);
-        var b = TileEdge.FromOwner(new TileCoord(1, 2), TileEdge.Axis.South);   // same owner, other axis
-        var c = TileEdge.FromOwner(new TileCoord(3, 6), TileEdge.Axis.South);
+        var a = SubtileLink.FromOwner(new WorldSubtile(1, 2), SubtileLink.Axis.East);
+        var b = SubtileLink.FromOwner(new WorldSubtile(1, 2), SubtileLink.Axis.South);   // same owner, other axis
+        var c = SubtileLink.FromOwner(new WorldSubtile(3, 6), SubtileLink.Axis.South);
         world.Roads[a] = new RoadState(400, 50);
         world.Roads[b] = new RoadState(1000, 0);
         world.Roads[c] = new RoadState(75, 1234);

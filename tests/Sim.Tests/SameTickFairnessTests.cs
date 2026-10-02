@@ -35,7 +35,7 @@ public class SameTickFairnessTests
     {
         var grid = new TileGrid(9, 1, Biome.Grassland);
         var campTile = new TileCoord(4, 0);
-        grid.SetBiome(campTile, Biome.Forest);
+        // (grassland all the way: the two walks cost exactly the same, step for step)
         var home1 = new TileCoord(0, 0);
         var home2 = new TileCoord(8, 0);
         var world = new GameWorld(grid);
@@ -45,8 +45,11 @@ public class SameTickFairnessTests
         world.AddStructure(new Stockpile(home2));
 
         var sim = new Simulation(world, seed: 1);
-        world.AddUnit(new Unit(1, home1) { Role = UnitRole.Hauler });
-        world.AddUnit(new Unit(2, home2) { Role = UnitRole.Hauler });
+        // Mirrored subtiles on row 0 (2 of tile 0 and 0 of tile 8): the camp's footprint blocks (0, 1),
+        // so both come along the open top row, the same number of steps to the camp's centre, and
+        // the two arrive on the same tick.
+        world.AddUnit(new Unit(1, home1) { Role = UnitRole.Hauler }).Subtile = new Sim.Core.Battlefields.Subtile(2, 0);
+        world.AddUnit(new Unit(2, home2) { Role = UnitRole.Hauler }).Subtile = new Sim.Core.Battlefields.Subtile(0, 0);
 
         return (sim, ex, home1, home2);
     }

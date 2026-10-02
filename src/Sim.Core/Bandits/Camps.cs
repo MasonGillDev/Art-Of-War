@@ -98,9 +98,9 @@ public static class Camps
             !world.Units.TryGetValue(id, out var u) || IsBack(camp, u));
 
     public static bool IsBack(BanditCamp camp, Unit u) =>
-        camp.RaidDeparted && u.Position == camp.At && u.Cargo.Total == 0 && u.PathRemaining is not { Count: > 0 };
+        camp.RaidDeparted && u.Position == camp.At && u.Cargo.Total == 0 && !u.IsWalking;
 
-    // A bandit finished a hop (MoveArrivalEvent): a raider off its camp means
+    // A bandit entered a tile (TileEntry): a raider off its camp means
     // the raid has left.
     internal static void OnMoved(GameWorld world, Unit unit)
     {

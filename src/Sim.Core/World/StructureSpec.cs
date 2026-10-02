@@ -29,6 +29,9 @@ public sealed record StructureSpec
 
     // Extractor fields. Default values mark "not an extractor."
     public Biome RequiredBiome { get; init; } = Biome.None;
+    // M44 — the site tile must be an ore vein the placing faction knows
+    // (Sim.Core.Mining.Veins). Only the Mine. docs/stone-and-ore-land.md.
+    public bool RequiresVein { get; init; }
     public Resource OutputResource { get; init; } = Resource.None;
     public int BaseRatePerWorker { get; init; }
     public int ProductionPeriodTicks { get; init; }
@@ -59,8 +62,9 @@ public sealed record StructureSpec
 
     // M9 — fertility degrade contribution while actively producing. Combined
     // with BiomeDegradationConfig.DegradePeriod (global) to give a rate.
-    // Zero = this extractor type does NOT degrade (Quarry, Mine — out of
-    // scope; Hills/Mountain don't participate in the F/G/D ladder).
+    // Zero = this extractor type does NOT degrade (Quarry, Mine — M44:
+    // stone and ore are slow but never scarce, and Hills/Mountain stay off
+    // the F/G/D ladder for good; docs/stone-and-ore-land.md).
     // M15: degradation applies to the extractor's CLAIMED tiles
     // (Claims.ClaimantDegradeAmount); overlap is structurally impossible
     // (one claimant per tile) but the fold stays MAX, never sum.
@@ -69,8 +73,10 @@ public sealed record StructureSpec
     // M15 — extraction claims (docs/extraction-claims.md). Number of
     // RequiredBiome tiles the extractor must claim at placement; the claim
     // is the degradation footprint, the exclusion territory, and the
-    // production-taper denominator. Zero = non-claiming kind (Quarry,
-    // Mine): fully legacy own-tile behavior.
+    // production-taper denominator. Zero = non-claiming kind (Mine — its
+    // vein IS its land): own-tile behavior. M44: the Quarry claims Hills
+    // but never degrades them — the claim is pure exclusion territory, and
+    // off-ladder Hills hold their baseline so the taper stays at 1.
     public int ClaimCount { get; init; }
 
     // M15 — Chebyshev range (from the building tile) within which claim
