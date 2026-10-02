@@ -192,7 +192,9 @@ public static class Walk
         // M44 — a walk to a survey slope that can't go on abandons the survey
         // out loud rather than leaving a plan on an idle body.
         if (unit.Survey is { CompleteTick: null }) Sim.Core.Mining.SurveyRules.Cancel(sim, unit, "the way to the slope is blocked");
-        NoteWalkEnded(sim, unit);
+        // Only a walk with an errand counted for its group: a settling step after arriving
+        // was never on the pending count.
+        if (errand) NoteWalkEnded(sim, unit);
         Sim.Core.Fortifications.FortSiege.MaybeBeginSiegeAdjacentTo(sim, unit.Position);
         // A walk can end mid-pass, on a subtile a friend stands on (friends pass through each
         // other; "no room to stop" on a full tile is exactly that). Stopping there would break
@@ -273,37 +275,18 @@ public static class Walk
             return;
         }
 
-        // M5 — a member of a Forming group reaching the rendezvous tile decrements the
-        // pending count; a member of a MOVING group finishing its walk does too.
-        if (unit.GroupId is { } gid && sim.World.Groups.TryGetValue(gid, out var group))
-        {
-            if (group.State == GroupState.Forming && unit.Position == group.RendezvousTile)
-            {
-                group.PendingArrivals--;
-                if (group.PendingArrivals <= 0)
-                {
-                    group.State = GroupState.Idle;
-                    group.RendezvousTile = null;
-                    group.PendingArrivals = 0;
-                }
-            }
-            else if (group.State == GroupState.Moving)
-                NoteWalkEnded(sim, unit);
-        }
+        // M5 — a member of a Forming or Moving group whose walk ended comes off the
+        // group's pending count.
+        NoteWalkEnded(sim, unit);
     }
 
-    // A member of a Moving group stopped walking (arrived or halted): the group is Idle
-    // again when the last one has.
+    // A member of a Forming or Moving group stopped walking (arrived, or halted): the
+    // group is Idle again when the last one has. Not only on the rendezvous tile: a walk
+    // aimed at water ends on the nearest land, and that member is as done as it will get.
     internal static void NoteWalkEnded(Simulation sim, Unit unit)
     {
-        if (unit.GroupId is not { } gid || !sim.World.Groups.TryGetValue(gid, out var group)) return;
-        if (group.State != GroupState.Moving) return;
-        group.PendingArrivals--;
-        if (group.PendingArrivals > 0) return;
-        group.PendingArrivals = 0;
-        group.State = GroupState.Idle;
-        if (group.PathFinalDest is { } dest) group.Position = dest;
-        group.PathFinalDest = null;
+        if (unit.GroupId is { } gid && sim.World.Groups.TryGetValue(gid, out var group))
+            GroupRules.OneLessPending(group);
     }
 
     // ---- where a walk ends ----------------------------------------------------------------

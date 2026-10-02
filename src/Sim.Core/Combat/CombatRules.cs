@@ -244,12 +244,14 @@ public static class CombatRules
         //     equipped soldier, haul the sword home.
         Sim.Core.Equipment.Equipment.DropEquipmentToGround(world, unit, tile);
 
-        // 2. Group cleanup. Remove from members; attrition-disband if empty.
+        // 2. Group cleanup. Remove from members. A member still walking for the group's
+        //    order comes off its pending count, or the group would wait for a corpse
+        //    for ever (M46). The group is kept even when this was its last member:
+        //    groups outlive their members (docs/groups-first-class.md).
         if (unit.GroupId is { } gid && world.Groups.TryGetValue(gid, out var group))
         {
             group.Members.Remove(unit.Id);
-            if (group.Members.Count == 0)
-                world.Groups.Remove(gid);
+            if (unit.PathFinalDest is not null) Sim.Core.Groups.GroupRules.OneLessPending(group);
         }
 
         // 2b. RETIRE THE JOB. A worker who dies on shift must come off the
@@ -324,7 +326,7 @@ public static class CombatRules
         List<Unit>? standing = null;
         foreach (var u in world.Units.Values)   // SortedDictionary → id order
         {
-            if (u.Position != tile || u.IsEmbarked || u.GroupId is not null) continue;
+            if (u.Position != tile || u.IsEmbarked || Sim.Core.Groups.GroupRules.UnderCommand(world, u)) continue;
             if (u.IsWalking) continue; // already walking
             if (u.Pursuit is null && u.HaulPlan is null && u.Goal is null
                 && u.Survey is not { CompleteTick: null }

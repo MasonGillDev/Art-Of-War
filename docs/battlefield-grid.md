@@ -675,3 +675,21 @@ at a field must walk home. This closes note 8 above ("nothing heals today").
 
 The full rationale, the losing options (heal anywhere outside combat, own territory, percent of
 max, a food cost) and the mechanics are in `docs/unit-healing.md`.
+
+## Update 2026-10-02: groups resume after a battle (planned, M46)
+
+Decided with the user; not built yet. Full text: `docs/groups-first-class.md` and
+`docs/m46-groups-spec.md`.
+
+- **Groups resume after the battle closes.** This reverses the M41 build call
+  ("groups halt as a body and do not resume on close"), as §8 originally asked.
+  - A group's march **pauses** while any member is on a board.
+  - When the board closes, the group re-forms and carries on to where it was going.
+- **A group carries a doctrine for each role**, from `DoctrineCatalog`. A member on a
+  board takes its doctrine from, in order:
+  1. its own `Doctrine`
+  2. its group's doctrine for its role
+  3. `BattleDoctrine.DefaultFor(role)`
+- **The group's stance** (Passive / Defensive / Aggressive) is the world-scale half of
+  this: whether the group starts fights on the march. Stance never changes how a board
+  resolves.

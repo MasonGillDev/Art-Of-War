@@ -195,7 +195,11 @@ public static class Snapshot
     //       unloaded, notes byte).
     // v47 — rest healing (docs/unit-healing.md): each unit row gains its rest-heal
     //       anchor after the death anchor (nullable tick, nullable seq).
-    public const int FormatVersion = 47;
+    // v48 — M46 groups as records (docs/m46-groups-spec.md): the groups block opens
+    //       with GameWorld.NextGroupId; each group row gains its name, kind (byte),
+    //       parent (nullable int) and children (count + ids, ascending) after the
+    //       members. GroupState gains Dismissed (4).
+    public const int FormatVersion = 48;
 
     public static string Hash(Simulation sim)
     {
@@ -2592,6 +2596,7 @@ public static class Snapshot
 
     private static void WriteGroups(BinaryWriter bw, GameWorld world)
     {
+        bw.Write(world.NextGroupId);   // v48
         bw.Write(world.Groups.Count);
         foreach (var (id, g) in world.Groups)
         {
@@ -2607,6 +2612,13 @@ public static class Snapshot
             bw.Write(g.Members.Count);
             foreach (var memberId in g.Members) bw.Write(memberId);
 
+            // v48: the record — name, kind, place in the tree (children ascending).
+            bw.Write(g.Name);
+            bw.Write((byte)g.Kind);
+            WriteNullableInt(bw, g.ParentId);
+            bw.Write(g.Children.Count);
+            foreach (var childId in g.Children) bw.Write(childId);
+
             WriteNullableTileCoord(bw, g.PathFinalDest);
             bw.Write(g.MovementEpoch);
         }
@@ -2614,6 +2626,7 @@ public static class Snapshot
 
     private static void ReadGroups(BinaryReader br, GameWorld world)
     {
+        world.NextGroupId = br.ReadInt32();   // v48
         var count = br.ReadInt32();
         for (var i = 0; i < count; i++)
         {
@@ -2628,11 +2641,19 @@ public static class Snapshot
             var memberIds = new int[memCount];
             for (var m = 0; m < memCount; m++) memberIds[m] = br.ReadInt32();
 
+            var name     = br.ReadString();             // v48
+            var kind     = (GroupKind)br.ReadByte();
+            var parentId = ReadNullableInt(br);
+            var childCount = br.ReadInt32();
+            var childIds = new int[childCount];
+            for (var c = 0; c < childCount; c++) childIds[c] = br.ReadInt32();
+
             var pathDest = ReadNullableTileCoord(br);
             var epoch    = br.ReadByte();
 
-            var g = new Group(id) { OwnerId = ownerId };
+            var g = new Group(id) { OwnerId = ownerId, Kind = kind, Name = name, ParentId = parentId };
             foreach (var m in memberIds) g.Members.Add(m);
+            foreach (var c in childIds) g.Children.Add(c);
             g.Position = pos;
             g.State = state;
             g.RendezvousTile = rendez;

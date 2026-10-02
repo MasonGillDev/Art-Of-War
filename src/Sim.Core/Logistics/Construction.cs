@@ -78,7 +78,7 @@ public static class Construction
         {
             if (world.Units.TryGetValue(manId, out var manner)
                 && manner.OwnerId == built.OwnerId
-                && manner.GroupId is null
+                && !Sim.Core.Groups.GroupRules.UnderCommand(world, manner)
                 && !manner.IsEmbarked)
             {
                 if (manner.Activity != Activity.Idle) WorkAssignment.Release(sim, manner);

@@ -538,7 +538,8 @@ public sealed class UnitDto
     // predict the end of. Same defect the M30 goal fields fixed for errands.
     //
     // Own units only, like GroupId: an enemy's order of battle stays private.
-    // 0 = not in a group; otherwise Sim.Core GroupState (1 forming, 2 idle, 3 moving).
+    // 0 = not in a group; otherwise Sim.Core GroupState (1 forming, 2 idle, 3 moving,
+    // 4 dismissed: a member of a dismissed group is free and takes solo orders).
     public int GroupState { get; set; }
 
     // M30 — THE VISIBILITY CONTRACT (docs/goal-shaped-intents.md). Goal-shaped

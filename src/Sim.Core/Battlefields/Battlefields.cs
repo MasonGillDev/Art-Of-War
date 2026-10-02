@@ -192,11 +192,7 @@ public static class Battlefields
     private static void HaltGroup(Simulation sim, Unit u)
     {
         if (u.GroupId is not { } gid || !sim.World.Groups.TryGetValue(gid, out var group) || group.State != GroupState.Moving) return;
-        foreach (var id in group.Members)
-            if (sim.World.Units.TryGetValue(id, out var m)) Walk.Stop(m);
-        group.State = GroupState.Idle;
-        group.PendingArrivals = 0;
-        group.PathFinalDest = null;
+        MoveGroupIntent.Halt(sim, group);
         group.BumpEpoch();
     }
 

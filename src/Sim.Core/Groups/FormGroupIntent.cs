@@ -68,7 +68,7 @@ public sealed class FormGroupIntent : Intent
         }
 
         // All checks passed — create the group.
-        var groupId = NextGroupId(world);
+        var groupId = GroupRules.NewId(world);
         var group = new Group(groupId) { OwnerId = PlayerId };
         group.Position = RendezvousTile;
         group.RendezvousTile = RendezvousTile;
@@ -107,15 +107,6 @@ public sealed class FormGroupIntent : Intent
         }
 
         return IntentOutcome.Applied;
-    }
-
-    private static int NextGroupId(GameWorld world)
-    {
-        // Monotonic from 1. Group ids never reuse — that would break stale
-        // stale events from a defunct group firing on a new one.
-        var max = 0;
-        foreach (var k in world.Groups.Keys) if (k > max) max = k;
-        return max + 1;
     }
 
     public override string Describe() =>

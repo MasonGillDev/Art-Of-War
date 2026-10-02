@@ -52,6 +52,8 @@ public sealed class AddRouteCrewIntent : Intent
                 return IntentOutcome.Reject($"unit {id} already crews route {other}");
             if (Sim.Core.Automation.ClaimLedger.IsClaimed(world, id))
                 return IntentOutcome.Reject($"unit {id} is claimed by an automation order");
+            // Membership, not command (M46): M47 makes a crew a group of its own, and a
+            // unit is in one group at most, so a member of any group stays off crews.
             if (u.GroupId is not null)
                 return IntentOutcome.Reject($"unit {id} is in a group");
             if (u.IsEmbarked || u.Traversal != Traversal.Foot)

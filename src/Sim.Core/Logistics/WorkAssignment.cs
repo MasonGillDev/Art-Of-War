@@ -41,7 +41,7 @@ public static class WorkAssignment
     {
         if (unit.Position != extractor.At) return false;
         if (unit.OwnerId != extractor.OwnerId) return false;
-        if (unit.GroupId is not null) return false;
+        if (Sim.Core.Groups.GroupRules.UnderCommand(sim.World, unit)) return false;
         if (unit.IsEmbarked) return false;
         if (unit.Activity != Activity.Idle) return false;
         if (extractor.Workers.Count >= extractor.Spec.WorkerCap) return false;
@@ -61,7 +61,7 @@ public static class WorkAssignment
     {
         if (unit.Position != site.At) return false;
         if (unit.OwnerId != site.OwnerId) return false;
-        if (unit.GroupId is not null) return false;
+        if (Sim.Core.Groups.GroupRules.UnderCommand(sim.World, unit)) return false;
         if (unit.IsEmbarked) return false;
         if (unit.Role != UnitRole.Builder) return false;
         if (unit.Activity != Activity.Idle) return false;

@@ -29,6 +29,10 @@ public sealed class GameWorld
     // lifetime. See Sim.Core.Groups for the orchestration.
     public SortedDictionary<int, Group> Groups { get; } = new();
 
+    // M46 — the id the next group gets. Stored, never derived from the ids in use:
+    // deleting the newest group must not hand its id back out (GroupRules.NewId).
+    public int NextGroupId { get; set; } = 1;
+
     // Per-player explored-terrain memory (M3 Phase B). Sparse: most players
     // have explored some tiles, not most tiles. HashSet for O(1) inserts;
     // sorted at serialize time.

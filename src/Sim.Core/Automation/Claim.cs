@@ -82,7 +82,7 @@ public static class ClaimLedger
     public static bool IsDormant(GameWorld world, Unit unit) =>
         unit.Activity == Activity.Idle
         && !unit.IsWalking
-        && unit.GroupId is null
+        && !Sim.Core.Groups.GroupRules.UnderCommand(world, unit)
         && !unit.IsEmbarked
         && !world.Claims.ContainsKey(unit.Id)
         && unit.RouteId is null   // M36: a route crew is never idle between stops

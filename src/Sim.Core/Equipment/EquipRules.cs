@@ -23,9 +23,16 @@ public static class EquipRules
     // the errand rejects up front and dissolves if it becomes true mid-walk.
     // Scarcity is deliberately NOT in this list: an item nobody has yet is a
     // precondition, and preconditions wait.
-    public static string? Blocker(Unit unit, Resource item)
+    public static string? Blocker(GameWorld world, Unit unit, Resource item)
     {
-        if (unit.GroupId is not null) return "in a group";
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, unit)) return "under its group's command";
+        return BodyBlocker(unit, item);
+    }
+
+    // The part of Blocker about the body and the item alone (no world): what
+    // Grant checks for a unit composed before tick 0, which is in no group.
+    private static string? BodyBlocker(Unit unit, Resource item)
+    {
         if (unit.IsEmbarked) return "embarked";
         if (!EquipmentCatalog.TryGetSpec(item, out var spec))
             return $"{item} is not an equippable item";
@@ -53,7 +60,7 @@ public static class EquipRules
     public static bool TryEquip(GameWorld world, Unit unit, Resource item)
     {
         if (unit.Activity != Activity.Idle && unit.Activity != Activity.Waiting) return false;
-        if (Blocker(unit, item) is not null) return false;
+        if (Blocker(world, unit, item) is not null) return false;
         if (!EquipmentCatalog.TryGetSpec(item, out var spec)) return false;
 
         var storage = StoreUnder(world, unit);
@@ -73,7 +80,7 @@ public static class EquipRules
     // unit must have just been added, before tick 0.
     public static string? Grant(Unit unit, Resource item)
     {
-        if (Blocker(unit, item) is { } why) return why;
+        if (BodyBlocker(unit, item) is { } why) return why;
         Wear(unit, EquipmentCatalog.Spec(item));
         return null;
     }

@@ -11,14 +11,14 @@ namespace Sim.Core.Intents;
 // same decision, so both now go through here.
 //
 // The one thing a retask never overrides is a breeding cycle already conceived
-// (docs/goal-shaped-intents.md); grouped and embarked bodies are not solo
-// bodies and are refused as before.
+// (docs/goal-shaped-intents.md); bodies under their group's command (M46) and
+// embarked bodies are not solo bodies and are refused as before.
 public static class Retask
 {
     // Why a solo order cannot take this unit, or null when it can.
     public static string? Refusal(Simulation sim, Unit unit)
     {
-        if (unit.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(sim.World, unit))
             return $"unit {unit.Id} is in group {unit.GroupId}";
         // M12 — embarked units are off-tile passengers; solo intents are
         // blocked until the boat disembarks them.

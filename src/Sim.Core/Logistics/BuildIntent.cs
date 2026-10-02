@@ -95,7 +95,7 @@ public sealed class BuildIntent : Intent
         {
             if (world.Units.TryGetValue(builderId, out var builder)
                 && builder.OwnerId == PlayerId
-                && builder.GroupId is null
+                && !Sim.Core.Groups.GroupRules.UnderCommand(world, builder)
                 && !builder.IsEmbarked
                 && builder.Role == UnitRole.Builder
                 && builder.Activity == Activity.Idle)

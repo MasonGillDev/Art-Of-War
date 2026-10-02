@@ -34,6 +34,10 @@ public sealed class MoveGroupIntent : Intent
             return IntentOutcome.Reject($"group {GroupId} does not exist");
         if (group.OwnerId != PlayerId)
             return IntentOutcome.Reject($"group {GroupId} not owned by player {PlayerId}");
+        if (group.Kind != GroupKind.Units)
+            return IntentOutcome.Reject($"group {GroupId} holds groups; muster it instead");
+        if (group.State == GroupState.Dismissed)
+            return IntentOutcome.Reject($"group {GroupId} is dismissed; muster it first");
         if (group.State == GroupState.Forming)
             return IntentOutcome.Reject($"group {GroupId} is still forming");
         if (!world.Grid.InBounds(Destination))

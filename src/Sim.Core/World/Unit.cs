@@ -171,11 +171,12 @@ public sealed class Unit
     public Pursuit? Pursuit { get; set; }
 
     // ---- M5 group membership ----
-    // Set when this unit joins a Group via FormGroupIntent; cleared on
-    // DisbandGroupIntent (or future Split/Merge). When non-null, solo
-    // intents (MoveIntent, HaulIntent, Assign*) reject this unit — the
-    // group's collective intents drive it instead. See Groups/Group.cs
-    // and docs/architecture.md §8 (M5 entry).
+    // The leaf group this unit belongs to (at most one). Set by Create/AddTo/
+    // FormGroupIntent; cleared by Delete/DisbandGroupIntent. Membership alone
+    // blocks nothing (M46): solo intents reject the unit only while its group
+    // has it under command (GroupRules.UnderCommand), so a member of a
+    // dismissed group works like anyone else. See Groups/Group.cs and
+    // docs/groups-first-class.md.
     public int? GroupId { get; set; }
 
     // ---- M7 combat state ----

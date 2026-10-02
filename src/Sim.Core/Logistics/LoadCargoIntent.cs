@@ -48,7 +48,7 @@ public sealed class LoadCargoIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
         if (unit.OwnerId != PlayerId)
             return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
-        if (unit.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, unit))
             return IntentOutcome.Reject($"unit {UnitId} is in a group");
         if (unit.IsEmbarked)
             return IntentOutcome.Reject($"unit {UnitId} is embarked");

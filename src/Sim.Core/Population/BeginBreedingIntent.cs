@@ -63,7 +63,7 @@ public sealed class BeginBreedingIntent : Intent
             return IntentOutcome.Reject($"ParentB {ParentBId} does not exist");
         if (a.OwnerId != PlayerId || b.OwnerId != PlayerId)
             return IntentOutcome.Reject("both parents must be owned by the player");
-        if (a.GroupId is not null || b.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, a) || Sim.Core.Groups.GroupRules.UnderCommand(world, b))
             return IntentOutcome.Reject("grouped units can't be bound to a goal");
         if (a.IsEmbarked || b.IsEmbarked)
             return IntentOutcome.Reject("embarked units are off-tile");

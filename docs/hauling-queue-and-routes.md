@@ -193,3 +193,23 @@ could not change at all. Status and phases: `docs/m45-status.md`. What changed i
 - The percent stays the server's unit. The client shows it as units per carrier.
 
 Still deferred: escort engagement, per-job source sets, trade stops.
+
+## Update 2026-10-02: a crew becomes a group on a route (planned, M46/M47)
+
+Decided with the user; not built yet. Full text: `docs/groups-first-class.md` and
+`docs/m46-groups-spec.md`.
+
+- **A route crew is a group whose standing assignment is the route.**
+  - `RouteCrew` keeps `CrewId`, `CurrentStop` and `LastServe`.
+  - Its `Members` list becomes a `GroupId`.
+  - There is one system for units that move together, not two.
+- **The crew marches in formation** (one group move per leg). This replaces one
+  `MoveIntent` per member. "A straggler is waited for at the stop" becomes "the
+  group arrives together".
+- **Mustering a route group:**
+  - It finishes its leg (walks to its stop and serves it), then answers the muster.
+  - On dismiss it goes back to the route at the next stop, by itself.
+- **Unchanged:**
+  - Military members are escort.
+  - Route groups never take haul queue jobs.
+  - Crews never stop circling.

@@ -27,6 +27,13 @@ public class IntentStoreTests
         yield return new object[] { new FormGroupIntent(new[] { 1, 2, 3 }, new TileCoord(5, 5)) { PlayerId = 0 } };
         yield return new object[] { new MoveGroupIntent(groupId: 1, new TileCoord(9, 9)) { PlayerId = 0 } };
         yield return new object[] { new DisbandGroupIntent(groupId: 1) { PlayerId = 0 } };
+        // M46 — groups as records.
+        yield return new object[] { new CreateGroupIntent("Bridge Guard", new[] { 4, 5 }, parentId: 2) { PlayerId = 0 } };
+        yield return new object[] { new CreateGroupIntent("Army", Array.Empty<int>(), holdsGroups: true) { PlayerId = 0 } };
+        yield return new object[] { new RenameGroupIntent(groupId: 3, "Night Watch") { PlayerId = 0 } };
+        yield return new object[] { new SetGroupParentIntent(groupId: 3, parentId: null) { PlayerId = 0 } };
+        yield return new object[] { new AddToGroupIntent(groupId: 3, new[] { 8, 9 }) { PlayerId = 0 } };
+        yield return new object[] { new DeleteGroupIntent(groupId: 3) { PlayerId = 0 } };
         yield return new object[] { new TrainUnitIntent(unitId: 7, UnitRole.Builder) { PlayerId = 0 } };
         yield return new object[] { new EmbarkIntent(boatId: 50, new[] { 1, 2, 3 }) { PlayerId = 0 } };
         yield return new object[] { new DisembarkIntent(boatId: 50) { PlayerId = 0 } };
@@ -88,6 +95,22 @@ public class IntentStoreTests
                 Assert.Equal(mga.Destination, mgb.Destination); break;
             case DisbandGroupIntent da when b is DisbandGroupIntent db:
                 Assert.Equal(da.GroupId, db.GroupId); break;
+            case CreateGroupIntent ca when b is CreateGroupIntent cb:
+                Assert.Equal(ca.Name, cb.Name);
+                Assert.Equal(ca.UnitIds, cb.UnitIds);
+                Assert.Equal(ca.ParentId, cb.ParentId);
+                Assert.Equal(ca.HoldsGroups, cb.HoldsGroups); break;
+            case RenameGroupIntent ra when b is RenameGroupIntent rb:
+                Assert.Equal(ra.GroupId, rb.GroupId);
+                Assert.Equal(ra.Name, rb.Name); break;
+            case SetGroupParentIntent sa when b is SetGroupParentIntent sb:
+                Assert.Equal(sa.GroupId, sb.GroupId);
+                Assert.Equal(sa.ParentId, sb.ParentId); break;
+            case AddToGroupIntent aa when b is AddToGroupIntent ab:
+                Assert.Equal(aa.GroupId, ab.GroupId);
+                Assert.Equal(aa.UnitIds, ab.UnitIds); break;
+            case DeleteGroupIntent dga when b is DeleteGroupIntent dgb:
+                Assert.Equal(dga.GroupId, dgb.GroupId); break;
             case TrainUnitIntent ta when b is TrainUnitIntent tb:
                 Assert.Equal(ta.UnitId, tb.UnitId);
                 Assert.Equal(ta.NewRole, tb.NewRole); break;

@@ -1628,3 +1628,36 @@ and per shelter completion.
 
 **Snapshot v47.** A unit row gains the rest-heal anchor (nullable tick, nullable seq) after the
 death anchor.
+
+## M46 Phase A — groups as records (2026-10-02, `docs/m46-groups-spec.md`)
+
+**New state.**
+- `GameWorld.NextGroupId`: the group id counter.
+- On each group: `Name`, `Kind` (units / groups), `ParentId` and `Children`.
+- `GroupState.Dismissed` (4).
+
+**Mutation points.**
+- `NextGroupId` is written only by `GroupRules.NewId` and by `Snapshot.ReadGroups`. `NewId` throws if
+  the counter points at a taken id: fail loudly, never reuse.
+- `ParentId` and `Children` are written only together, by `GroupRules.SetParent` and
+  `GroupRules.Remove`.
+- `Name` is written by `CreateGroupIntent` and `RenameGroupIntent`, always through `GroupRules.CleanName`.
+- `PendingArrivals` comes down only through `GroupRules.OneLessPending`. It is called from:
+  - `Walk.NoteWalkEnded`: a walk finished, or a halted walk that had an errand.
+  - `CombatRules.OnUnitDeath`: a member that died while walking with an errand.
+
+  Before M46, a death never decremented the count, and a halted `Forming` member never did either. The
+  group then stayed `Forming` or `Moving` for ever. Pinned by `GroupPendingArrivalTests`.
+- A group whose last member dies is **kept**. Only `DeleteGroupIntent` and `DisbandGroupIntent` (through
+  `GroupRules.Remove`) take a group out of `world.Groups`.
+
+**Pure reads.**
+- `GroupRules.UnderCommand`: the single predicate behind the solo-work gates, which used to be
+  `GroupId is not null`. The route-crew gate keeps membership until M47.
+- `GroupRules.Depth`, `GroupRules.Height`, `GroupRules.JoinRefusal`, `GroupRules.ParentRefusal`.
+
+**No anchors.** Phase A schedules nothing.
+
+**Snapshot v48.** The groups block opens with `NextGroupId`. Each row gains its name, kind, parent and
+children (ascending) after its members. Pinned by `GroupRecordTests.Snapshot_RoundTripsTheRecord` and
+`TwinRun_SameHash`.

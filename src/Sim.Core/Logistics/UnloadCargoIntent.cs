@@ -13,7 +13,7 @@ namespace Sim.Core.Logistics;
 //   * Unit exists and is owned by PlayerId.
 //   * Unit is carrying cargo (CargoAmount > 0).
 //   * Unit is Idle (retask before unloading — same discipline as TrainUnitIntent).
-//   * Unit is not in a group / embarked.
+//   * Unit is not under its group's command / embarked.
 //
 // M36 — cargo can be mixed, and the unload can be TARGETED:
 //   * Resource = None (the default): empty everything, as above. Each
@@ -43,7 +43,7 @@ public sealed class UnloadCargoIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} does not exist");
         if (unit.OwnerId != PlayerId)
             return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
-        if (unit.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, unit))
             return IntentOutcome.Reject($"unit {UnitId} is in a group");
         if (unit.IsEmbarked)
             return IntentOutcome.Reject($"unit {UnitId} is embarked");

@@ -11,7 +11,8 @@ namespace Sim.Core.Groups;
 //       - For each Forming member walking solo, Unit.BumpEpoch() →
 //         their MoveArrivalEvents fence and the walk stops at next pop.
 //     The members stay wherever the previous arrival left them.
-//   * Group removed from world.Groups.
+//   * Group removed from world.Groups (GroupRules.Remove, shared with
+//     DeleteGroupIntent).
 public sealed class DisbandGroupIntent : Intent
 {
     public int GroupId { get; }
@@ -27,14 +28,9 @@ public sealed class DisbandGroupIntent : Intent
         if (group.OwnerId != PlayerId)
             return IntentOutcome.Reject($"group {GroupId} not owned by player {PlayerId}");
 
-        // Drop every member's walk (a Moving group's march or a Forming member's
-        // rendezvous walk); they stay wherever they are.
-        group.BumpEpoch();
-        MoveGroupIntent.Halt(sim, group);
-        foreach (var memberId in group.Members)
-            if (world.Units.TryGetValue(memberId, out var unit)) unit.GroupId = null;
-
-        world.Groups.Remove(GroupId);
+        // M46: Disband is Delete (kept so old intent logs replay). Every member's walk
+        // drops and they stay wherever they are; children move to the top level.
+        GroupRules.Remove(sim, group);
         return IntentOutcome.Applied;
     }
 

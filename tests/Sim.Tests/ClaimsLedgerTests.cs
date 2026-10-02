@@ -146,10 +146,17 @@ public class ClaimsLedgerTests
         Assert.False(ClaimLedger.IsDormant(world, unit));
         Assert.True(unit.TrySetActivity(Activity.Idle));
 
-        // Grouped — members move as one; not individually available.
+        // Under its group's command — members move as one; not individually
+        // available. A DISMISSED group's member is free (M46): membership alone
+        // blocks nothing.
+        var group = new Sim.Core.Groups.Group(3) { OwnerId = unit.OwnerId, State = Sim.Core.Groups.GroupState.Idle };
+        world.Groups[3] = group;
         unit.GroupId = 3;
         Assert.False(ClaimLedger.IsDormant(world, unit));
+        group.State = Sim.Core.Groups.GroupState.Dismissed;
+        Assert.True(ClaimLedger.IsDormant(world, unit));
         unit.GroupId = null;
+        world.Groups.Remove(3);
 
         // A SCHEDULED death is not death. Every genesis unit carries a
         // pre-rolled DeathTick (the old-age date) from tick 0; actual death

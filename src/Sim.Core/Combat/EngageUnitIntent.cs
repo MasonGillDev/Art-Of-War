@@ -49,7 +49,7 @@ public sealed class EngageUnitIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} is embarked");
         // Group movement is owned by the group, not the unit — a member
         // chasing off on its own would desync the formation.
-        if (unit.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, unit))
             return IntentOutcome.Reject($"unit {UnitId} is in group {unit.GroupId}");
         if (unit.CargoAmount > 0)
             return IntentOutcome.Reject(

@@ -38,7 +38,7 @@ public sealed class DispatchScoutIntent : Intent
             return IntentOutcome.Reject($"unit {ScoutUnitId} is not a Scout");
         if (scout.IsEmbarked)
             return IntentOutcome.Reject($"unit {ScoutUnitId} is embarked");
-        if (scout.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, scout))
             return IntentOutcome.Reject($"unit {ScoutUnitId} is in a group");
         if (scout.Activity != Activity.Idle)
             return IntentOutcome.Reject($"unit {ScoutUnitId} is busy ({scout.Activity})");

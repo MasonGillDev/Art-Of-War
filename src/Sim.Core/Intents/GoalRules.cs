@@ -156,7 +156,7 @@ public static class GoalRules
             case GoalKind.Equip:
             {
                 var item = (Resource)goal.Arg;
-                if (Sim.Core.Equipment.EquipRules.Blocker(unit, item) is { } why)
+                if (Sim.Core.Equipment.EquipRules.Blocker(sim.World, unit, item) is { } why)
                 {
                     Dissolve(sim, unit, why);
                     return;
@@ -184,7 +184,7 @@ public static class GoalRules
             case GoalKind.Loot:
             {
                 var res = (Resource)goal.Arg;
-                if (Sim.Core.Caches.CacheLooting.Blocker(unit, res) is { } why)
+                if (Sim.Core.Caches.CacheLooting.Blocker(sim.World, unit, res) is { } why)
                 {
                     Dissolve(sim, unit, why);
                     return;

@@ -34,7 +34,7 @@ public static class TrainingRules
         if (unit.Role is UnitRole.King or UnitRole.Heir)
             return $"is {unit.Role} — royalty is not a trade and cannot be retrained";
 
-        if (unit.GroupId is not null) return "in a group";
+        if (Sim.Core.Groups.GroupRules.UnderCommand(sim.World, unit)) return "under its group's command";
         if (unit.IsEmbarked) return "embarked";
         if (Population.GetActiveBreedingFor(sim.World, unit.Id) is not null) return "locked breeding";
         if (RoleTrainerCatalog.TrainerFor(newRole) is null)

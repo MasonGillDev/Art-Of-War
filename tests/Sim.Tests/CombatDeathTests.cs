@@ -13,7 +13,7 @@ namespace Sim.Tests;
 // what these pin, so they call it directly.)
 //   * Dying units are removed from world.Units.
 //   * Grouped units are removed from their group's Members.
-//   * A group hitting zero Members is attrition-disbanded.
+//   * A group hitting zero Members is KEPT, empty (M46: groups outlive their members).
 //   * A walk or a haul in flight fences cleanly when its unit is gone: the queued step
 //     and the pending pickup/deposit find no unit and do nothing (no crash, no silent
 //     state corruption).
@@ -73,7 +73,7 @@ public class CombatDeathTests
     }
 
     [Fact]
-    public void GroupAtZeroMembers_RemovedFromWorldGroups()
+    public void GroupAtZeroMembers_IsKept()
     {
         var tile = new TileCoord(10, 10);
         var sim = MakeScenario();
@@ -87,8 +87,10 @@ public class CombatDeathTests
 
         CombatRules.OnUnitDeath(sim, u1);
 
-        Assert.False(sim.World.Groups.ContainsKey(1),
-            "group should attrition-disband when its last member dies");
+        // M46 (docs/groups-first-class.md): a named group outlives its members so the
+        // player can refill it. Only DeleteGroupIntent removes a group.
+        Assert.True(sim.World.Groups.ContainsKey(1));
+        Assert.Empty(sim.World.Groups[1].Members);
     }
 
     [Fact]

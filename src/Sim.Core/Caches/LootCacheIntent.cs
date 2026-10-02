@@ -47,7 +47,7 @@ public sealed class LootCacheIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
         if (unit.Activity != Activity.Idle)
             return IntentOutcome.Reject($"unit {UnitId} is not Idle (current: {unit.Activity})");
-        if (CacheLooting.Blocker(unit, Resource) is { } why)
+        if (CacheLooting.Blocker(sim.World, unit, Resource) is { } why)
             return IntentOutcome.Reject($"unit {UnitId} {why}");
 
         var tile = CacheTile ?? unit.Position;

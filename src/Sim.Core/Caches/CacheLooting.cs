@@ -13,10 +13,10 @@ public static class CacheLooting
     //
     // These are checked at firing AND on arrival, because a walk across the map
     // takes game-days and a unit can pick up a load on the way.
-    public static string? Blocker(Unit unit, Resource resource)
+    public static string? Blocker(GameWorld world, Unit unit, Resource resource)
     {
         if (resource == Resource.None) return "no resource named";
-        if (unit.GroupId is not null) return "in a group";
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, unit)) return "under its group's command";
         if (unit.IsEmbarked) return "embarked";
         if (unit.CargoCapacity - unit.CargoAmount <= 0) return "no cargo space free";
         return null;
@@ -30,7 +30,7 @@ public static class CacheLooting
     public static int TryLoot(Simulation sim, Unit unit, Resource resource)
     {
         var world = sim.World;
-        if (Blocker(unit, resource) is not null) return 0;
+        if (Blocker(world, unit, resource) is not null) return 0;
         if (!world.Structures.TryGetValue(unit.Position, out var s) || s is not Cache cache) return 0;
 
         var space = unit.CargoCapacity - unit.CargoAmount;

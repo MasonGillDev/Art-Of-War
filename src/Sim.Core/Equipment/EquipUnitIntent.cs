@@ -52,7 +52,7 @@ public sealed class EquipUnitIntent : Intent
             return IntentOutcome.Reject($"unit {UnitId} not owned by player {PlayerId}");
         if (unit.Activity != Activity.Idle)
             return IntentOutcome.Reject($"unit {UnitId} is not Idle (current: {unit.Activity})");
-        if (EquipRules.Blocker(unit, Item) is { } why)
+        if (EquipRules.Blocker(sim.World, unit, Item) is { } why)
             return IntentOutcome.Reject($"unit {UnitId} {why}");
 
         var tile = StoreTile ?? unit.Position;

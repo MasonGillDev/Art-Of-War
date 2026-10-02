@@ -102,7 +102,7 @@ public static class EmbarkGoal
     {
         if (passenger.IsEmbarked) return "already aboard";
         if (passenger.Role == UnitRole.Boat) return "a boat cannot board a boat";
-        if (passenger.GroupId is not null) return "in a group";
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, passenger)) return "under its group's command";
         if (Sim.Core.Population.Population.GetActiveBreedingFor(world, passenger.Id) is not null)
             return "locked breeding";
         if (boat.PassengerCap <= 0) return "that hull carries nobody";

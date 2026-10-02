@@ -48,7 +48,7 @@ public sealed class HaulIntent : Intent
             return IntentOutcome.Reject($"hauler {HaulerId} does not exist");
         if (hauler.OwnerId != PlayerId)
             return IntentOutcome.Reject($"hauler {HaulerId} not owned by player {PlayerId}");
-        if (hauler.GroupId is not null)
+        if (Sim.Core.Groups.GroupRules.UnderCommand(world, hauler))
             return IntentOutcome.Reject($"hauler {HaulerId} is in group {hauler.GroupId}");
         if (hauler.IsEmbarked)
             return IntentOutcome.Reject($"hauler {HaulerId} is embarked on boat {hauler.EmbarkedOn}");
