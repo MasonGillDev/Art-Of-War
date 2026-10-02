@@ -68,6 +68,7 @@ public sealed class DisembarkIntent : Intent
             Sight.Reveal(world, p.OwnerId, p.Position, Sight.RadiusFor(p.Role), sim.Now);
             Sight.AfterReveal(sim, p.OwnerId, p.Position, Sight.RadiusFor(p.Role));   // M37/M38
             Sim.Core.Healing.Rest.ArmIfDormant(sim, p);   // landed on an own shelter (docs/unit-healing.md)
+            Sim.Core.Groups.GroupMuster.OnFreed(sim, p);   // M46: ashore, it answers its group's muster
         }
         boat.Passengers.Clear();
 

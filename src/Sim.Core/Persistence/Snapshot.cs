@@ -203,7 +203,12 @@ public static class Snapshot
     //       epoch — the lead path (count + subtile X,Y pairs; -1 = none), the lead
     //       index, the step anchor (nullable tick, nullable seq) and the stragglers
     //       (count + ids, ascending).
-    public const int FormatVersion = 49;
+    // v50 — M46 Phase D, muster and dismiss: each unit row gains its saved task (a
+    //       goal, after its survey); each extractor its held slots (count + ids,
+    //       ascending, after its refiner inputs); each group row its muster — the
+    //       awaited members (count + ids) and the places (count + id, X, Y; by id)
+    //       after its stragglers.
+    public const int FormatVersion = 50;
 
     public static string Hash(Simulation sim)
     {
@@ -1125,6 +1130,7 @@ public static class Snapshot
             // across the restart. docs/goal-shaped-intents.md.
             WriteGoal(bw, u.Goal);
             WriteSurvey(bw, u.Survey);               // M44 (v45)
+            WriteGoal(bw, u.SavedTask);              // M46 (v50)
             // M31 (v28): parentage. The dynasty's entire line question is a
             // pure read over these two, so losing them across a restore would
             // orphan every living child of the king.
@@ -1386,6 +1392,7 @@ public static class Snapshot
             var routeId = ReadNullableInt(br);      // M36 (v35)
             var goal = ReadGoal(br);                // M30 (v27)
             var survey = ReadSurvey(br);            // M44 (v45)
+            var savedTask = ReadGoal(br);           // M46 (v50)
             var parentA = ReadNullableInt(br);      // M31 (v28)
             var parentB = ReadNullableInt(br);
 
@@ -1402,6 +1409,7 @@ public static class Snapshot
             u.Pursuit  = pursuit;
             u.Goal     = goal;
             u.Survey   = survey;
+            u.SavedTask = savedTask;
             u.GroupId  = groupId;
             u.Health   = health;
             foreach (var b in buffs) u.Buffs.Add(b);
@@ -1611,6 +1619,9 @@ public static class Snapshot
         // v31: refiner input store. SortedDictionary → enum-ordinal order.
         bw.Write(e.Inputs.Count);
         foreach (var (r, amt) in e.Inputs) { bw.Write((byte)r); bw.Write(amt); }
+        // v50: held slots (M46).
+        bw.Write(e.HeldBy.Count);
+        foreach (var h in e.HeldBy) bw.Write(h);
     }
 
     private static Extractor ReadExtractor(BinaryReader br, Extractor e)
@@ -1628,6 +1639,8 @@ public static class Snapshot
             var r = (Resource)br.ReadByte();
             e.Inputs[r] = br.ReadInt32();
         }
+        var held = br.ReadInt32();   // v50
+        for (var i = 0; i < held; i++) e.HeldBy.Add(br.ReadInt32());
         return e;
     }
 
@@ -2638,6 +2651,12 @@ public static class Snapshot
             WriteNullableLong(bw, g.NextStepSeq);
             bw.Write(g.Stragglers.Count);
             foreach (var sid in g.Stragglers) bw.Write(sid);
+
+            // v50: the muster.
+            bw.Write(g.Awaiting.Count);
+            foreach (var aid in g.Awaiting) bw.Write(aid);
+            bw.Write(g.MusterPlaces.Count);
+            foreach (var (pid, place) in g.MusterPlaces) { bw.Write(pid); bw.Write(place.X); bw.Write(place.Y); }
         }
     }
 
@@ -2682,6 +2701,13 @@ public static class Snapshot
             var stragglerCount = br.ReadInt32();
             var stragglers = new int[stragglerCount];
             for (var k = 0; k < stragglerCount; k++) stragglers[k] = br.ReadInt32();
+            var awaitingCount = br.ReadInt32();         // v50
+            var awaiting = new int[awaitingCount];
+            for (var k = 0; k < awaitingCount; k++) awaiting[k] = br.ReadInt32();
+            var placeCount = br.ReadInt32();
+            var places = new List<(int, Sim.Core.Battlefields.WorldSubtile)>(placeCount);
+            for (var k = 0; k < placeCount; k++)
+                places.Add((br.ReadInt32(), new Sim.Core.Battlefields.WorldSubtile(br.ReadInt32(), br.ReadInt32())));
 
             var g = new Group(id) { OwnerId = ownerId, Kind = kind, Name = name, ParentId = parentId };
             foreach (var m in memberIds) g.Members.Add(m);
@@ -2697,6 +2723,8 @@ public static class Snapshot
             g.NextStepTick = stepTick;
             g.NextStepSeq = stepSeq;
             foreach (var sid in stragglers) g.Stragglers.Add(sid);
+            foreach (var aid in awaiting) g.Awaiting.Add(aid);
+            foreach (var (pid, place) in places) g.MusterPlaces[pid] = place;
 
             world.Groups[id] = g;
         }

@@ -118,9 +118,8 @@ public sealed class SetGroupParentIntent : Intent
     public override string Describe() => $"SetGroupParentIntent(group={GroupId}, parent={ParentId?.ToString() ?? "none"})";
 }
 
-// Units join a leaf group, all or nothing. Joining a group under command (calling the
-// newcomer to it) arrives with the muster in Phase D; until then the group must be
-// dismissed.
+// Units join a leaf group, all or nothing. Joining a group under command calls the
+// newcomers to it (GroupMuster.CallIn); a marching group takes nobody until it stops.
 public sealed class AddToGroupIntent : Intent
 {
     public int GroupId { get; }
@@ -142,8 +141,8 @@ public sealed class AddToGroupIntent : Intent
             return IntentOutcome.Reject($"group {GroupId} not owned by player {PlayerId}");
         if (group.Kind != GroupKind.Units)
             return IntentOutcome.Reject($"group {GroupId} holds groups, not units");
-        if (group.State != GroupState.Dismissed)
-            return IntentOutcome.Reject($"group {GroupId} is under command; dismiss it first");
+        if (group.State == GroupState.Moving)
+            return IntentOutcome.Reject($"group {GroupId} is marching; add to it when it stops");
         if (UnitIds.Count == 0)
             return IntentOutcome.Reject("no units named");
         if (UnitIds.Distinct().Count() != UnitIds.Count)
@@ -157,6 +156,8 @@ public sealed class AddToGroupIntent : Intent
             group.Members.Add(id);
             world.Units[id].GroupId = group.Id;
         }
+        if (group.State != GroupState.Dismissed)
+            GroupMuster.CallIn(sim, group, UnitIds.Select(id => world.Units[id]).ToList());
         return IntentOutcome.Applied;
     }
 

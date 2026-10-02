@@ -9,9 +9,9 @@ namespace Sim.Core.Groups;
 // stands in its place.
 //
 // Retasking a Moving group drops the march under way (the epoch bump and the dropped
-// anchor fence its pending step) and plans afresh from where the lead is. Forming
-// groups cannot be moved: they are in their walk-to-rendezvous integrity period. The
-// player waits or Disbands.
+// anchor fence its pending step) and plans afresh from where the lead is. A group still
+// mustering (Forming) may be moved: who has arrived marches, members finishing a job
+// follow when free. A group of groups moves as its companies, each its own column.
 public sealed class MoveGroupIntent : Intent
 {
     public int GroupId { get; }
@@ -32,28 +32,37 @@ public sealed class MoveGroupIntent : Intent
             return IntentOutcome.Reject($"group {GroupId} does not exist");
         if (group.OwnerId != PlayerId)
             return IntentOutcome.Reject($"group {GroupId} not owned by player {PlayerId}");
-        if (group.Kind != GroupKind.Units)
-            return IntentOutcome.Reject($"group {GroupId} holds groups; muster it instead");
-        if (group.State == GroupState.Dismissed)
-            return IntentOutcome.Reject($"group {GroupId} is dismissed; muster it first");
-        if (group.State == GroupState.Forming)
-            return IntentOutcome.Reject($"group {GroupId} is still forming");
         if (!world.Grid.InBounds(Destination))
             return IntentOutcome.Reject(
                 $"destination {Destination.X},{Destination.Y} out of bounds");
 
-        if (group.Position == Destination && group.State != GroupState.Moving)
-            return IntentOutcome.Applied;   // already there
+        // A group of groups moves as its companies, each its own column (M46).
+        var leaves = GroupMuster.Leaves(world, group);
+        if (leaves.Count == 0)
+            return IntentOutcome.Reject($"group {GroupId} has no companies to move");
+        if (leaves.Any(l => l.State == GroupState.Dismissed))
+            return IntentOutcome.Reject($"group {GroupId} is dismissed; muster it first");
 
         // Plan before touching anything: a refusal mutates nothing.
-        if (GroupMarch.Plan(world, group, Destination, sim.Now) is not { } path)
-            return IntentOutcome.Reject(
-                $"no path for group {GroupId} from {group.Position.X},{group.Position.Y} " +
-                $"to {Destination.X},{Destination.Y}");
+        var plans = new List<(Group Leaf, List<Sim.Core.Battlefields.WorldSubtile> Path)>();
+        foreach (var leaf in leaves)
+        {
+            if (leaf.Position == Destination && leaf.State == GroupState.Idle) continue;   // already there
+            if (GroupMarch.Plan(world, leaf, Destination, sim.Now) is not { } path)
+                return IntentOutcome.Reject(
+                    $"no path for group {leaf.Id} from {leaf.Position.X},{leaf.Position.Y} " +
+                    $"to {Destination.X},{Destination.Y}");
+            plans.Add((leaf, path));
+        }
 
-        Halt(sim, group);
-        group.BumpEpoch();
-        GroupMarch.Begin(sim, group, path);
+        // A group still mustering is moved too: who has arrived marches, the rest follow.
+        foreach (var (leaf, path) in plans)
+        {
+            Halt(sim, leaf);
+            leaf.BumpEpoch();
+            GroupMarch.Begin(sim, leaf, path);
+        }
+        if (group.Kind == GroupKind.Groups) group.Position = Destination;
         return IntentOutcome.Applied;
     }
 
@@ -62,11 +71,14 @@ public sealed class MoveGroupIntent : Intent
     internal static void Halt(Simulation sim, Group group)
     {
         GroupMarch.DropColumn(sim.World, group);
+        // A member finishing a job (a hauler delivering) carries on with it.
         foreach (var id in group.Members)
-            if (sim.World.Units.TryGetValue(id, out var m)) Walk.Stop(m);
+            if (sim.World.Units.TryGetValue(id, out var m) && GroupMuster.Busy(sim.World, m) is null) Walk.Stop(m);
         group.PathFinalDest = null;
         group.PendingArrivals = 0;
-        if (group.State == GroupState.Moving) group.State = GroupState.Idle;
+        if (group.State is GroupState.Moving or GroupState.Forming) group.State = GroupState.Idle;
+        group.RendezvousTile = null;
+        group.Awaiting.Clear();
     }
 
     public override string Describe() =>

@@ -45,9 +45,16 @@ public sealed class Group
 
     public GroupState State { get; set; } = GroupState.Idle;
 
-    // ---- Forming integrity state ----
+    // ---- Forming integrity state (the muster) ----
     // Non-null only while State == Forming; nulled out on transition to Idle.
     public TileCoord? RendezvousTile { get; set; }
+    // M46 Phase D — while Forming: the members the muster still waits for (walking
+    // to their places, or finishing a job first). Empty → Idle. GroupMuster.
+    public SortedSet<int> Awaiting { get; } = new();
+    // Each member's place in the muster's block (FormationLayout), kept until the
+    // group is dismissed so a member that finishes its job late knows where to go.
+    // A member with no entry had no room within reach.
+    public SortedDictionary<int, Sim.Core.Battlefields.WorldSubtile> MusterPlaces { get; } = new();
     // Members whose walk for the group's current order (the rendezvous while Forming,
     // the destination while Moving) hasn't ended. GroupRules.OneLessPending takes a
     // member off: its walk finished, was halted, or it died on the way.

@@ -186,6 +186,14 @@ public sealed class Extractor : Structure
 
     // Id-sorted so snapshot canonicalization is order-stable.
     public SortedSet<int> Workers { get; } = new();
+
+    // M46 — HELD slots (docs/m46-groups-spec.md, rule 8): workers called away to a
+    // group's muster keep their place. A held slot counts against WorkerCap for the
+    // automation's staffing count and produces nothing; the worker takes it back on
+    // dismiss. An explicit AssignWorkersIntent may take it (the player's choice wins),
+    // which cancels the absent unit's saved task. Written by GroupMuster, WorkAssignment
+    // and AssignWorkersIntent; a death clears its own entry.
+    public SortedSet<int> HeldBy { get; } = new();
     public int Buffer { get; set; }
     public long LastProductionTick { get; set; }
     // True iff a ProductionTick is currently scheduled. When the buffer fills

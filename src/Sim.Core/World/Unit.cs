@@ -170,6 +170,14 @@ public sealed class Unit
     // rejects it. See Pursuit.cs and docs/patrols.md.
     public Pursuit? Pursuit { get; set; }
 
+    // ---- M46 saved task ----
+    // What this unit was doing when its group mustered, as the errand that puts it
+    // back: an AssignWorker goal for a held work slot, an AssignBuilder goal for a
+    // build, or the goal it was walking to. Re-issued through GoalRules on dismiss;
+    // cleared then, on death, and when the player gives its held slot away.
+    // Written only by GroupMuster and AssignWorkersIntent.
+    public GoalPlan? SavedTask { get; set; }
+
     // ---- M5 group membership ----
     // The leaf group this unit belongs to (at most one). Set by Create/AddTo/
     // FormGroupIntent; cleared by Delete/DisbandGroupIntent. Membership alone

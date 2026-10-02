@@ -435,6 +435,7 @@ public static class Battlefields
         if (u.PathFinalDest is not null) Walk.Resume(sim, u);
         else Walk.Settle(sim, u);
         GroupMarch.WakeColumns(sim);   // its group's column may march on (M46)
+        GroupMuster.OnFreed(sim, u);   // out of the fight, it answers its group's muster
         return true;
     }
 
@@ -449,17 +450,22 @@ public static class Battlefields
         var world = sim.World;
         world.Battlefields.Remove(bf.Tile);
         var resume = new List<Unit>();
+        var freed = new List<Unit>();
         foreach (var u in world.Units.Values)
         {
             if (u.Board is not { } s || s.Tile != bf.Tile) continue;
             u.Board = null;
+            freed.Add(u);
             if (u.PathFinalDest is not null) resume.Add(u);
         }
         // The walk each was on carries on from where it stands; any errand without one resumes.
         foreach (var u in resume) Walk.Resume(sim, u);
         CombatRules.ResumeInterrupted(sim, bf.Tile);
-        // A group whose column waited on this fight marches on (M46: pause, not halt).
+        // A group whose column waited on this fight marches on (M46: pause, not halt), and a
+        // member that was fighting when its group mustered answers now.
         GroupMarch.WakeColumns(sim);
+        foreach (var u in freed)
+            if (world.Units.ContainsKey(u.Id)) GroupMuster.OnFreed(sim, u);
         // Survivors standing on their own shelter start to heal (docs/unit-healing.md).
         Sim.Core.Healing.Rest.ArmAllOn(sim, bf.Tile);
         // A waiting enemy reopens the tile; attackers left alone with a

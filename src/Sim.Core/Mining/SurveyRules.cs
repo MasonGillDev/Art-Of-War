@@ -61,6 +61,7 @@ public static class SurveyRules
         Walk.Stop(unit);
         unit.TrySetActivity(Activity.Idle);
         sim.Schedule(sim.Now, new SurveyReportEvent(unit.Id, unit.OwnerId, plan.Target, null, reason));
+        Sim.Core.Groups.GroupMuster.OnFreed(sim, unit);   // M46
     }
 
     // The dig is done. Sweep the Mountain tiles within SurveyRadius of the
@@ -104,5 +105,6 @@ public static class SurveyRules
         unit.Survey = null;
         unit.TrySetActivity(Activity.Idle);
         sim.Schedule(sim.Now, new SurveyReportEvent(unit.Id, owner, plan.Target, found, null));
+        Sim.Core.Groups.GroupMuster.OnFreed(sim, unit);   // M46: the survey done, it answers its group's muster
     }
 }

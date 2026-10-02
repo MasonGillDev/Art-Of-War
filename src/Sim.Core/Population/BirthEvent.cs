@@ -82,6 +82,9 @@ public sealed class BirthEvent : ScheduledEvent
             pb.TrySetActivity(Activity.Idle);
 
         house.Occupation = null;
+        // M46: freed parents answer their groups' musters.
+        if (pa is not null) Sim.Core.Groups.GroupMuster.OnFreed(sim, pa);
+        if (pb is not null) Sim.Core.Groups.GroupMuster.OnFreed(sim, pb);
     }
 
     public override string Describe() => $"Birth(@ {HouseTile.X},{HouseTile.Y})";

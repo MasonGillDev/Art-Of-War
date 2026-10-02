@@ -47,15 +47,17 @@ public class GroupFormationTests
         world.AddUnit(new Unit(3, rendezvous)         { Role = UnitRole.Builder });
 
         sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2, 3 }, rendezvous));
-        // After resolution: group exists at Forming; pending = 2 (units 1+2);
-        // unit 3 is already at rendezvous and contributes nothing.
+        // After resolution: the group is Forming (M46: a muster at the rendezvous) and
+        // waits for the two members walking in. Unit 3 stands on the rendezvous tile; it
+        // may still take a step to its own place in the block.
         sim.Run(until: 0);
         Assert.Equal(GroupState.Forming, world.Groups[1].State);
-        Assert.Equal(2, world.Groups[1].PendingArrivals);
+        Assert.Contains(1, world.Groups[1].Awaiting);
+        Assert.Contains(2, world.Groups[1].Awaiting);
 
         sim.Run();
         Assert.Equal(GroupState.Idle, world.Groups[1].State);
-        Assert.Equal(0, world.Groups[1].PendingArrivals);
+        Assert.Empty(world.Groups[1].Awaiting);
         Assert.Null(world.Groups[1].RendezvousTile);
         Assert.Equal(rendezvous, world.Units[1].Position);
         Assert.Equal(rendezvous, world.Units[2].Position);

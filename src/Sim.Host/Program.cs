@@ -490,62 +490,69 @@ static class AutomationDemo
     }
 }
 
-// M5 â€” Group lifecycle demo. Two scattered builders Form at a rendezvous,
-// MoveGroup to a distant tile, Disband. Prints state transitions, asserts
-// twin-run hash equality and snapshot round-trip on the final state.
+// M46 — Group lifecycle demo (docs/m46-groups-spec.md). An army of two companies — six
+// scattered soldiers and a farmer at work — is created, mustered (the farmer leaves his
+// farm and keeps its slot), marched in formation, and dismissed (the farmer goes back to
+// work). Prints each step, then asserts twin-run hash equality and a snapshot round-trip.
 static class GroupDemo
 {
     public static void Run()
     {
+        var farmAt = new TileCoord(3, 9);
+        var musterAt = new TileCoord(12, 6);
+        var marchTo = new TileCoord(17, 9);
+
         Simulation Build()
         {
-            var grid = new TileGrid(12, 12, Biome.Grassland);
+            var grid = new TileGrid(20, 12, Biome.Grassland);
             var world = new GameWorld(grid);
             world.Players[0] = new Player(0);
             world.AddStructure(new Castle(new TileCoord(6, 6)) { OwnerId = 0 });
-            world.AddUnit(new Unit(1, new TileCoord(1, 1)) { Role = UnitRole.Builder });
-            world.AddUnit(new Unit(2, new TileCoord(10, 10)) { Role = UnitRole.Builder });
+            world.AddStructure(new Extractor(StructureKind.Farm, farmAt) { OwnerId = 0 });
+            world.AddUnit(new Unit(1, farmAt) { Role = UnitRole.Farmer });
+            for (var id = 2; id <= 7; id++)
+                world.AddUnit(new Unit(id, new TileCoord(id, 1 + id % 3)) { Role = UnitRole.Soldier });
             return new Simulation(world, seed: 0xC0DE);
         }
 
+        void Script(Simulation sim, bool talk)
+        {
+            void Say(string line) { if (talk) Console.WriteLine(line); }
+            var world = sim.World;
+            sim.SubmitIntent(0, new AssignWorkersIntent(farmAt, new[] { 1 }));
+            sim.SubmitIntent(0, new CreateGroupIntent("Army", Array.Empty<int>(), holdsGroups: true));
+            sim.SubmitIntent(0, new CreateGroupIntent("Guard", new[] { 2, 3, 4, 5, 6, 7 }, parentId: 1));
+            sim.SubmitIntent(0, new CreateGroupIntent("Militia", new[] { 1 }, parentId: 1));
+            sim.Run(until: 0);
+            Say($"Created: Army {{ Guard (6 soldiers), Militia (farmer 1) }}; farmer 1 is {world.Units[1].Activity}");
+
+            sim.SubmitIntent(sim.Now, new MusterGroupIntent(1, musterAt));
+            sim.Run(until: sim.Now);
+            var farm = (Extractor)world.Structures[farmAt];
+            Say($"Muster → {musterAt.X},{musterAt.Y}: farm workers [{string.Join(",", farm.Workers)}], held [{string.Join(",", farm.HeldBy)}]; farmer's saved task {world.Units[1].SavedTask?.Kind}");
+            while (world.Groups[2].State != GroupState.Idle || world.Groups[3].State != GroupState.Idle) sim.Run(until: sim.Now + 10);
+            var p = GroupMuster.Progress(world, world.Groups[1]);
+            Say($"  Formed at tick {sim.Now}: {p.Here} here, {p.OnTheWay} on the way");
+
+            sim.SubmitIntent(sim.Now, new MoveGroupIntent(1, marchTo));
+            sim.Run(until: sim.Now);
+            while (world.Groups[2].State != GroupState.Idle || world.Groups[3].State != GroupState.Idle) sim.Run(until: sim.Now + 10);
+            Say($"March → {marchTo.X},{marchTo.Y}: arrived at tick {sim.Now}; members at " +
+                string.Join(" ", Enumerable.Range(1, 7).Select(id => $"{id}:{world.Units[id].Position.X},{world.Units[id].Position.Y}")));
+
+            sim.SubmitIntent(sim.Now, new DismissGroupIntent(1));
+            sim.Run(until: sim.Now + 3000);
+            Say($"Dismiss: farmer 1 is {world.Units[1].Activity} at {world.Units[1].Position.X},{world.Units[1].Position.Y}; farm workers [{string.Join(",", farm.Workers)}], held [{string.Join(",", farm.HeldBy)}]");
+            Say($"  Groups kept: {string.Join(", ", world.Groups.Values.Select(g => $"{g.Name} ({g.State})"))}");
+        }
+
+        Console.WriteLine("--- Group Demo (M46) ---");
         var sim = Build();
-        var rendezvous = new TileCoord(6, 1);
-
-        Console.WriteLine("--- Group Demo ---");
-        Console.WriteLine($"Unit 1 starts at {sim.World.Units[1].Position.X},{sim.World.Units[1].Position.Y}");
-        Console.WriteLine($"Unit 2 starts at {sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
-        Console.WriteLine($"FormGroup â†’ rendezvous {rendezvous.X},{rendezvous.Y}");
-
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
-        sim.Run(until: 0);
-        Console.WriteLine($"  After resolve: state={sim.World.Groups[1].State}, pending={sim.World.Groups[1].PendingArrivals}");
-
-        sim.Run();
-        Console.WriteLine($"  After rendezvous walks: state={sim.World.Groups[1].State}, position={sim.World.Groups[1].Position.X},{sim.World.Groups[1].Position.Y}");
-
-        var destination = new TileCoord(6, 10);
-        Console.WriteLine($"MoveGroup â†’ {destination.X},{destination.Y}");
-        sim.SubmitIntent(sim.Now, new MoveGroupIntent(1, destination));
-        sim.Run();
-        Console.WriteLine($"  After move: state={sim.World.Groups[1].State}, position={sim.World.Groups[1].Position.X},{sim.World.Groups[1].Position.Y}");
-        Console.WriteLine($"  Member positions: U1={sim.World.Units[1].Position.X},{sim.World.Units[1].Position.Y}; U2={sim.World.Units[2].Position.X},{sim.World.Units[2].Position.Y}");
-
-        Console.WriteLine("DisbandGroup");
-        sim.SubmitIntent(sim.Now, new DisbandGroupIntent(1));
-        sim.Run();
-        Console.WriteLine($"  Group exists? {sim.World.Groups.ContainsKey(1)}");
-        Console.WriteLine($"  U1.GroupId={sim.World.Units[1].GroupId?.ToString() ?? "null"}; U2.GroupId={sim.World.Units[2].GroupId?.ToString() ?? "null"}");
+        Script(sim, talk: true);
         Console.WriteLine($"Final hash: {Snapshot.Hash(sim)}");
 
-        // Twin-run check.
         var sim2 = Build();
-        sim2.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
-        sim2.Run();
-        sim2.SubmitIntent(sim2.Now, new MoveGroupIntent(1, destination));
-        sim2.Run();
-        sim2.SubmitIntent(sim2.Now, new DisbandGroupIntent(1));
-        sim2.Run();
-
+        Script(sim2, talk: false);
         if (Snapshot.Hash(sim) != Snapshot.Hash(sim2))
         {
             Console.Error.WriteLine("DETERMINISM FAILURE in group demo");

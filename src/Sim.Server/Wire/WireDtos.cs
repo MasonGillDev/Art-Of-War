@@ -83,6 +83,10 @@ public class ViewDto
     // (docs/hauling-queue-and-routes.md). Owner-only, like Orders.
     public HaulQueueDto HaulQueue { get; set; } = new();
     public HaulRouteDto[] HaulRoutes { get; set; } = [];
+    // M46 — the viewer's own groups (docs/m46-groups-spec.md, "What the player sees"):
+    // the tree, each group's orders and its muster's state of play. Owner-only: an
+    // enemy's order of battle stays private, as GroupId does on a unit.
+    public GroupDto[] Groups { get; set; } = [];
     // M37 — the viewer's own omens (docs/progression.md): threats and arrivals
     // counting down or under way, and the outcome of any that ended in the
     // last OmenDto.RecentTicks. Owner-only. The milestones behind them and the
@@ -379,6 +383,34 @@ public sealed class HaulJobDto
     public int Haulers { get; set; }
 }
 
+// M46 — one of the viewer's groups.
+public sealed class GroupDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";       // "" = unnamed, show the number
+    public int Kind { get; set; }                // GroupKind: 1 units, 2 groups
+    public int ParentId { get; set; } = -1;      // -1 = top level
+    public int[] Children { get; set; } = [];    // a group of groups: its groups, ascending
+    public int[] Members { get; set; } = [];     // a group of units: its units, ascending
+    public int State { get; set; }               // GroupState: 1 forming, 2 idle, 3 moving, 4 dismissed
+    public int X { get; set; }                   // where the group is (the muster's anchor, the lead's tile)
+    public int Y { get; set; }
+    public int DestX { get; set; } = -1;         // where it is marching, -1 when it isn't
+    public int DestY { get; set; } = -1;
+    // The muster's state of play (GroupMuster.Progress), for the group and every group
+    // under it: here, on the way, finishing a job first (who and what), no room in reach.
+    public int Here { get; set; }
+    public int OnTheWay { get; set; }
+    public int NoRoom { get; set; }
+    public GroupFinishingDto[] Finishing { get; set; } = [];
+}
+
+public sealed class GroupFinishingDto
+{
+    public int UnitId { get; set; }
+    public string Why { get; set; } = "";        // "delivering", "fighting", "breeding", ...
+}
+
 public sealed class HaulRouteDto
 {
     public int Id { get; set; }
@@ -542,6 +574,12 @@ public sealed class UnitDto
     // 4 dismissed: a member of a dismissed group is free and takes solo orders).
     public int GroupState { get; set; }
 
+    // M46 — what this unit goes back to when its group is dismissed (Unit.SavedTask):
+    // a GoalKind (0 = nothing saved) and the building's tile. Own units only.
+    public int SavedTaskKind { get; set; }
+    public int SavedTaskX { get; set; } = -1;
+    public int SavedTaskY { get; set; } = -1;
+
     // M30 — THE VISIBILITY CONTRACT (docs/goal-shaped-intents.md). Goal-shaped
     // intents move work off the player's memory and into the sim; if the sim
     // then says nothing about that work, appointment-anxiety is simply traded
@@ -656,6 +694,7 @@ public sealed class StructDto
     public ResAmtDto[] Holdings { get; set; } = [];  // storage holdings / extractor buffer / site materials delivered
     public int Capacity { get; set; }                 // storage capacity / extractor buffer cap (0 if N/A)
     public int Workers { get; set; }                  // extractor: workers assigned
+    public int HeldSlots { get; set; }                // extractor (M46): slots held for workers away at a muster; own only
     public int WorkerCap { get; set; }                // extractor: worker cap
     public ResAmtDto[] Needed { get; set; } = [];     // construction site: build cost
     public int TargetKind { get; set; }               // construction site: what it becomes

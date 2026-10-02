@@ -286,7 +286,7 @@ public static class Walk
     internal static void NoteWalkEnded(Simulation sim, Unit unit)
     {
         if (unit.GroupId is { } gid && sim.World.Groups.TryGetValue(gid, out var group))
-            GroupRules.OneLessPending(group);
+            GroupRules.OneLessPending(sim, group, unit);
     }
 
     // ---- where a walk ends ----------------------------------------------------------------

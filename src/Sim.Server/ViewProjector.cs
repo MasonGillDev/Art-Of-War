@@ -638,6 +638,7 @@ public sealed class ViewProjector
         var crewStates = new Dictionary<(int, int), Hauling.RouteCrewReport>();
         if (driver is not null)
             foreach (var c in driver.CrewReports) crewStates[(c.RouteId, c.CrewId)] = c;
+        dto.Groups = world.Groups.Values.Where(g => g.OwnerId == playerId).Select(g => ToGroupDto(world, g)).ToArray();
         dto.HaulRoutes = world.HaulRoutes.Values.Where(r => r.OwnerId == playerId)
             .Select(r => new HaulRouteDto
             {
@@ -916,6 +917,9 @@ public sealed class ViewProjector
             // read the enemy's order of battle off the map.
             GroupId = mine ? u.GroupId ?? -1 : -1,
             GroupState = mine ? GroupStateOf(u, world) : 0,
+            SavedTaskKind = mine ? (int)(u.SavedTask?.Kind ?? 0) : 0,
+            SavedTaskX = mine ? u.SavedTask?.TargetTile.X ?? -1 : -1,
+            SavedTaskY = mine ? u.SavedTask?.TargetTile.Y ?? -1 : -1,
             // M31 — crown / heir tag. Derived, own units only.
             Royal = mine ? RoyalTagOf(u, world) : 0,
             Settled = mine && Sim.Core.Population.Housing.IsSettled(world, u, now),
@@ -1035,6 +1039,30 @@ public sealed class ViewProjector
         return "waiting";
     }
 
+    // M46 — one of the viewer's groups, with its muster's state of play. Pure read.
+    private static GroupDto ToGroupDto(GameWorld world, Sim.Core.Groups.Group g)
+    {
+        var progress = Sim.Core.Groups.GroupMuster.Progress(world, g);
+        return new GroupDto
+        {
+            Id = g.Id,
+            Name = g.Name,
+            Kind = (int)g.Kind,
+            ParentId = g.ParentId ?? -1,
+            Children = g.Children.ToArray(),
+            Members = g.Members.ToArray(),
+            State = (int)g.State,
+            X = g.Position.X,
+            Y = g.Position.Y,
+            DestX = g.PathFinalDest?.X ?? -1,
+            DestY = g.PathFinalDest?.Y ?? -1,
+            Here = progress.Here,
+            OnTheWay = progress.OnTheWay,
+            NoRoom = progress.NoRoom,
+            Finishing = progress.Finishing.Select(f => new GroupFinishingDto { UnitId = f.UnitId, Why = f.Why }).ToArray(),
+        };
+    }
+
     // The state of the group a unit belongs to, or 0 when it is in none. Pure read.
     private static int GroupStateOf(Unit u, GameWorld world) =>
         u.GroupId is { } gid && world.Groups.TryGetValue(gid, out var g) ? (int)g.State : 0;
@@ -1065,6 +1093,7 @@ public sealed class ViewProjector
         // M30 — the visibility contract, on the path clients actually use.
         var goalKind = 0; var goalState = ""; var goalX = -1; var goalY = -1;
         var groupState = 0;
+        var savedKind = 0; var savedX = -1; var savedY = -1;
         var royal = 0;
         var settled = false;
         var maxHealth = -1;
@@ -1076,6 +1105,7 @@ public sealed class ViewProjector
         {
             groupId = real.GroupId ?? -1;
             groupState = GroupStateOf(real, world);
+            if (real.SavedTask is { } saved) { savedKind = (int)saved.Kind; savedX = saved.TargetTile.X; savedY = saved.TargetTile.Y; }
             royal = RoyalTagOf(real, world);
             settled = Sim.Core.Population.Housing.IsSettled(world, real, now);
             maxHealth = Sim.Core.Combat.CombatRules.MaxHealth(real, now);
@@ -1113,6 +1143,9 @@ public sealed class ViewProjector
             DestY = destY,
             GroupId = groupId,
             GroupState = groupState,
+            SavedTaskKind = savedKind,
+            SavedTaskX = savedX,
+            SavedTaskY = savedY,
             Royal = royal,
             Settled = settled,
             GoalKind = goalKind,
@@ -1305,6 +1338,7 @@ public sealed class ViewProjector
                 dto.Capacity = ex.Spec.BufferCap;
                 dto.Workers = ex.Workers.Count;
                 dto.WorkerCap = ex.Spec.WorkerCap;
+                dto.HeldSlots = ex.HeldBy.Count;   // EnrichOwned: the owner's own
                 // Analytics: the rate the tick would spend, per day. Pure read.
                 if (ex.Spec.OutputResource != Resource.None)
                 {

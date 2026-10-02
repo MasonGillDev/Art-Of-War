@@ -1,13 +1,12 @@
 namespace Sim.Core.Groups;
 
-// Forms a Group from a set of units at a player-supplied rendezvous tile.
-// Submission-time validation rejects the whole intent if any member is
-// ineligible or unreachable (per locked decision: no partial formation).
+// Forms a Group from a set of units at a player-supplied rendezvous tile: since M46,
+// CreateGroupIntent and MusterGroupIntent in one (kept for old intent logs and the
+// one-click "form here"). Submission-time validation rejects the whole intent if any
+// member is ineligible or unreachable (per locked decision: no partial formation).
 //
-// On success, creates the Group at State=Forming, sets every member's
-// GroupId, and starts a walk (Walk.Begin) for each off-rendezvous member.
-// Each member finishing its walk at the rendezvous decrements PendingArrivals
-// (Walk.DispatchOnArrival); when zero, the group transitions to Idle.
+// The group is Forming while its members walk to their places in the block around the
+// rendezvous (GroupMuster); the last one in makes it Idle.
 //
 // Resolution-time re-validation per docs/intent-validation.md: members may
 // have died / been grouped by some other intent / moved between submission
@@ -67,44 +66,16 @@ public sealed class FormGroupIntent : Intent
                     $"unit {id} cannot reach rendezvous {RendezvousTile.X},{RendezvousTile.Y}");
         }
 
-        // All checks passed — create the group.
-        var groupId = GroupRules.NewId(world);
-        var group = new Group(groupId) { OwnerId = PlayerId };
-        group.Position = RendezvousTile;
-        group.RendezvousTile = RendezvousTile;
-
-        var pending = 0;
+        // All checks passed — create the group and muster it at the rendezvous (M46: one
+        // way to form up — each member walks to its own place in the block there).
+        var group = new Group(GroupRules.NewId(world)) { OwnerId = PlayerId, State = GroupState.Dismissed };
         foreach (var id in UnitIds)
         {
             group.Members.Add(id);
-            var unit = world.Units[id];
-            unit.GroupId = groupId;
-            if (unit.Position != RendezvousTile) pending++;
+            world.Units[id].GroupId = group.Id;
         }
-        group.PendingArrivals = pending;
-        group.State = pending == 0 ? GroupState.Idle : GroupState.Forming;
-        if (group.State == GroupState.Idle) group.RendezvousTile = null;
-
-        world.Groups[groupId] = group;
-
-        // Dispatch walks for off-rendezvous members, each to a subtile of its own. The group
-        // is in world.Groups BEFORE they start so the arrival dispatch can find it. A member
-        // that can't walk there doesn't leave the group waiting for it for ever.
-        var reserved = new HashSet<Sim.Core.Battlefields.WorldSubtile>();
-        foreach (var id in UnitIds)
-        {
-            var unit = world.Units[id];
-            if (unit.Position == RendezvousTile) continue;
-            unit.BumpEpoch();
-            Sim.Core.Movement.Walk.Begin(sim, unit, RendezvousTile, reserved);
-            if (!unit.IsWalking && unit.Position != RendezvousTile) group.PendingArrivals--;
-        }
-        if (group.State == GroupState.Forming && group.PendingArrivals <= 0)
-        {
-            group.State = GroupState.Idle;
-            group.RendezvousTile = null;
-            group.PendingArrivals = 0;
-        }
+        world.Groups[group.Id] = group;
+        GroupMuster.Muster(sim, group, RendezvousTile);
 
         return IntentOutcome.Applied;
     }

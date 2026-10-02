@@ -85,6 +85,12 @@ public sealed class AssignWorkersIntent : Intent
             }
         }
 
+        // M46 — the player's choice wins over a held slot (docs/m46-groups-spec.md, rule 8):
+        // when this order fills the building past its cap counting the slots held for
+        // workers away at a muster, the newest holds give way, and those workers' saved
+        // tasks are cancelled with a notice.
+        if (assigned + dispatched > 0) GiveAwayHeldSlots(sim, extractor);
+
         var armed = false;
         if (!extractor.TickArmed && extractor.Workers.Count > 0 && !extractor.BufferFull())
         {
@@ -96,6 +102,23 @@ public sealed class AssignWorkersIntent : Intent
             return IntentOutcome.Reject("no eligible workers and no production armed");
 
         return IntentOutcome.Applied;
+    }
+
+    private static void GiveAwayHeldSlots(Simulation sim, Extractor extractor)
+    {
+        var world = sim.World;
+        var taken = extractor.Workers.Count + GoalRules.PendingCountFor(world, extractor.At, GoalKind.AssignWorker);
+        while (extractor.HeldBy.Count > 0 && taken + extractor.HeldBy.Count > extractor.Spec.WorkerCap)
+        {
+            var holder = extractor.HeldBy.Max;
+            extractor.HeldBy.Remove(holder);
+            if (!world.Units.TryGetValue(holder, out var away)) continue;
+            if (away.SavedTask is { Kind: GoalKind.AssignWorker } task && task.TargetTile == extractor.At)
+            {
+                away.SavedTask = null;
+                sim.Schedule(sim.Now, new GoalDissolvedEvent(holder, GoalKind.AssignWorker, extractor.At, "its place was given to another"));
+            }
+        }
     }
 
     public override string Describe() =>

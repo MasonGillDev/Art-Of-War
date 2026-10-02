@@ -200,6 +200,7 @@ public static class Population
                 other.TrySetActivity(Activity.Idle);
             // Clear occupation → BirthEvent fences on next fire.
             house.Occupation = null;
+            if (other is not null) Sim.Core.Groups.GroupMuster.OnFreed(sim, other);   // M46: freed, it answers a muster
             // One house at most per parent; we can stop.
             return;
         }

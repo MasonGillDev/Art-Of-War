@@ -7,9 +7,9 @@ Spec: `docs/m46-groups-spec.md`. Decision: `docs/groups-first-class.md`.
 | A | Persistent record, id counter, tree, `UnderCommand`, v48 | Built |
 | B | `FormationLayout`: block, overflow across tiles | Built |
 | C | Formation march (the group walks) | Built |
-| D | Muster and dismiss with saved tasks and held slots | Not started |
-| E | Merge and split | Not started |
-| F | Wire and debug client | Not started |
+| D | Muster and dismiss with saved tasks and held slots | Built |
+| E | Merge and split | Built |
+| F | Wire (server side only) | Built |
 
 ## Phase A: what was built
 
@@ -121,3 +121,94 @@ Spec: `docs/m46-groups-spec.md`. Decision: `docs/groups-first-class.md`.
 - **An unseated member is not marched.** A unit standing on an over-full tile has no subtile. The game
   never creates one (spawns use `TileCapacity.RoomNear`), and the march leaves it out rather than guess
   where it is.
+
+## Phase D: what was built
+
+- **The intents.** `MusterGroupIntent(group, anchor)` and `DismissGroupIntent(group)`. Both cover the
+  group and every group under it.
+  - The anchor must be ground someone can stand on.
+  - `FormGroupIntent` is now "create, then muster at the rendezvous".
+- **The muster** (`GroupMuster.Muster`):
+  - One block is laid out for every leaf under the group: leaves in tree order, members in fill
+    order, so each company stands together.
+  - Each member saves its task and leaves it, or finishes first:
+
+    | What the member is doing | What happens |
+    |---|---|
+    | Working at an extractor | Leaves now. The slot is held (`Extractor.HeldBy`), and the saved task is an AssignWorker goal. |
+    | Building a site | Leaves now. The saved task is an AssignBuilder goal. |
+    | Walking to a job | The goal is saved and dissolved ("called to the muster"). |
+    | A chase, an empty haul trip, a plain walk | Dropped. |
+    | Delivering cargo, breeding, surveying, scouting, fighting, aboard a boat | Finishes first. `OnFreed` sends it on when it is done. |
+
+  - Each leaf is Forming until `Awaiting` is empty.
+- **Dismiss** (`GroupMuster.Dismiss`, `DismissLeaf`): each member's saved task is re-issued through
+  `GoalRules.Begin`.
+  - A worker's hold is released first; from then on its walking goal reserves the slot.
+  - A target that is gone sends a `GoalDissolvedEvent` ("nothing to go back to").
+  - `DeleteGroupIntent` dismisses a company before removing it.
+- **Held slots.**
+  - The staffing count (`PredicateEvaluator`) counts them.
+  - An explicit `AssignWorkersIntent` that overfills the building evicts the newest hold. That cancels
+    the absent worker's saved task, with a notice ("its place was given to another").
+- **Joining a group under command** (`AddToGroupIntent`) calls the newcomer to the group's block
+  (`GroupMuster.CallIn`). A marching group refuses newcomers until it stops.
+- **Moving.**
+  - `MoveGroupIntent` accepts a group that is still mustering: who has arrived marches.
+  - A member finishing a job becomes a straggler. It follows to the destination once free, or to
+    where the group stands if it has already arrived.
+  - A group of groups moves as its companies, each its own column.
+  - `Halt` leaves a member that is finishing a job alone.
+- **Progress** (`GroupMuster.Progress`, a pure read): here, on the way, finishing (and what), no room.
+
+### Phase D: calls made while building
+
+- **A building job keeps no slot.** Construction sites have no builder cap, so there is nothing to
+  hold. The saved task alone brings the builder back.
+- **A chase is not a job.** A unit pursuing an enemy drops the chase and answers the muster. A unit
+  already fighting on a board finishes the fight.
+- **Two forming counts.** A Forming group tracks its members in `Awaiting`, a set, because a member
+  finishing a job may answer long after the muster. A Moving group keeps the `PendingArrivals`
+  count for its closing walks.
+- **A muster walk that ends short tries again.** A member whose walk to its place ends anywhere
+  else re-plans from where it stands. If there is no way, it is counted in where it is (no room in
+  reach).
+- **Delete dismisses a company first.** It doesn't dismiss the groups under a deleted parent: they
+  move to the top level and keep their own orders.
+- **Future intents are not in a snapshot.** The round-trip test submits the dismiss on both sides
+  of the restore. This matches the persistence model: intents live in the intent log.
+
+## Phase E: what was built
+
+- **`MergeGroupsIntent(from, into)`.** Both groups must hold the same kind of thing. Neither may be
+  marching. `from` is removed afterwards.
+  - Units take `into`'s orders. Into a dismissed group, members that were under command go back to
+    their saved tasks. Into a group under command, they are called to its block (`CallIn`).
+  - Groups of groups move their children, subject to the same cycle and depth checks as
+    `SetGroupParentIntent`.
+- **`SplitGroupIntent(group, units, newName?)`.** Without a name the units go solo. With a name they
+  form a new group under the same parent, starting dismissed. A group under command lets them go
+  (`GroupMuster.Release`): the muster stops waiting for them, they stop walking to the block, and they
+  go back to their saved tasks. A marching group splits once it has stopped.
+- `GroupRules.Discard` removes an emptied record without dismissing anyone (used by merge).
+
+## Phase F: what was built (server side only)
+
+The user asked that neither client be touched. `client/` is git-ignored and stale: it posts an
+intent shape the server no longer accepts. The production client is a separate project. Everything
+here is additive on the wire.
+
+- **`ViewDto.Groups`** (owner only), one `GroupDto` per group:
+  - id, name, kind, parent, children, members, state
+  - where the group is, and where it is marching
+  - the muster's progress: here, on the way, no room, and who is finishing a job and what job
+  - `ViewV2Dto` inherits it.
+- **`UnitDto.SavedTaskKind`, `SavedTaskX`, `SavedTaskY`** (own units only). Filled on both projection
+  paths (`ToUnitDto` from a `Unit`, and from a fogged `UnitView`).
+- **`StructDto.HeldSlots`** (own extractors, filled in `EnrichOwned`).
+- Pinned by `GroupWireTests`: own groups on the wire, other players' not, and the projection is a
+  pure read.
+
+## Not built yet (M47)
+
+Route groups, boats, stance and per-role doctrine (`docs/m46-groups-spec.md`, "Phases").

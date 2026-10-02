@@ -49,8 +49,10 @@ public class GroupMovementTests
     }
 
     [Fact]
-    public void Move_FormingGroup_Rejected()
+    public void Move_FormingGroup_IsAccepted_EveryoneArrives()
     {
+        // M46 (docs/m46-groups-spec.md, accepted defaults): an order to a group still
+        // mustering is taken; who has arrived marches and the rest fall in.
         var (sim, world) = MakeWorld();
         world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, new TileCoord(9, 9)) { Role = UnitRole.Builder });
@@ -59,12 +61,15 @@ public class GroupMovementTests
         // Group is Forming.
         var gid = world.Groups.Keys.Last();
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, new TileCoord(7, 7)));
-        // Resolve the MoveGroupIntent immediately, but stop before any
-        // member's arrival fires (which would transition Forming → Idle).
         sim.Run(until: sim.Now);
-        Assert.True(sim.ResolvedLog.OfType<IntentEvent>()
+        Assert.False(sim.ResolvedLog.OfType<IntentEvent>()
             .Last(e => e.Intent is MoveGroupIntent)
             .Outcome.IsRejected);
+
+        sim.Run();
+        Assert.Equal(GroupState.Idle, world.Groups[gid].State);
+        Assert.Equal(new TileCoord(7, 7), world.Units[1].Position);
+        Assert.Equal(new TileCoord(7, 7), world.Units[2].Position);
     }
 
     [Fact]

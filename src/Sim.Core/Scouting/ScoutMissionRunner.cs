@@ -65,6 +65,7 @@ public static class ScoutMissionRunner
                 // chart (docs/scouting-secrets.md). The only way a chart entry
                 // is born.
                 Charts.Deliver(sim, m);
+                Sim.Core.Groups.GroupMuster.OnFreed(sim, scout);   // M46: home, it answers its group's muster
                 return;
             }
             if (m.WaypointCursor >= m.Waypoints.Count - 1 || RecallRuleFired(sim, m))

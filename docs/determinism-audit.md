@@ -1701,3 +1701,62 @@ closes or a unit leaves one. It is bounded by the number of groups.
 **Pure reads.** `GroupMarch.Plan`.
 
 **Snapshot v49.** Each group row gains the march after its epoch.
+
+## M46 Phase D — muster and dismiss (2026-10-02, `docs/m46-status.md`)
+
+**New state.**
+- On each group: `Awaiting` (the members the muster still waits for) and `MusterPlaces` (each member's
+  place in the block).
+- `Unit.SavedTask`: the errand that puts the unit back to work.
+- `Extractor.HeldBy`: slots held for workers away at a muster.
+
+**Mutation points.**
+- `Awaiting` and `MusterPlaces` are written only by `GroupMuster` (`Muster`, `CallIn`, `Settle`,
+  `Drop`, `DismissLeaf`), by `MoveGroupIntent.Halt`, by `GroupRules.OneLessPending` (a death), and by
+  `Snapshot.ReadGroups`.
+- `Unit.SavedTask` is written by:
+  - `GroupMuster.SaveAndRelease` (set) and `Return` (cleared on dismiss)
+  - `AssignWorkersIntent.GiveAwayHeldSlots` (cleared: the slot was given away)
+  - `CombatRules.OnUnitDeath` (cleared)
+  - `Snapshot.ReadUnits`
+- `Extractor.HeldBy` is written by:
+  - `GroupMuster.SaveAndRelease` (add)
+  - `GroupMuster.Return` and `ReleaseHold` (remove)
+  - `AssignWorkersIntent.GiveAwayHeldSlots` (remove, newest first)
+  - `Snapshot.ReadExtractor`
+- **Readers that count a held slot.** `PredicateEvaluator.WorkerCount` (the staffing count) uses
+  `Workers + HeldBy`. Production, the arrival check (`WorkAssignment.TryAssignWorker`) and
+  `AssignWorkersIntent`'s free-slot check read `Workers` only. An explicit assignment can take a held
+  slot; the automation won't refill one.
+- **The end-of-job hook.** `GroupMuster.OnFreed` runs where a task that must finish first ends:
+  - `HaulDepositEvent` (a delivery)
+  - `BirthEvent` and `Population`'s breeding stop (parents freed)
+  - `SurveyRules` (report and cancel)
+  - `ScoutMissionRunner` (home)
+  - `DisembarkIntent`
+  - `Battlefields.Close` and `Leave`
+
+  It only sends the unit on (a walk). It never decides anything a later read could see differently.
+
+**No anchors.** Every muster walk is an ordinary solo walk with its own step anchor.
+
+**Pure reads.** `GroupMuster.Progress`, `GroupMuster.Busy`, `GroupMuster.AnchorRefusal`.
+
+**Snapshot v50.**
+- Each unit row gains its saved task.
+- Each extractor row gains its held slots.
+- Each group row gains its awaited members and its places.
+
+Pinned by `GroupMusterTests.TheRoundTrip_IsDeterministic_AcrossAMidMusterRestore`.
+
+## M46 Phases E–F — merge, split, the wire (2026-10-02)
+
+**Mutation points.** `MergeGroupsIntent` and `SplitGroupIntent` change group membership and the tree
+only through the existing writers: `GroupRules.SetParent`, `GroupRules.Discard` (new: removes an
+emptied record without dismissing anyone), `GroupRules.NewId`, and `GroupMuster.CallIn` /
+`GroupMuster.Release` (new: a member leaving a group under command goes back to its saved task).
+
+**Pure reads.** `ViewProjector.ToGroupDto` (reads `GroupMuster.Progress`), the saved-task and
+held-slot fields. Pinned by `GroupWireTests.TheProjection_IsAPureRead`.
+
+**No new state, no format change.**

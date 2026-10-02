@@ -96,6 +96,7 @@ public sealed class HaulDepositEvent : ScheduledEvent
         // M4 Phase A: haul complete; clear the on-unit anchor.
         hauler.HaulPlan = null;
         hauler.TrySetActivity(Activity.Idle);
+        Sim.Core.Groups.GroupMuster.OnFreed(sim, hauler);   // M46: delivered, it answers its group's muster
     }
 
     private static int DeliverAll(Simulation sim, Unit hauler, Structure dest, Resource resource)

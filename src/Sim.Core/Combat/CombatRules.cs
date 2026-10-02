@@ -251,8 +251,13 @@ public static class CombatRules
         if (unit.GroupId is { } gid && world.Groups.TryGetValue(gid, out var group))
         {
             group.Members.Remove(unit.Id);
-            if (unit.PathFinalDest is not null) Sim.Core.Groups.GroupRules.OneLessPending(group);
+            group.Stragglers.Remove(unit.Id);
+            if (group.State == Sim.Core.Groups.GroupState.Forming || unit.PathFinalDest is not null)
+                Sim.Core.Groups.GroupRules.OneLessPending(sim, group, unit, died: true);
         }
+        // M46 — a held work slot dies with its holder.
+        Sim.Core.Groups.GroupMuster.ReleaseHold(world, unit);
+        unit.SavedTask = null;
 
         // 2b. RETIRE THE JOB. A worker who dies on shift must come off the
         //     building's roster, or the corpse holds its work slot forever:

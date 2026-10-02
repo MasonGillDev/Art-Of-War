@@ -121,13 +121,16 @@ public static class GroupRules
 
     // ---- removal -------------------------------------------------------------------
 
-    // Remove a group: every member's walk stops where it stands and the member goes
-    // solo; its children move to the top level; it leaves its parent.
+    // Remove a group. A company under command is dismissed first, so its members go
+    // back to what they were doing; then every member goes solo, its children move to
+    // the top level (keeping their own orders), and it leaves its parent.
     internal static void Remove(Simulation sim, Group group)
     {
         var world = sim.World;
+        // (DismissLeaf has already stopped the company's march or muster, and sent its
+        // members back to work: halting again would stop those walks.)
+        if (group.Kind == GroupKind.Units) GroupMuster.DismissLeaf(sim, group);
         group.BumpEpoch();
-        MoveGroupIntent.Halt(sim, group);
         foreach (var memberId in group.Members)
             if (world.Units.TryGetValue(memberId, out var unit) && unit.GroupId == group.Id)
                 unit.GroupId = null;
@@ -138,21 +141,41 @@ public static class GroupRules
         world.Groups.Remove(group.Id);
     }
 
+    // Take an emptied group's record out of the world (a merge): its children move to
+    // the top level, it leaves its parent. Its members, if any, are the caller's affair.
+    internal static void Discard(GameWorld world, Group group)
+    {
+        foreach (var cid in group.Children)
+            if (world.Groups.TryGetValue(cid, out var child)) child.ParentId = null;
+        group.Children.Clear();
+        SetParent(world, group, null);
+        world.Groups.Remove(group.Id);
+    }
+
     // ---- the pending count ---------------------------------------------------------
 
     // One member's walk for the group's current order is over: it arrived, its walk was
-    // halted, or it died on the way. At zero the group is Idle (at the destination, when
-    // Moving). Every path that ends a member's walk comes here, so none can leave the
-    // group Forming or Moving for ever.
-    internal static void OneLessPending(Group group)
+    // halted, or it died on the way. Every path that ends a member's walk comes here, so
+    // none can leave the group Forming or Moving for ever.
+    //   Forming (a muster, M46 Phase D): the member settles — counted in at its place,
+    //     or sent on toward it — and the last one in forms the group up (GroupMuster).
+    //   Moving: the pending count of closing walkers (and stragglers) comes down; at
+    //     zero the group is Idle at its destination.
+    internal static void OneLessPending(Simulation sim, Group group, Unit unit, bool died = false)
     {
-        if (group.State is not (GroupState.Forming or GroupState.Moving)) return;
+        if (group.State == GroupState.Forming)
+        {
+            if (died) { group.MusterPlaces.Remove(unit.Id); GroupMuster.Drop(group, unit.Id); }
+            else GroupMuster.Settle(sim, group, unit);
+            return;
+        }
+        if (group.State != GroupState.Moving) return;
         group.PendingArrivals--;
         // While the column still marches (GroupMarch), the count is only its stragglers:
         // the group arrives when the column closes, not when they do.
         if (group.MarchPath is not null) { group.PendingArrivals = Math.Max(0, group.PendingArrivals); return; }
         if (group.PendingArrivals > 0) return;
-        if (group.State == GroupState.Moving && group.PathFinalDest is { } dest) group.Position = dest;
+        if (group.PathFinalDest is { } dest) group.Position = dest;
         group.PendingArrivals = 0;
         group.State = GroupState.Idle;
         group.RendezvousTile = null;

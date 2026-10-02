@@ -34,6 +34,11 @@ public class IntentStoreTests
         yield return new object[] { new SetGroupParentIntent(groupId: 3, parentId: null) { PlayerId = 0 } };
         yield return new object[] { new AddToGroupIntent(groupId: 3, new[] { 8, 9 }) { PlayerId = 0 } };
         yield return new object[] { new DeleteGroupIntent(groupId: 3) { PlayerId = 0 } };
+        yield return new object[] { new MusterGroupIntent(groupId: 1, new TileCoord(7, 8)) { PlayerId = 0 } };
+        yield return new object[] { new DismissGroupIntent(groupId: 1) { PlayerId = 0 } };
+        yield return new object[] { new MergeGroupsIntent(fromId: 2, intoId: 1) { PlayerId = 0 } };
+        yield return new object[] { new SplitGroupIntent(groupId: 1, new[] { 4 }, "Scouts") { PlayerId = 0 } };
+        yield return new object[] { new SplitGroupIntent(groupId: 1, new[] { 5 }) { PlayerId = 0 } };
         yield return new object[] { new TrainUnitIntent(unitId: 7, UnitRole.Builder) { PlayerId = 0 } };
         yield return new object[] { new EmbarkIntent(boatId: 50, new[] { 1, 2, 3 }) { PlayerId = 0 } };
         yield return new object[] { new DisembarkIntent(boatId: 50) { PlayerId = 0 } };
@@ -111,6 +116,18 @@ public class IntentStoreTests
                 Assert.Equal(aa.UnitIds, ab.UnitIds); break;
             case DeleteGroupIntent dga when b is DeleteGroupIntent dgb:
                 Assert.Equal(dga.GroupId, dgb.GroupId); break;
+            case MusterGroupIntent mua when b is MusterGroupIntent mub:
+                Assert.Equal(mua.GroupId, mub.GroupId);
+                Assert.Equal(mua.Anchor, mub.Anchor); break;
+            case DismissGroupIntent dia2 when b is DismissGroupIntent dib2:
+                Assert.Equal(dia2.GroupId, dib2.GroupId); break;
+            case MergeGroupsIntent mga2 when b is MergeGroupsIntent mgb2:
+                Assert.Equal(mga2.FromId, mgb2.FromId);
+                Assert.Equal(mga2.IntoId, mgb2.IntoId); break;
+            case SplitGroupIntent sga when b is SplitGroupIntent sgb:
+                Assert.Equal(sga.GroupId, sgb.GroupId);
+                Assert.Equal(sga.UnitIds, sgb.UnitIds);
+                Assert.Equal(sga.NewName, sgb.NewName); break;
             case TrainUnitIntent ta when b is TrainUnitIntent tb:
                 Assert.Equal(ta.UnitId, tb.UnitId);
                 Assert.Equal(ta.NewRole, tb.NewRole); break;

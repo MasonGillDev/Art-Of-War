@@ -137,7 +137,7 @@ public static class PredicateEvaluator
     // Assigned workers at an extractor. A non-extractor reads 0 — the same
     // "observable truth" rule StoredAmount uses.
     private static int WorkerCount(GameWorld world, TileCoord tile) =>
-        world.Structures.TryGetValue(tile, out var s) && s is Extractor e ? e.Workers.Count : 0;
+        world.Structures.TryGetValue(tile, out var s) && s is Extractor e ? e.Workers.Count + e.HeldBy.Count : 0;   // M46: a held slot is staffed
 
     // Living head count for a faction. Read from the units table rather
     // than Player.PopulationCount so it agrees exactly with what the

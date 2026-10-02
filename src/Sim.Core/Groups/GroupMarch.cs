@@ -95,6 +95,10 @@ public static class GroupMarch
         group.MarchPath = path;
         group.MarchLead = 0;
         group.Stragglers.Clear();
+        // A member still finishing a job (a delivery, a fight elsewhere) doesn't hold the
+        // column up: it follows on its own once it is free (GroupMuster.OnFreed).
+        foreach (var m in Members(world, group))
+            if (GroupMuster.Busy(world, m) is not null) group.Stragglers.Add(m.Id);
         group.PathFinalDest = path[^1].Tile;
         group.PendingArrivals = 0;
         group.State = GroupState.Moving;
@@ -221,19 +225,18 @@ public static class GroupMarch
         DropColumn(world, group);
         group.Position = dest;
 
+        // Members still busy with a job stay stragglers: they come on their own when free.
+        var members = new List<Unit>();
+        foreach (var m in Members(world, group))
+            if (GroupMuster.Busy(world, m) is not null) group.Stragglers.Add(m.Id);
+            else members.Add(m);
+
         var visible = View.VisibleTiles(world, group.OwnerId);
-        var members = FormationLayout.FillOrder(Members(world, group).Where(m => m.Board is null));
         var walking = 0;
-        foreach (var (m, place) in FormationLayout.Places(world, group.OwnerId, dest, members, visible))
+        foreach (var (m, place) in FormationLayout.Places(world, group.OwnerId, dest, FormationLayout.FillOrder(members), visible))
         {
             Walk.Stop(m);
-            if (place is not { } spot || m.Subtile is not { } sub) continue;
-            var cur = WorldSubtile.Of(m.Position, sub);
-            if (cur == spot) continue;
-            if (SubtilePathfinder.Find(world, StepMover.Of(m), cur, spot, visible, now: sim.Now) is not { Count: > 0 } way) continue;
-            m.PathFinalDest = spot.Tile;
-            SubtileRoutes.Begin(sim, m, way);
-            walking++;
+            if (place is { } spot && GroupMuster.WalkToPlace(sim, m, spot)) walking++;
         }
         group.PendingArrivals = walking;
         if (walking == 0) StopHere(world, group, dest);
@@ -242,7 +245,9 @@ public static class GroupMarch
     // The march is over where it stands.
     private static void StopHere(GameWorld world, Group group, TileCoord at)
     {
+        var stillAway = group.Stragglers.Where(id => world.Units.TryGetValue(id, out var m) && GroupMuster.Busy(world, m) is not null).ToList();
         DropColumn(world, group);
+        foreach (var id in stillAway) group.Stragglers.Add(id);
         group.Position = at;
         group.PathFinalDest = null;
         group.PendingArrivals = 0;
