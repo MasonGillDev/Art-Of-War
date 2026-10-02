@@ -195,7 +195,7 @@ public sealed class HaulingDriver
             case Sim.Core.Groups.GroupState.Idle when group.Position == target:
                 // Formed up at the stop. Someone still tied up (a fight, a delivery of
                 // its own) holds the serve until it is free.
-                if (living.Any(u => !IsFree(u))) return RouteCrewState.MemberBusy;
+                if (living.Any(u => !UnitAvailability.IsFree(sim.World, u))) return RouteCrewState.MemberBusy;
                 sim.SubmitIntent(now, new ServeRouteStopIntent(route.RouteId, crew.CrewId, crew.CurrentStop, route.Revision)
                     { PlayerId = route.OwnerId });
                 return RouteCrewState.Serving;
@@ -207,16 +207,6 @@ public sealed class HaulingDriver
                 return RouteCrewState.MemberBusy;   // Forming: a newcomer is being called in
         }
     }
-
-    // Free = an idle body with no in-flight anchors. Anchors, never Activity:
-    // a marching unit can read Idle (the M16 pitfall).
-    private static bool IsFree(Unit u) =>
-        u.Activity == Activity.Idle
-        && !u.IsWalking
-        && u.HaulPlan is null
-        && u.Goal is null
-        && u.Pursuit is null
-        && !u.IsEmbarked;
 
     // One turn at the front of the line. True = a hauler was sent.
     private static bool TrySend(Simulation sim, HaulJob job, Pool free, Ledger ledger, long now)

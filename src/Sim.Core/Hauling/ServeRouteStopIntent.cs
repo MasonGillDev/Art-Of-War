@@ -72,7 +72,7 @@ public sealed class ServeRouteStopIntent : Intent
         // where a building's footprint leaves too little room on the stop itself).
         var present = new List<Unit>();
         foreach (var u in RouteCrews.Living(world, route, crew))
-            if (u.Activity == Activity.Idle && !u.IsWalking && !u.IsEmbarked
+            if (UnitAvailability.IsFree(world, u)
                 && Math.Max(Math.Abs(u.Position.X - stop.Tile.X), Math.Abs(u.Position.Y - stop.Tile.Y)) <= 1)
                 present.Add(u);
         if (present.Count == 0)

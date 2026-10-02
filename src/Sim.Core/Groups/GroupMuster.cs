@@ -159,17 +159,21 @@ public static class GroupMuster
         Walk.Stop(m);
     }
 
-    // Why this member must finish what it is doing before it answers, or null.
+    // Why this member must finish what it is doing before it answers, or null. Read off
+    // the one busy rule (UnitAvailability); which kinds of busy must FINISH first is the
+    // muster's own business: a fight, a boat, a birth, a survey, a scout's mission, and a
+    // haul with cargo aboard (a hauler with loot doesn't walk it into danger). Everything
+    // else — work, a build, an errand, an empty trip, a chase, a walk — is left now.
     public static string? Busy(GameWorld world, Unit m)
     {
-        if (m.Board is not null) return "fighting";
-        if (m.IsEmbarked) return "aboard a boat";
-        if (m.HaulPlan is { } plan && (plan.Phase == HaulPhase.ToDest || !m.Cargo.IsEmpty)) return "delivering";
-        if (m.Survey is not null) return "surveying";
-        if (world.ScoutMissions.TryGetValue(m.Id, out var mission)
-            && mission.State != Sim.Core.Scouting.ScoutMissionState.Returned) return "scouting";
-        if (Sim.Core.Population.Population.GetActiveBreedingFor(world, m.Id) is not null) return "breeding";
-        return null;
+        var reason = UnitAvailability.Busy(world, m);
+        return reason switch
+        {
+            BusyReason.Fighting or BusyReason.Aboard or BusyReason.Breeding
+                or BusyReason.Surveying or BusyReason.Scouting => UnitAvailability.Describe(reason),
+            BusyReason.Hauling when m.HaulPlan is { } plan && (plan.Phase == HaulPhase.ToDest || !m.Cargo.IsEmpty) => "delivering",
+            _ => null,
+        };
     }
 
     // Move this member on toward its place, or count it in. Called when the muster

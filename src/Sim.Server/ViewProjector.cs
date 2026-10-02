@@ -918,6 +918,7 @@ public sealed class ViewProjector
             // read the enemy's order of battle off the map.
             GroupId = mine ? u.GroupId ?? -1 : -1,
             GroupState = mine ? GroupStateOf(u, world) : 0,
+            Busy = mine ? (int)UnitAvailability.Busy(world, u) : -1,
             SavedTaskKind = mine ? (int)(u.SavedTask?.Kind ?? 0) : 0,
             SavedTaskX = mine ? u.SavedTask?.TargetTile.X ?? -1 : -1,
             SavedTaskY = mine ? u.SavedTask?.TargetTile.Y ?? -1 : -1,
@@ -1095,6 +1096,7 @@ public sealed class ViewProjector
         var goalKind = 0; var goalState = ""; var goalX = -1; var goalY = -1;
         var groupState = 0;
         var savedKind = 0; var savedX = -1; var savedY = -1;
+        var busy = -1;
         var royal = 0;
         var settled = false;
         var maxHealth = -1;
@@ -1107,6 +1109,7 @@ public sealed class ViewProjector
             groupId = real.GroupId ?? -1;
             groupState = GroupStateOf(real, world);
             if (real.SavedTask is { } saved) { savedKind = (int)saved.Kind; savedX = saved.TargetTile.X; savedY = saved.TargetTile.Y; }
+            busy = (int)UnitAvailability.Busy(world, real);
             royal = RoyalTagOf(real, world);
             settled = Sim.Core.Population.Housing.IsSettled(world, real, now);
             maxHealth = Sim.Core.Combat.CombatRules.MaxHealth(real, now);
@@ -1144,6 +1147,7 @@ public sealed class ViewProjector
             DestY = destY,
             GroupId = groupId,
             GroupState = groupState,
+            Busy = busy,
             SavedTaskKind = savedKind,
             SavedTaskX = savedX,
             SavedTaskY = savedY,

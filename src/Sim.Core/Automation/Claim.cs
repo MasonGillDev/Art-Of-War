@@ -79,14 +79,14 @@ public static class ClaimLedger
     // FILTERS (a breeding pull wants fertile adults; a training pull wants
     // no-role trainables). Dormancy answers "are they available?", the
     // selector answers "are they the right kind?".
+    //
+    // "Busy" is UnitAvailability's (walking, working, hauling, fighting, aboard,
+    // breeding, ...: the one definition every system shares). What is the automation's
+    // own business on top: not under a group's command, not claimed by an order.
     public static bool IsDormant(GameWorld world, Unit unit) =>
-        unit.Activity == Activity.Idle
-        && !unit.IsWalking
+        UnitAvailability.IsFree(world, unit)
         && !Sim.Core.Groups.GroupRules.UnderCommand(world, unit)
-        && !unit.IsEmbarked
-        && !world.Claims.ContainsKey(unit.Id)
-        && unit.HaulPlan is null  // M36: mid-trip is not available, whatever Activity says
-        && Sim.Core.Population.Population.GetActiveBreedingFor(world, unit.Id) is null;
+        && !world.Claims.ContainsKey(unit.Id);
 
     // Is this unit spoken for by any order?
     public static bool IsClaimed(GameWorld world, int unitId) =>

@@ -127,10 +127,11 @@ public sealed class BanditDriver
         foreach (var t in _blocked.Where(kv => kv.Value <= now).Select(kv => kv.Key).ToList()) _blocked.Remove(t);
     }
 
-    // A unit the brain may order: standing still, idle, and not in a fight. A unit on a board
-    // is never "walking" (the board owns its steps), so without the board test every fighting
-    // bandit was re-ordered each think, and the order overrode its doctrine.
-    private static bool Free(Unit u) => !IsMoving(u) && u.Activity == Activity.Idle && u.Board is null;
+    // A unit the brain may order: free by the one rule every system shares
+    // (UnitAvailability: standing still, idle, not in a fight). A unit on a board is never
+    // "walking" (the board owns its steps), so without the fight test every fighting bandit
+    // was re-ordered each think, and the order overrode its doctrine.
+    private static bool Free(GameWorld world, Unit u) => UnitAvailability.IsFree(world, u);
 
     // Put `behaviour` on a bandit that is on a board: once, and again only if it changes. The
     // withdraw threshold is a head count of its own side left on the board (BattleDoctrine), so
@@ -297,7 +298,7 @@ public sealed class BanditDriver
                     continue;
                 }
                 SetDoctrine(sim, now, u, DoctrineBehaviour.Advance, front.UnitIds.Count);
-                if (!Free(u)) continue;   // marching, or fighting: the board has it
+                if (!Free(world, u)) continue;   // marching, or fighting: the board has it
                 var to = !assault ? front.Staging
                     : u.Position == front.Approach ? host.Seat
                     : front.Approach;
@@ -318,7 +319,7 @@ public sealed class BanditDriver
 
         // Home with loot: into the hoard.
         foreach (var u in units)
-            if (u.Position == home && !IsMoving(u) && u.Activity == Activity.Idle && u.Cargo.Total > 0)
+            if (u.Position == home && Free(world, u) && u.Cargo.Total > 0)
                 sim.SubmitIntent(now, new UnloadCargoIntent(u.Id) { PlayerId = BanditConstants.OwnerId });
 
         foreach (var u in units) SetDoctrine(sim, now, u, DoctrineBehaviour.Advance, units.Count);
@@ -331,13 +332,13 @@ public sealed class BanditDriver
             {
                 if (u.Position == dest && !IsMoving(u))
                 {
-                    if (u.Activity == Activity.Idle
+                    if (Free(world, u)   // free: not in the fight on this tile, if there is one
                         && u.CargoAmount < u.CargoCapacity
-                        && !world.CombatStates.ContainsKey(dest) && !world.Battlefields.ContainsKey(dest)
+                        && !world.CombatStates.ContainsKey(dest)
                         && StealableResource(world, dest, u) is { } r)
                         sim.SubmitIntent(now, new LoadCargoIntent(u.Id, r) { PlayerId = BanditConstants.OwnerId });
                 }
-                else if (Free(u))
+                else if (Free(world, u))
                     Go(sim, now, world, u, dest, substitute: false);
             }
             return;
@@ -353,7 +354,7 @@ public sealed class BanditDriver
         var goHome = units.Any(u => u.Cargo.Total > 0) || seat is null || units.Any(u => u.Position == seat);
         var to = goHome ? home : seat!.Value;
         foreach (var u in units)
-            if (Free(u) && u.Position != to) Go(sim, now, world, u, to);
+            if (Free(world, u) && u.Position != to) Go(sim, now, world, u, to);
     }
 
     // A camp's garrison holds its ground: whoever stands on the camp and isn't out raiding.
@@ -435,14 +436,14 @@ public sealed class BanditDriver
                     {
                         // Standing on the prize: steal if there's anything
                         // stealable and no fight raging on the tile.
-                        if (u.Activity == Activity.Idle
+                        if (Free(world, u)   // free: not in the fight on this tile, if there is one
                             && u.CargoAmount < u.CargoCapacity
-                            && !world.CombatStates.ContainsKey(dest) && !world.Battlefields.ContainsKey(dest)
+                            && !world.CombatStates.ContainsKey(dest)
                             && StealableResource(world, dest, u) is { } r)
                             sim.SubmitIntent(now, new LoadCargoIntent(u.Id, r)
                                 { PlayerId = BanditConstants.OwnerId });
                     }
-                    else if (Free(u) && u.Position != dest)
+                    else if (Free(world, u) && u.Position != dest)
                     {
                         // Not there and not on the way (fresh order, or a
                         // stalled/interrupted march) — (re)issue the move, unless the
@@ -467,7 +468,7 @@ public sealed class BanditDriver
             {
                 // M37 — an omen raid with nothing in sight yet: march on.
                 foreach (var u in units)
-                    if (Free(u)) Go(sim, now, world, u, seat);
+                    if (Free(world, u)) Go(sim, now, world, u, seat);
                 party.OrderedDest = seat;
                 return;
             }
@@ -501,7 +502,7 @@ public sealed class BanditDriver
                 return;
             }
             foreach (var u in units)
-                if (Free(u) && u.Position != dest.Value) Go(sim, now, world, u, dest.Value, substitute: false);
+                if (Free(world, u) && u.Position != dest.Value) Go(sim, now, world, u, dest.Value, substitute: false);
         }
     }
 

@@ -137,7 +137,11 @@ public sealed class ThinkContext
     public bool HasRoomAt(TileCoord t, int adding = 1) =>
         OwnUnits.Count(u => u.X == t.X && u.Y == t.Y && u.DestX < 0) + adding <= Sim.Core.Battlefields.Subtile.Count;
 
-    public bool IsIdleStill(UnitDto u) => u.Activity == (int)Activity.Idle && u.DestX < 0;
+    // Free by the one rule the sim acts on (UnitAvailability, carried on the wire as
+    // UnitDto.Busy): idle, standing still, not in a fight, not aboard. An own unit always
+    // carries Busy; the Activity test stays for a view built without it.
+    public bool IsIdleStill(UnitDto u) =>
+        u.Activity == (int)Activity.Idle && u.DestX < 0 && u.Busy <= 0;
 
     // Allocate a haul carrier for THIS think: idle, still, empty-handed,
     // never a Builder (conscripting builders as food mules is how the

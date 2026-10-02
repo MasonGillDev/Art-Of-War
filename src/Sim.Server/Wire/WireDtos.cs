@@ -575,6 +575,13 @@ public sealed class UnitDto
     // 4 dismissed: a member of a dismissed group is free and takes solo orders).
     public int GroupState { get; set; }
 
+    // Why this unit is busy (Sim.Core.World.BusyReason: 0 free, 1 fighting, 2 aboard,
+    // 3 breeding, 4 surveying, 5 scouting, 6 chasing, 7 hauling, 8 on an errand,
+    // 9 working, 10 building, 11 walking) — UnitAvailability, the one rule every system
+    // shares, so the client and the AI read the same answer the sim acts on. Own units
+    // only; -1 for others.
+    public int Busy { get; set; } = -1;
+
     // M46 — what this unit goes back to when its group is dismissed (Unit.SavedTask):
     // a GoalKind (0 = nothing saved) and the building's tile. Own units only.
     public int SavedTaskKind { get; set; }

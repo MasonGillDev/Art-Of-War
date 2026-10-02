@@ -1788,3 +1788,18 @@ held-slot fields. Pinned by `GroupWireTests.TheProjection_IsAPureRead`.
 - A crew row carries its `GroupId`.
 - A unit row loses `RouteId`.
 - A group row gains `RouteSuspended` and `PendingMuster`.
+
+## Unit availability (2026-10-02, `docs/unit-availability.md`)
+
+**No new state.** `UnitAvailability.Busy` is a pure read over existing state: the board, the battle
+on the unit's tile, embarked, breeding, survey, scout mission, pursuit, haul plan, goal, activity, and
+walk. Pinned by `UnitAvailabilityTests.IsAPureRead`.
+
+**Readers.**
+- `ClaimLedger.IsDormant` (now `IsFree && !UnderCommand && !claimed`)
+- `HaulingDriver.RunCrew`, `BanditDriver.Free` (and its steal and unload checks)
+- `ServeRouteStopIntent` (who is at the stop), `GroupMuster.Busy`
+- `ViewProjector` (`UnitDto.Busy`, own units), which `ThinkContext.IsIdleStill` reads
+
+**Behaviour change.** A unit on a battle's tile is never free. Before this, only the bandit driver
+knew it. Pinned by `UnitAvailabilityTests.AFightAtAStop_HoldsTheCrew_NoServeNoLeaving`.
