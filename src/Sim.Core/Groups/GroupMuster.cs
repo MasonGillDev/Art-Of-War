@@ -62,13 +62,27 @@ public static class GroupMuster
         return $"no one can stand on {tile.X},{tile.Y}";
     }
 
-    internal static void Muster(Simulation sim, Group group, TileCoord anchor)
+    // `forRoute`: the route itself forming its crew up at a stop (RouteCrews.PutOn), not a
+    // player's call — no leg to finish first.
+    internal static void Muster(Simulation sim, Group group, TileCoord anchor, bool forRoute = false)
     {
         var world = sim.World;
+        // M47 — a crew running its route finishes the leg it is on first: it walks to its
+        // stop and serves it, and the serve answers this muster (ServeRouteStopIntent).
+        var finishingLegs = new HashSet<int>();
+        foreach (var g in Subtree(world, group))
+            if (!forRoute && g.Kind == GroupKind.Units && !g.RouteSuspended && Sim.Core.Hauling.RouteCrews.Find(world, g) is not null)
+            {
+                g.PendingMuster = anchor;
+                finishingLegs.Add(g.Id);
+            }
+
         foreach (var g in Subtree(world, group))
         {
+            if (finishingLegs.Contains(g.Id)) continue;
             g.Position = anchor;
             if (g.Kind == GroupKind.Groups) { g.State = GroupState.Idle; continue; }
+            g.PendingMuster = null;
             MoveGroupIntent.Halt(sim, g);
             g.BumpEpoch();
             g.State = GroupState.Forming;
@@ -78,7 +92,7 @@ public static class GroupMuster
             g.MusterPlaces.Clear();
         }
 
-        var leaves = Leaves(world, group);
+        var leaves = Leaves(world, group).Where(l => !finishingLegs.Contains(l.Id)).ToList();
         var ordered = new List<Unit>();
         foreach (var leaf in leaves) ordered.AddRange(FormationLayout.FillOrder(Living(world, leaf)));
         var places = FormationLayout.Places(world, group.OwnerId, anchor, ordered, View.VisibleTiles(world, group.OwnerId));
@@ -250,6 +264,21 @@ public static class GroupMuster
     internal static void DismissLeaf(Simulation sim, Group leaf)
     {
         if (leaf.State == GroupState.Dismissed) return;
+        // M47 — a crew's daily task is its route: dismissed, it goes back to it (the
+        // driver marches it to its stop). A muster still waiting on its leg is dropped.
+        if (Sim.Core.Hauling.RouteCrews.Find(sim.World, leaf) is not null)
+        {
+            leaf.PendingMuster = null;
+            if (!leaf.RouteSuspended) return;
+            MoveGroupIntent.Halt(sim, leaf);
+            leaf.BumpEpoch();
+            leaf.State = GroupState.Idle;
+            leaf.RouteSuspended = false;
+            leaf.RendezvousTile = null;
+            leaf.Awaiting.Clear();
+            leaf.MusterPlaces.Clear();
+            return;
+        }
         MoveGroupIntent.Halt(sim, leaf);
         leaf.BumpEpoch();
         leaf.State = GroupState.Dismissed;

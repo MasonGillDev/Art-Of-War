@@ -156,8 +156,16 @@ public sealed class AddToGroupIntent : Intent
             group.Members.Add(id);
             world.Units[id].GroupId = group.Id;
         }
-        if (group.State != GroupState.Dismissed)
-            GroupMuster.CallIn(sim, group, UnitIds.Select(id => world.Units[id]).ToList());
+        var newcomers = UnitIds.Select(id => world.Units[id]).ToList();
+        if (Sim.Core.Hauling.RouteCrews.Find(world, group) is not null && !group.RouteSuspended)
+        {
+            // M47 — joining a crew on its route: the route is the newcomer's task now; it
+            // leaves its job and falls in at the crew's next march.
+            foreach (var u in newcomers)
+                if (GroupMuster.Busy(world, u) is null) { Sim.Core.Intents.Retask.Release(sim, u); Sim.Core.Movement.Walk.Stop(u); }
+        }
+        else if (group.State != GroupState.Dismissed)
+            GroupMuster.CallIn(sim, group, newcomers);
         return IntentOutcome.Applied;
     }
 

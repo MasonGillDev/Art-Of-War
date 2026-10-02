@@ -29,7 +29,8 @@ public sealed class RouteStop
     public List<StopRule> Rules { get; init; } = new();
 }
 
-// One crew on a route: the members walk together and serve each stop
+// One crew on a route: A GROUP on a route (M47, docs/m47-route-groups-spec.md).
+// The group marches in formation from stop to stop and serves each stop
 // together. CurrentStop is the stop the crew is heading to (or standing at,
 // about to serve). Durable because "which stop am I on" is not in the world:
 // a crew on a tile that appears twice in the loop can't be placed by map
@@ -37,7 +38,10 @@ public sealed class RouteStop
 public sealed class RouteCrew
 {
     public int CrewId { get; init; }
-    public List<int> Members { get; init; } = new();   // ascending, distinct
+    // The group that crews the route. Its members are the crew. Written by
+    // AssignGroupToRouteIntent (and the M36 AddRouteCrewIntent, which makes a
+    // group for the units it names).
+    public int GroupId { get; init; }
     public int CurrentStop { get; set; }
 
     // M45 — what the crew's last serve did, so a stop that moves nothing can

@@ -208,7 +208,11 @@ public static class Snapshot
     //       ascending, after its refiner inputs); each group row its muster — the
     //       awaited members (count + ids) and the places (count + id, X, Y; by id)
     //       after its stragglers.
-    public const int FormatVersion = 50;
+    // v51 — M47 route groups (docs/m47-route-groups-spec.md): a route crew row carries
+    //       its GroupId in place of a member list; the unit row loses RouteId; each
+    //       group row gains RouteSuspended (bool) and PendingMuster (nullable tile)
+    //       after its muster places.
+    public const int FormatVersion = 51;
 
     public static string Hash(Simulation sim)
     {
@@ -863,8 +867,7 @@ public static class Snapshot
             {
                 bw.Write(crew.CrewId);
                 bw.Write(crew.CurrentStop);
-                bw.Write(crew.Members.Count);
-                foreach (var id in crew.Members) bw.Write(id);
+                bw.Write(crew.GroupId);   // v51
             }
         }
     }
@@ -916,9 +919,9 @@ public static class Snapshot
             var crews = br.ReadInt32();
             for (var c = 0; c < crews; c++)
             {
-                var crew = new Sim.Core.Hauling.RouteCrew { CrewId = br.ReadInt32(), CurrentStop = br.ReadInt32() };
-                var members = br.ReadInt32();
-                for (var m = 0; m < members; m++) crew.Members.Add(br.ReadInt32());
+                var crewId = br.ReadInt32();
+                var currentStop = br.ReadInt32();
+                var crew = new Sim.Core.Hauling.RouteCrew { CrewId = crewId, CurrentStop = currentStop, GroupId = br.ReadInt32() };
                 route.Crews.Add(crew);
             }
             world.HaulRoutes.Add(route.RouteId, route);
@@ -1123,7 +1126,6 @@ public static class Snapshot
             WriteNullableTileCoord(bw, u.Home);
             // v22: automation substrate — sacred-from-conscription flag.
             bw.Write(u.Protected);
-            WriteNullableInt(bw, u.RouteId);         // M36 (v35)
             // M30 (v27): in-flight GOAL anchor. A unit walking to a job -- or
             // standing in a house waiting for food -- must wake from a restart
             // still doing it, or the player's one decision quietly evaporates
@@ -1389,7 +1391,6 @@ public static class Snapshot
             var embarkedOn = ReadNullableInt(br);
             var home = ReadNullableTileCoord(br);   // M19 (v13)
             var isProtected = br.ReadBoolean();     // v22 automation substrate
-            var routeId = ReadNullableInt(br);      // M36 (v35)
             var goal = ReadGoal(br);                // M30 (v27)
             var survey = ReadSurvey(br);            // M44 (v45)
             var savedTask = ReadGoal(br);           // M46 (v50)
@@ -1399,7 +1400,6 @@ public static class Snapshot
             var u = new Unit(id, pos) { Role = role, OwnerId = ownerId, BornTick = bornTick, Traversal = traversal, PassengerCap = passengerCap, ParentAId = parentA, ParentBId = parentB };
             u.Home = home;   // ResidentCount restores from the House payload; no recompute
             u.Protected = isProtected;
-            u.RouteId = routeId;
             foreach (var pid in passengers) u.Passengers.Add(pid);
             u.EmbarkedOn = embarkedOn;
             foreach (var (r, a) in cargo) u.Cargo.Add(r, a);
@@ -2657,6 +2657,10 @@ public static class Snapshot
             foreach (var aid in g.Awaiting) bw.Write(aid);
             bw.Write(g.MusterPlaces.Count);
             foreach (var (pid, place) in g.MusterPlaces) { bw.Write(pid); bw.Write(place.X); bw.Write(place.Y); }
+
+            // v51: the route (M47).
+            bw.Write(g.RouteSuspended);
+            WriteNullableTileCoord(bw, g.PendingMuster);
         }
     }
 
@@ -2708,6 +2712,8 @@ public static class Snapshot
             var places = new List<(int, Sim.Core.Battlefields.WorldSubtile)>(placeCount);
             for (var k = 0; k < placeCount; k++)
                 places.Add((br.ReadInt32(), new Sim.Core.Battlefields.WorldSubtile(br.ReadInt32(), br.ReadInt32())));
+            var routeSuspended = br.ReadBoolean();      // v51
+            var pendingMuster = ReadNullableTileCoord(br);
 
             var g = new Group(id) { OwnerId = ownerId, Kind = kind, Name = name, ParentId = parentId };
             foreach (var m in memberIds) g.Members.Add(m);
@@ -2725,6 +2731,8 @@ public static class Snapshot
             foreach (var sid in stragglers) g.Stragglers.Add(sid);
             foreach (var aid in awaiting) g.Awaiting.Add(aid);
             foreach (var (pid, place) in places) g.MusterPlaces[pid] = place;
+            g.RouteSuspended = routeSuspended;
+            g.PendingMuster = pendingMuster;
 
             world.Groups[id] = g;
         }

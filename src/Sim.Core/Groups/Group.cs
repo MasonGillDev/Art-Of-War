@@ -55,6 +55,16 @@ public sealed class Group
     // group is dismissed so a member that finishes its job late knows where to go.
     // A member with no entry had no room within reach.
     public SortedDictionary<int, Sim.Core.Battlefields.WorldSubtile> MusterPlaces { get; } = new();
+
+    // ---- M47 route groups (docs/m47-route-groups-spec.md) ----
+    // A group crewing a haul route (the route's RouteCrew.GroupId names it) runs the
+    // route as its daily task: the hauling driver marches it from stop to stop. A
+    // player's muster or move SUSPENDS the route; dismiss lifts the suspension and
+    // the driver picks the route up at the crew's stop.
+    public bool RouteSuspended { get; set; }
+    // A muster that reached a route group mid-leg: it finishes the leg (walks to its
+    // stop and serves it) and then answers. Applied by ServeRouteStopIntent.
+    public TileCoord? PendingMuster { get; set; }
     // Members whose walk for the group's current order (the rendezvous while Forming,
     // the destination while Moving) hasn't ended. GroupRules.OneLessPending takes a
     // member off: its walk finished, was halted, or it died on the way.

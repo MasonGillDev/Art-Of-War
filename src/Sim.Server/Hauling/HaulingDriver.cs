@@ -29,6 +29,7 @@ public enum RouteCrewState
     Serving    = 2, // everyone is at the stop; the serve was sent this think
     MemberBusy = 3, // a member is tied up (a fight, a task the player gave)
     NoCrew     = 4, // every member is dead or gone
+    CalledAway = 5, // M47: the player mustered or moved the crew's group; dismiss resumes it
 }
 
 public sealed record RouteCrewReport(int RouteId, int CrewId, RouteCrewState State, int CurrentStop, int Living);
@@ -155,14 +156,15 @@ public sealed class HaulingDriver
         }
     }
 
-    // NAMED ROUTES. Each crew walks to its current stop together, and once
-    // every living member is standing there and free, the stop is served and
-    // the crew pointed at the next one (one intent, so the two can't come
-    // apart). Leaving from one tile to one tile, the members share a path, so
-    // they travel as a body; a straggler is simply waited for at the stop.
+    // NAMED ROUTES (M47: a crew is a group on a route). Each crew's group marches in
+    // formation to its current stop (one MoveGroupIntent, ForRoute), and once it has
+    // formed up there the stop is served and the crew pointed at the next one (one
+    // intent, so the two can't come apart). The group arrives together: there is no
+    // straggler to wait for at the stop.
     //
     // Crews never stop and never wait on stock: an unservable stop is served
-    // anyway (it moves nothing) and the loop carries on.
+    // anyway (it moves nothing) and the loop carries on. A crew whose group the player
+    // has called away (a muster, a move) is left alone until it is dismissed.
     private void RunRoutes(Simulation sim, long now)
     {
         var world = sim.World;
@@ -182,36 +184,28 @@ public sealed class HaulingDriver
     private static RouteCrewState RunCrew(
         Simulation sim, HaulRoute route, RouteCrew crew, List<Unit> living, long now)
     {
-        if (living.Count == 0) return RouteCrewState.NoCrew;
+        if (living.Count == 0 || !sim.World.Groups.TryGetValue(crew.GroupId, out var group)) return RouteCrewState.NoCrew;
+        if (group.RouteSuspended) return RouteCrewState.CalledAway;
 
         var target = route.Stops[crew.CurrentStop].Tile;
-        var allHere = true;
-        var anyBusy = false;
-        foreach (var u in living)
+        switch (group.State)
         {
-            if (!IsFree(u)) { anyBusy = true; continue; }
-            if (u.Position != target) allHere = false;
-        }
-
-        // Someone mid-walk: the crew is on its way. Someone tied up with no
-        // walk (fighting, working): the crew waits for them.
-        if (anyBusy)
-            return living.Any(u => u.IsWalking)
-                ? RouteCrewState.Walking
-                : RouteCrewState.MemberBusy;
-
-        if (allHere)
-        {
-            sim.SubmitIntent(now, new ServeRouteStopIntent(route.RouteId, crew.CrewId, crew.CurrentStop, route.Revision)
-                { PlayerId = route.OwnerId });
-            return RouteCrewState.Serving;
-        }
-
-        foreach (var u in living)
-            if (u.Position != target)
-                sim.SubmitIntent(now, new Sim.Core.Movement.MoveIntent(u.Id, target)
+            case Sim.Core.Groups.GroupState.Moving:
+                return RouteCrewState.Walking;
+            case Sim.Core.Groups.GroupState.Idle when group.Position == target:
+                // Formed up at the stop. Someone still tied up (a fight, a delivery of
+                // its own) holds the serve until it is free.
+                if (living.Any(u => !IsFree(u))) return RouteCrewState.MemberBusy;
+                sim.SubmitIntent(now, new ServeRouteStopIntent(route.RouteId, crew.CrewId, crew.CurrentStop, route.Revision)
                     { PlayerId = route.OwnerId });
-        return RouteCrewState.Walking;
+                return RouteCrewState.Serving;
+            case Sim.Core.Groups.GroupState.Idle:
+                sim.SubmitIntent(now, new Sim.Core.Groups.MoveGroupIntent(group.Id, target, forRoute: true)
+                    { PlayerId = route.OwnerId });
+                return RouteCrewState.Walking;
+            default:
+                return RouteCrewState.MemberBusy;   // Forming: a newcomer is being called in
+        }
     }
 
     // Free = an idle body with no in-flight anchors. Anchors, never Activity:

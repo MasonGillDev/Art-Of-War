@@ -213,3 +213,16 @@ Decided with the user; not built yet. Full text: `docs/groups-first-class.md` an
   - Military members are escort.
   - Route groups never take haul queue jobs.
   - Crews never stop circling.
+
+## Update 2026-10-02: built (M47)
+
+The crew-as-group decision above is built. See `docs/m47-route-groups-spec.md` and
+`docs/m47-status.md`. Where it differs from the plan:
+
+- **Putting a crew on a route musters it at its first stop.** It serves once everyone has arrived.
+- **"A straggler is waited for at the stop" is gone.** The group arrives as one. A member still tied
+  up (a fight) holds the serve.
+- **A player's move suspends the route at once.** Only a muster finishes the leg first. Dismiss
+  resumes the route.
+- **Removing a crew or clearing a route keeps the crew's group,** dismissed, with its members free
+  where they stand.

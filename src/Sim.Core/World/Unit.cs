@@ -252,13 +252,6 @@ public sealed class Unit
     // against being TAKEN FROM WORK, not against being useful.
     public bool Protected { get; set; }
 
-    // M36 — the named haul route this unit crews, or null
-    // (docs/hauling-queue-and-routes.md). A crew member belongs to its loop:
-    // never in the haul-queue pool, never pulled by another order. Mutated
-    // ONLY by AddRouteCrewIntent, RemoveRouteCrewIntent and
-    // ClearHaulRouteIntent.
-    public int? RouteId { get; internal set; }
-
     // ---- M41 battlefield grid (docs/battlefield-grid.md) ----
     // The unit's place on an open battlefield (or waiting to come on, or
     // sheltered), null at world scale. Written only by Battlefields.

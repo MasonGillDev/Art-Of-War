@@ -157,7 +157,7 @@ public class HaulRouteEditTests
         Assert.Equal(1, r.Revision);
         Assert.Equal(1, r.Crews.Count);
         Assert.Equal(2, CrewOf(world, route).CurrentStop);   // still heading to a, now stop 2
-        Assert.Equal(route, hauler.RouteId);
+        Assert.Equal(route, RouteCrews.RouteOf(world, hauler));
         Assert.Equal(aboard, hauler.CargoAmount);
 
         RunUntil(driver, sim, () => a.AmountOf(Resource.Wood) > 0);

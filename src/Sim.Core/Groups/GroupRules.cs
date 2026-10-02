@@ -38,7 +38,6 @@ public static class GroupRules
         if (unit.Role == UnitRole.Boat || unit.Traversal != Traversal.Foot)
             return $"unit {id} is not a foot unit";
         if (unit.GroupId is { } other) return $"unit {id} is already in group {other}";
-        if (unit.RouteId is { } route) return $"unit {id} crews route {route}";
         return null;
     }
 
@@ -121,12 +120,14 @@ public static class GroupRules
 
     // ---- removal -------------------------------------------------------------------
 
-    // Remove a group. A company under command is dismissed first, so its members go
-    // back to what they were doing; then every member goes solo, its children move to
-    // the top level (keeping their own orders), and it leaves its parent.
+    // Remove a group. A crew comes off its route first (M47). A company under command
+    // is dismissed, so its members go back to what they were doing; then every member
+    // goes solo, its children move to the top level (keeping their own orders), and it
+    // leaves its parent.
     internal static void Remove(Simulation sim, Group group)
     {
         var world = sim.World;
+        Sim.Core.Hauling.RouteCrews.TakeOff(sim, group);
         // (DismissLeaf has already stopped the company's march or muster, and sent its
         // members back to work: halting again would stop those walks.)
         if (group.Kind == GroupKind.Units) GroupMuster.DismissLeaf(sim, group);

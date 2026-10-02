@@ -436,7 +436,8 @@ public sealed class HaulStopRuleDto
 public sealed class HaulCrewDto
 {
     public int Id { get; set; }
-    public int[] Members { get; set; } = [];
+    public int[] Members { get; set; } = [];   // the crew's group's living members (M47)
+    public int GroupId { get; set; } = -1;     // M47 — the group that crews the route
     public int CurrentStop { get; set; }
     public int Living { get; set; }
     public int State { get; set; }           // RouteCrewState, live from the driver

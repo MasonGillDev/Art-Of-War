@@ -655,7 +655,8 @@ public sealed class ViewProjector
                 Crews = r.Crews.Select(c => new HaulCrewDto
                 {
                     Id = c.CrewId,
-                    Members = c.Members.ToArray(),
+                    Members = Sim.Core.Hauling.RouteCrews.Living(world, r, c).Select(u => u.Id).ToArray(),
+                    GroupId = c.GroupId,
                     CurrentStop = c.CurrentStop,
                     Living = Sim.Core.Hauling.RouteCrews.Living(world, r, c).Count,
                     State = crewStates.TryGetValue((r.RouteId, c.CrewId), out var cr) ? (int)cr.State : 0,
@@ -929,7 +930,7 @@ public sealed class ViewProjector
             GoalX = mine ? u.Goal?.TargetTile.X ?? -1 : -1,
             GoalY = mine ? u.Goal?.TargetTile.Y ?? -1 : -1,
         };
-        if (mine) { FillPursuit(dto, u); FillRoute(dto, u); FillSurvey(dto, u); FillHaul(dto, u); }
+        if (mine) { FillPursuit(dto, u); FillRoute(dto, u); FillSurvey(dto, u); FillHaul(dto, u, world); }
         FillSubtile(dto, u);
         FillSubtileStep(dto, u, world);
         return dto;
@@ -973,10 +974,10 @@ public sealed class ViewProjector
     }
 
     // M45 — the unit's live load and its named route. Own units only (callers gate).
-    private static void FillHaul(UnitDto dto, Unit u)
+    private static void FillHaul(UnitDto dto, Unit u, GameWorld world)
     {
         dto.CargoCapacity = u.CargoCapacity;
-        dto.HaulRouteId = u.RouteId ?? -1;
+        dto.HaulRouteId = Sim.Core.Hauling.RouteCrews.RouteOf(world, u) ?? -1;   // M47: its group's route
     }
 
     // M44 — the survey tag. Own units only (callers gate).
@@ -1153,7 +1154,7 @@ public sealed class ViewProjector
             GoalX = goalX,
             GoalY = goalY,
         };
-        if (uv.OwnerId == viewerPlayerId && live is not null) { FillPursuit(dto2, live); FillRoute(dto2, live); FillSurvey(dto2, live); FillHaul(dto2, live); }
+        if (uv.OwnerId == viewerPlayerId && live is not null) { FillPursuit(dto2, live); FillRoute(dto2, live); FillSurvey(dto2, live); FillHaul(dto2, live, world); }
         if (live is not null) { FillSubtile(dto2, live); FillSubtileStep(dto2, live, world); }
         return dto2;
     }

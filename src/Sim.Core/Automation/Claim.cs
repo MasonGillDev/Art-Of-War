@@ -85,7 +85,6 @@ public static class ClaimLedger
         && !Sim.Core.Groups.GroupRules.UnderCommand(world, unit)
         && !unit.IsEmbarked
         && !world.Claims.ContainsKey(unit.Id)
-        && unit.RouteId is null   // M36: a route crew is never idle between stops
         && unit.HaulPlan is null  // M36: mid-trip is not available, whatever Activity says
         && Sim.Core.Population.Population.GetActiveBreedingFor(world, unit.Id) is null;
 

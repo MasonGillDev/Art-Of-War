@@ -16,12 +16,16 @@ public sealed class MoveGroupIntent : Intent
 {
     public int GroupId { get; }
     public TileCoord Destination { get; }
+    // M47 — the hauling driver marching a crew along its route. A player's move of a
+    // route group (ForRoute false) suspends the route until the group is dismissed.
+    public bool ForRoute { get; }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public MoveGroupIntent(int groupId, TileCoord destination)
+    public MoveGroupIntent(int groupId, TileCoord destination, bool forRoute = false)
     {
         GroupId = groupId;
         Destination = destination;
+        ForRoute = forRoute;
     }
 
     public override IntentOutcome Resolve(Simulation sim)
@@ -58,6 +62,11 @@ public sealed class MoveGroupIntent : Intent
         // A group still mustering is moved too: who has arrived marches, the rest follow.
         foreach (var (leaf, path) in plans)
         {
+            if (!ForRoute && Sim.Core.Hauling.RouteCrews.Find(world, leaf) is not null)
+            {
+                leaf.RouteSuspended = true;   // the player's order wins until dismissed
+                leaf.PendingMuster = null;
+            }
             Halt(sim, leaf);
             leaf.BumpEpoch();
             GroupMarch.Begin(sim, leaf, path);
@@ -82,5 +91,5 @@ public sealed class MoveGroupIntent : Intent
     }
 
     public override string Describe() =>
-        $"MoveGroupIntent(group={GroupId} -> {Destination.X},{Destination.Y})";
+        $"MoveGroupIntent(group={GroupId} -> {Destination.X},{Destination.Y}{(ForRoute ? ", route" : "")})";
 }

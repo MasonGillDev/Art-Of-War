@@ -35,6 +35,8 @@ public sealed class MergeGroupsIntent : Intent
             return IntentOutcome.Reject("a group of units and a group of groups can't merge");
         if (from.State == GroupState.Moving || into.State == GroupState.Moving)
             return IntentOutcome.Reject("a marching group can't merge; stop it first");
+        if (Sim.Core.Hauling.RouteCrews.Find(world, from) is not null || Sim.Core.Hauling.RouteCrews.Find(world, into) is not null)
+            return IntentOutcome.Reject("a group crewing a route can't merge; take it off the route first");
 
         if (from.Kind == GroupKind.Groups)
         {

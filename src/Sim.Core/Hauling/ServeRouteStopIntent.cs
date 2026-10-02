@@ -60,9 +60,20 @@ public sealed class ServeRouteStopIntent : Intent
                 $"revision fence: route {RouteId} is at revision {route.Revision}, expected {ExpectedRevision}");
 
         var stop = route.Stops[crew.CurrentStop];
+        // M47 — the crew is a group: it serves as a body once it has formed up at the stop
+        // (its block may spill onto the next tile), every member standing still there.
+        if (!world.Groups.TryGetValue(crew.GroupId, out var group))
+            return IntentOutcome.Reject($"crew {CrewId}'s group {crew.GroupId} is gone");
+        if (group.RouteSuspended)
+            return IntentOutcome.Reject($"crew {CrewId} has been called away");
+        if (group.State != Sim.Core.Groups.GroupState.Idle || group.Position != stop.Tile)
+            return IntentOutcome.Reject($"crew {CrewId} has not formed up at stop {crew.CurrentStop}");
+        // Standing in the block: on the stop or a tile beside it (a crew's block spills
+        // where a building's footprint leaves too little room on the stop itself).
         var present = new List<Unit>();
         foreach (var u in RouteCrews.Living(world, route, crew))
-            if (u.Position == stop.Tile && u.Activity == Activity.Idle && !u.IsWalking)
+            if (u.Activity == Activity.Idle && !u.IsWalking && !u.IsEmbarked
+                && Math.Max(Math.Abs(u.Position.X - stop.Tile.X), Math.Abs(u.Position.Y - stop.Tile.Y)) <= 1)
                 present.Add(u);
         if (present.Count == 0)
             return IntentOutcome.Reject($"no member of crew {CrewId} is standing at stop {crew.CurrentStop}");
@@ -111,6 +122,15 @@ public sealed class ServeRouteStopIntent : Intent
 
         crew.LastServe = new ServeReport(crew.CurrentStop, sim.Now, loaded, unloaded, notes);
         crew.CurrentStop = (crew.CurrentStop + 1) % route.Stops.Count;
+
+        // M47 — a muster that came mid-leg is answered now the leg is done (in this same
+        // intent, so serving and answering can't come apart across a restart).
+        if (group.PendingMuster is { } anchor)
+        {
+            group.PendingMuster = null;
+            group.RouteSuspended = true;
+            Sim.Core.Groups.GroupMuster.Muster(sim, group, anchor);
+        }
         return IntentOutcome.Applied;
     }
 

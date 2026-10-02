@@ -1760,3 +1760,31 @@ emptied record without dismissing anyone), `GroupRules.NewId`, and `GroupMuster.
 held-slot fields. Pinned by `GroupWireTests.TheProjection_IsAPureRead`.
 
 **No new state, no format change.**
+
+## M47 — route groups (2026-10-02, `docs/m47-route-groups-spec.md`)
+
+**State changes.**
+- `RouteCrew.Members` became `RouteCrew.GroupId`.
+- `Unit.RouteId` is gone. A unit's route is derived (`RouteCrews.RouteOf`, a scan over the few routes).
+- Each group gained `RouteSuspended` and `PendingMuster`.
+
+**Mutation points.**
+- `RouteCrew.GroupId` is written only when a crew is created (`RouteCrews.PutOn`, from
+  `AssignGroupToRouteIntent` and the M36 `AddRouteCrewIntent`) and by `Snapshot`.
+- A crew leaves its route only through `RouteCrews.Release` (from `RemoveRouteCrew`, `ClearHaulRoute`,
+  `UnassignGroupFromRoute`, and `GroupRules.Remove`).
+- `RouteSuspended` and `PendingMuster` are written by:
+  - `RouteCrews.PutOn` and `RouteCrews.Release`
+  - `GroupMuster.Muster` (a pending muster) and `DismissLeaf` (resume)
+  - `MoveGroupIntent` (a player's move suspends)
+  - `ServeRouteStopIntent` (answers the pending muster, in the same intent as the serve)
+  - `Snapshot`
+
+**The driver** (`HaulingDriver.RunCrew`) submits only `MoveGroupIntent(ForRoute)` and
+`ServeRouteStopIntent`, the same trust boundary as before. Pinned by
+`RouteGroupTests.TwinRun_AndMidLegRestore_EndTheSame` and `HaulRouteTests`.
+
+**Snapshot v51.**
+- A crew row carries its `GroupId`.
+- A unit row loses `RouteId`.
+- A group row gains `RouteSuspended` and `PendingMuster`.

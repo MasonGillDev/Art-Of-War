@@ -39,6 +39,9 @@ public class IntentStoreTests
         yield return new object[] { new MergeGroupsIntent(fromId: 2, intoId: 1) { PlayerId = 0 } };
         yield return new object[] { new SplitGroupIntent(groupId: 1, new[] { 4 }, "Scouts") { PlayerId = 0 } };
         yield return new object[] { new SplitGroupIntent(groupId: 1, new[] { 5 }) { PlayerId = 0 } };
+        yield return new object[] { new MoveGroupIntent(groupId: 2, new TileCoord(4, 4), forRoute: true) { PlayerId = 0 } };
+        yield return new object[] { new Sim.Core.Hauling.AssignGroupToRouteIntent(groupId: 2, routeId: 3, startStop: 1) { PlayerId = 0 } };
+        yield return new object[] { new Sim.Core.Hauling.UnassignGroupFromRouteIntent(groupId: 2) { PlayerId = 0 } };
         yield return new object[] { new TrainUnitIntent(unitId: 7, UnitRole.Builder) { PlayerId = 0 } };
         yield return new object[] { new EmbarkIntent(boatId: 50, new[] { 1, 2, 3 }) { PlayerId = 0 } };
         yield return new object[] { new DisembarkIntent(boatId: 50) { PlayerId = 0 } };
@@ -97,7 +100,14 @@ public class IntentStoreTests
                 Assert.Equal(fa.RendezvousTile, fb.RendezvousTile); break;
             case MoveGroupIntent mga when b is MoveGroupIntent mgb:
                 Assert.Equal(mga.GroupId, mgb.GroupId);
-                Assert.Equal(mga.Destination, mgb.Destination); break;
+                Assert.Equal(mga.Destination, mgb.Destination);
+                Assert.Equal(mga.ForRoute, mgb.ForRoute); break;
+            case Sim.Core.Hauling.AssignGroupToRouteIntent aga when b is Sim.Core.Hauling.AssignGroupToRouteIntent agb:
+                Assert.Equal(aga.GroupId, agb.GroupId);
+                Assert.Equal(aga.RouteId, agb.RouteId);
+                Assert.Equal(aga.StartStop, agb.StartStop); break;
+            case Sim.Core.Hauling.UnassignGroupFromRouteIntent uga when b is Sim.Core.Hauling.UnassignGroupFromRouteIntent ugb:
+                Assert.Equal(uga.GroupId, ugb.GroupId); break;
             case DisbandGroupIntent da when b is DisbandGroupIntent db:
                 Assert.Equal(da.GroupId, db.GroupId); break;
             case CreateGroupIntent ca when b is CreateGroupIntent cb:

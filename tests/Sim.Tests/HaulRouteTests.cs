@@ -305,11 +305,11 @@ public class HaulRouteTests
         Crew(sim, route, 1, 2);
 
         Assert.True(new RemoveRouteCrewIntent(route, 1) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.Null(a.RouteId);
-        Assert.Equal(route, b.RouteId);
+        Assert.Null(RouteCrews.RouteOf(world, a));
+        Assert.Equal(route, RouteCrews.RouteOf(world, b));
 
         Assert.True(new ClearHaulRouteIntent(route) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.Null(b.RouteId);
+        Assert.Null(RouteCrews.RouteOf(world, b));
         Assert.Empty(world.HaulRoutes);
     }
 
@@ -362,11 +362,11 @@ public class HaulRouteTests
         var bad = new SetHaulRouteIntent(stops, new() { 1, 2 }) { PlayerId = 0 }.Resolve(sim);
         Assert.True(bad.IsRejected);
         Assert.Empty(world.HaulRoutes);
-        Assert.Null(a.RouteId);
+        Assert.Null(RouteCrews.RouteOf(world, a));
 
         var id = world.NextHaulRouteId;
         Assert.True(new SetHaulRouteIntent(stops, new() { 1 }) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.Equal(id, a.RouteId);
+        Assert.Equal(id, RouteCrews.RouteOf(world, a));
         Assert.Equal(0, CrewOf(world, id).CurrentStop);
     }
 
@@ -377,6 +377,7 @@ public class HaulRouteTests
         var route = SetRoute(sim, Stop(new TileCoord(2, 2)), Stop(new TileCoord(6, 2)));
         Add(world, 1, new TileCoord(2, 2));
         Crew(sim, route, 0, 1);
+        sim.Run(until: sim.Now + 200);   // M47: the crew forms up at its first stop before it serves
 
         Assert.True(new ServeRouteStopIntent(route, 1, expectedStop: 1) { PlayerId = 0 }.Resolve(sim).IsRejected);
         Assert.True(new ServeRouteStopIntent(route, 1, expectedStop: 0) { PlayerId = 0 }.Resolve(sim).IsApplied);
