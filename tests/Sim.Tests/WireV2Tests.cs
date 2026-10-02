@@ -207,7 +207,7 @@ public class WireV2Tests
         var mine = sim.World.Units.Values.Where(u => u.OwnerId == 0).Take(2).ToList();
         Assert.Equal(2, mine.Count);
         var rendezvous = mine[0].Position;
-        sim.SubmitIntent(sim.Now, new Sim.Core.Groups.FormGroupIntent(
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(
             mine.Select(u => u.Id).ToArray(), rendezvous) { PlayerId = 0 });
         sim.Run(until: sim.Now + 1);
 
@@ -244,7 +244,7 @@ public class WireV2Tests
         var (sim, projector, _) = MakeWorld();
 
         var mine = sim.World.Units.Values.Where(u => u.OwnerId == 0).Take(2).ToList();
-        sim.SubmitIntent(sim.Now, new Sim.Core.Groups.FormGroupIntent(
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(
             mine.Select(u => u.Id).ToArray(), mine[0].Position) { PlayerId = 0 });
         sim.Run(until: sim.Now + 1);
 
@@ -635,7 +635,7 @@ public class WireV2Tests
         var a = mine[0];
         var b = mine.First(u => u.Position != a.Position);
 
-        sim.SubmitIntent(sim.Now, new Sim.Core.Groups.FormGroupIntent(
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(
             new[] { a.Id, b.Id }, a.Position) { PlayerId = 0 });
         sim.Run(until: sim.Now + 1);
 

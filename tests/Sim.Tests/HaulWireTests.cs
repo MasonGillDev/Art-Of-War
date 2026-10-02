@@ -81,7 +81,8 @@ public class HaulWireTests
         {
             new() { Tile = carrier.Position },
             new() { Tile = pileAt },
-        }, new() { carrier.Id }, name: "Wood loop") { PlayerId = 0 }.Resolve(sim).IsApplied);
+        }, name: "Wood loop") { PlayerId = 0 }.Resolve(sim).IsApplied);
+        TestGroups.Crew(sim, routeId, 0, new[] { carrier.Id });
         world.HaulRoutes[routeId].Crews[0].LastServe =
             new ServeReport(1, 42, 3, 2, ServeNote.SourceEmpty | ServeNote.DropRefused);
 

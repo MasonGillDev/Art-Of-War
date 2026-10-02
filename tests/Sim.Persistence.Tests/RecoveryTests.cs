@@ -66,7 +66,8 @@ public class RecoveryTests
     {
         (0,   new MoveIntent(1, new TileCoord(18, 18))),
         (0,   new HaulIntent(2, new TileCoord(15, 0), new TileCoord(0, 0), Resource.Wood)),
-        (0,   new FormGroupIntent(new[] { 3, 4 }, new TileCoord(5, 5))),
+        (0,   new CreateGroupIntent("Pair", new[] { 3, 4 })),
+        (1,   new MusterGroupIntent(1, new TileCoord(5, 5))),
         (10,  new MoveIntent(1, new TileCoord(2, 18))),  // mid-walk retask
     };
 

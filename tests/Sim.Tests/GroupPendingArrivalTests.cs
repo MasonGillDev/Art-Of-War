@@ -26,7 +26,7 @@ public class GroupPendingArrivalTests
         var start = new TileCoord(2, 2);
         world.AddUnit(new Unit(1, start) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, start) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, start));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, start));
         sim.Run(until: 0);
         var gid = world.Groups.Keys.Last();
 
@@ -52,7 +52,7 @@ public class GroupPendingArrivalTests
         var rendezvous = new TileCoord(2, 2);
         world.AddUnit(new Unit(1, rendezvous) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, new TileCoord(14, 8)) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, rendezvous));
         sim.Run(until: 30);
         var gid = world.Groups.Keys.Last();
         Assert.Equal(GroupState.Forming, world.Groups[gid].State);
@@ -74,7 +74,7 @@ public class GroupPendingArrivalTests
         var rendezvous = new TileCoord(2, 2);
         world.AddUnit(new Unit(1, rendezvous) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, new TileCoord(14, 8)) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, rendezvous));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, rendezvous));
         sim.Run(until: 30);
         var gid = world.Groups.Keys.Last();
         Assert.True(world.Units[2].IsWalking);

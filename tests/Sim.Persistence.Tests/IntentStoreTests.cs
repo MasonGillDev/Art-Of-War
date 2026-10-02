@@ -24,9 +24,7 @@ public class IntentStoreTests
         yield return new object[] { new AssignWorkersIntent(new TileCoord(3, 3), new[] { 10, 11 }) { PlayerId = 0 } };
         yield return new object[] { new UnassignWorkersIntent(new TileCoord(3, 3), new[] { 11 }) { PlayerId = 0 } };
         yield return new object[] { new HaulIntent(haulerId: 5, new TileCoord(0, 0), new TileCoord(9, 9), Resource.Wood) { PlayerId = 0 } };
-        yield return new object[] { new FormGroupIntent(new[] { 1, 2, 3 }, new TileCoord(5, 5)) { PlayerId = 0 } };
         yield return new object[] { new MoveGroupIntent(groupId: 1, new TileCoord(9, 9)) { PlayerId = 0 } };
-        yield return new object[] { new DisbandGroupIntent(groupId: 1) { PlayerId = 0 } };
         // M46 — groups as records.
         yield return new object[] { new CreateGroupIntent("Bridge Guard", new[] { 4, 5 }, parentId: 2) { PlayerId = 0 } };
         yield return new object[] { new CreateGroupIntent("Army", Array.Empty<int>(), holdsGroups: true) { PlayerId = 0 } };
@@ -97,9 +95,6 @@ public class IntentStoreTests
                 Assert.Equal(ha.SourceTile, hb.SourceTile);
                 Assert.Equal(ha.DestTile, hb.DestTile);
                 Assert.Equal(ha.Resource, hb.Resource); break;
-            case FormGroupIntent fa when b is FormGroupIntent fb:
-                Assert.Equal(fa.UnitIds, fb.UnitIds);
-                Assert.Equal(fa.RendezvousTile, fb.RendezvousTile); break;
             case MoveGroupIntent mga when b is MoveGroupIntent mgb:
                 Assert.Equal(mga.GroupId, mgb.GroupId);
                 Assert.Equal(mga.Destination, mgb.Destination);
@@ -116,8 +111,6 @@ public class IntentStoreTests
             case ChargeGroupIntent cga when b is ChargeGroupIntent cgb:
                 Assert.Equal(cga.GroupId, cgb.GroupId);
                 Assert.Equal(cga.TargetUnitId, cgb.TargetUnitId); break;
-            case DisbandGroupIntent da when b is DisbandGroupIntent db:
-                Assert.Equal(da.GroupId, db.GroupId); break;
             case CreateGroupIntent ca when b is CreateGroupIntent cb:
                 Assert.Equal(ca.Name, cb.Name);
                 Assert.Equal(ca.UnitIds, cb.UnitIds);

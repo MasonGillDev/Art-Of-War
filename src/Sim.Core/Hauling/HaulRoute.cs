@@ -39,8 +39,7 @@ public sealed class RouteCrew
 {
     public int CrewId { get; init; }
     // The group that crews the route. Its members are the crew. Written by
-    // AssignGroupToRouteIntent (and the M36 AddRouteCrewIntent, which makes a
-    // group for the units it names).
+    // AssignGroupToRouteIntent only.
     public int GroupId { get; init; }
     public int CurrentStop { get; set; }
 
@@ -73,7 +72,7 @@ public readonly record struct ServeReport(int Stop, long Tick, int Loaded, int U
 //
 // Definition (Stops) is set by SetHaulRouteIntent and replaced whole by
 // UpdateHaulRouteIntent (M45); the crews list changes through
-// Add/RemoveRouteCrewIntent; a crew's cursor moves only through
+// Assign/UnassignGroupFromRouteIntent (and a group's deletion); a crew's cursor moves only through
 // ServeRouteStopIntent, and is remapped by UpdateHaulRouteIntent.
 public sealed class HaulRoute
 {

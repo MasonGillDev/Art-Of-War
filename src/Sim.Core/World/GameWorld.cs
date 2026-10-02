@@ -144,7 +144,7 @@ public sealed class GameWorld
     public long NextHaulStamp { get; internal set; } = 1;
 
     // M36 — NAMED HAUL ROUTES, sparse by route id. Mutated ONLY by
-    // Set/Clear/Update/RenameHaulRouteIntent, Add/RemoveRouteCrewIntent and
+    // Set/Clear/Update/RenameHaulRouteIntent, Assign/UnassignGroupToRouteIntent and
     // ServeRouteStopIntent (a crew's cursor and last serve).
     public SortedDictionary<int, Sim.Core.Hauling.HaulRoute> HaulRoutes { get; } = new();
     public int NextHaulRouteId { get; internal set; } = 1;

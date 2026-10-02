@@ -180,7 +180,7 @@ public sealed class Unit
 
     // ---- M5 group membership ----
     // The leaf group this unit belongs to (at most one). Set by Create/AddTo/
-    // FormGroupIntent; cleared by Delete/DisbandGroupIntent. Membership alone
+    // SplitGroupIntent; cleared by DeleteGroupIntent or a solo split. Membership alone
     // blocks nothing (M46): solo intents reject the unit only while its group
     // has it under command (GroupRules.UnderCommand), so a member of a
     // dismissed group works like anyone else. See Groups/Group.cs and

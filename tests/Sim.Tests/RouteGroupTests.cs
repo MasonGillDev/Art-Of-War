@@ -193,23 +193,6 @@ public class RouteGroupTests
     }
 
     [Fact]
-    public void TheOldCrewIntent_MakesANamedGroup()
-    {
-        var sim = MakeSim(out var world);
-        var src = Pile(world, new TileCoord(3, 4), wood: 100);
-        world.AddUnit(new Unit(1, src.At) { Role = UnitRole.Hauler });
-        var route = world.NextHaulRouteId;
-        new SetHaulRouteIntent(new() { new RouteStop { Tile = src.At }, new RouteStop { Tile = new TileCoord(9, 4) } }, name: "Timber")
-            { PlayerId = 0 }.Resolve(sim);
-
-        Assert.True(new AddRouteCrewIntent(route, new() { 1 }) { PlayerId = 0 }.Resolve(sim).IsApplied);
-
-        var group = world.Groups[world.Units[1].GroupId!.Value];
-        Assert.Equal("Timber crew 1", group.Name);
-        Assert.Equal(group.Id, world.HaulRoutes[route].Crews.Single().GroupId);
-    }
-
-    [Fact]
     public void TwinRun_AndMidLegRestore_EndTheSame()
     {
         (Simulation, HaulingDriver) Build()

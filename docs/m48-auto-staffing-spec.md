@@ -88,9 +88,10 @@
     for AI players (they place sites through the same intent), so the AI's
     own staffing becomes redundant but harmless; removing it is a later
     cleanup, gated on the Homesteader lab staying green.
-11. The player-facing Staff authoring flow is retired from the client once
-    this ships. `SetOrderIntent` still accepts an explicit Staff order so
-    old intent logs replay.
+11. The player-facing Staff authoring flow is retired from the client, and
+    `SetOrderIntent` stops accepting an explicit Staff recipe. No compat
+    shim: the game is in development with no saved games to replay
+    (`docs/client-intent-migration.md`).
 
 ## Detailed rules
 
@@ -180,11 +181,9 @@
   `Orders.OnStructureRemoved` and `Construction.Complete`.
 - **Pure reads:** the derived trigger and the derived Train target. Both
   get the 100× no-mutation pin.
-- **Old intent logs:** `PlaceSiteIntent`/`BuildIntent` with the new field
-  absent default to the cap, so an old log replays to a world with implicit
-  orders it did not have before. Pin this as a format break under
-  `docs/persistence-model.md` (the hash of an old log changes) rather than
-  pretending it does not.
+- **No compat for old logs.** `PlaceSiteIntent`/`BuildIntent` gain the
+  field outright; a log without it is from before this milestone and is
+  not replayed (`docs/client-intent-migration.md`).
 
 ## Headline test
 
@@ -243,14 +242,12 @@ Must hold for all of it:
    hold and cancels that unit's `SavedTask` (the player's choice wins). The
    implicit order never does, because it only pulls below the summed
    count.
-3. **Old intent logs change hash** (see persistence). Decide early whether
-   to accept the break or key the default on the log's format version.
-4. **The AI double-staffs.** Its own `StaffExtractor` and the implicit
+3. **The AI double-staffs.** Its own `StaffExtractor` and the implicit
    order can both pull for one slot; the cap check counts walkers so the
    second is marched and dissolved, but it is wasted motion. Pin with the
    Homesteader lab.
-5. **Builders benched on starved sites** if the materials gate is skipped.
-6. **Train over-count.** The derived quota counts all units of a role,
+4. **Builders benched on starved sites** if the materials gate is skipped.
+5. **Train over-count.** The derived quota counts all units of a role,
    including those working elsewhere or dormant far away; it may train one
    more than needed when role units idle out of reach. Acceptable, record
    it.

@@ -41,9 +41,7 @@ public static class IntentJson
         [typeof(AssignWorkersIntent)]     = "AssignWorkersIntent",
         [typeof(UnassignWorkersIntent)]   = "UnassignWorkersIntent",
         [typeof(HaulIntent)]              = "HaulIntent",
-        [typeof(FormGroupIntent)]         = "FormGroupIntent",
         [typeof(MoveGroupIntent)]         = "MoveGroupIntent",
-        [typeof(DisbandGroupIntent)]      = "DisbandGroupIntent",
         // M46 — groups as records (docs/m46-groups-spec.md).
         [typeof(CreateGroupIntent)]       = "CreateGroupIntent",
         [typeof(RenameGroupIntent)]       = "RenameGroupIntent",
@@ -98,8 +96,6 @@ public static class IntentJson
         // ServeRouteStop is server-internal (driver-submitted) and durable.
         [typeof(Sim.Core.Hauling.SetHaulRouteIntent)]            = "SetHaulRouteIntent",
         [typeof(Sim.Core.Hauling.ClearHaulRouteIntent)]          = "ClearHaulRouteIntent",
-        [typeof(Sim.Core.Hauling.AddRouteCrewIntent)]            = "AddRouteCrewIntent",
-        [typeof(Sim.Core.Hauling.RemoveRouteCrewIntent)]         = "RemoveRouteCrewIntent",
         [typeof(Sim.Core.Hauling.ServeRouteStopIntent)]          = "ServeRouteStopIntent",
         // M45 — edit a running route in place, name it, change a queued job.
         [typeof(Sim.Core.Hauling.UpdateHaulRouteIntent)]         = "UpdateHaulRouteIntent",
@@ -152,9 +148,7 @@ public static class IntentJson
             "AssignWorkersIntent"    => JsonSerializer.Deserialize<AssignWorkersIntent>(payload, Options),
             "UnassignWorkersIntent"  => JsonSerializer.Deserialize<UnassignWorkersIntent>(payload, Options),
             "HaulIntent"             => JsonSerializer.Deserialize<HaulIntent>(payload, Options),
-            "FormGroupIntent"        => JsonSerializer.Deserialize<FormGroupIntent>(payload, Options),
             "MoveGroupIntent"        => JsonSerializer.Deserialize<MoveGroupIntent>(payload, Options),
-            "DisbandGroupIntent"     => JsonSerializer.Deserialize<DisbandGroupIntent>(payload, Options),
             "CreateGroupIntent"      => JsonSerializer.Deserialize<CreateGroupIntent>(payload, Options),
             "RenameGroupIntent"      => JsonSerializer.Deserialize<RenameGroupIntent>(payload, Options),
             "SetGroupParentIntent"   => JsonSerializer.Deserialize<SetGroupParentIntent>(payload, Options),
@@ -190,8 +184,6 @@ public static class IntentJson
             "RequeueHaulJobIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.RequeueHaulJobIntent>(payload, Options),
             "SetHaulRouteIntent"           => JsonSerializer.Deserialize<Sim.Core.Hauling.SetHaulRouteIntent>(payload, Options),
             "ClearHaulRouteIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.ClearHaulRouteIntent>(payload, Options),
-            "AddRouteCrewIntent"           => JsonSerializer.Deserialize<Sim.Core.Hauling.AddRouteCrewIntent>(payload, Options),
-            "RemoveRouteCrewIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.RemoveRouteCrewIntent>(payload, Options),
             "ServeRouteStopIntent"         => JsonSerializer.Deserialize<Sim.Core.Hauling.ServeRouteStopIntent>(payload, Options),
             "UpdateHaulRouteIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.UpdateHaulRouteIntent>(payload, Options),
             "RenameHaulRouteIntent"        => JsonSerializer.Deserialize<Sim.Core.Hauling.RenameHaulRouteIntent>(payload, Options),

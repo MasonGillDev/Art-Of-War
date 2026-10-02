@@ -228,7 +228,7 @@ public class MovementRulesTests
 
     private static int Form(Simulation sim, int[] ids, TileCoord at)
     {
-        sim.SubmitIntent(sim.Now, new FormGroupIntent(ids, at) { PlayerId = Blue });
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(ids, at) { PlayerId = Blue });
         sim.Run(until: sim.Now);
         return sim.World.Groups.Keys.Max();
     }

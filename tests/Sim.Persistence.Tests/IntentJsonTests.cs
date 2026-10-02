@@ -371,17 +371,16 @@ public class IntentJsonTests
         Assert.Equal(set.Stops[0].Rules, back.Stops[0].Rules);
         Assert.Empty(back.Stops[1].Rules);
 
-        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.AddRouteCrewIntent(3, new() { 9, 4 }, 1) { PlayerId = 1 });
-        var add = Assert.IsType<Sim.Core.Hauling.AddRouteCrewIntent>(IntentJson.Deserialize(tn, pl));
-        Assert.Equal((3, 1), (add.RouteId, add.StartStop));
-        Assert.Equal(new[] { 9, 4 }, add.Members);
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.AssignGroupToRouteIntent(9, 3, 1) { PlayerId = 1 });
+        var assign = Assert.IsType<Sim.Core.Hauling.AssignGroupToRouteIntent>(IntentJson.Deserialize(tn, pl));
+        Assert.Equal((9, 3, 1), (assign.GroupId, assign.RouteId, assign.StartStop));
 
         (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ServeRouteStopIntent(3, 2, 5) { PlayerId = 1 });
         var serve = Assert.IsType<Sim.Core.Hauling.ServeRouteStopIntent>(IntentJson.Deserialize(tn, pl));
         Assert.Equal((3, 2, 5), (serve.RouteId, serve.CrewId, serve.ExpectedStop));
 
-        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.RemoveRouteCrewIntent(3, 2) { PlayerId = 1 });
-        Assert.Equal(2, Assert.IsType<Sim.Core.Hauling.RemoveRouteCrewIntent>(IntentJson.Deserialize(tn, pl)).CrewId);
+        (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.UnassignGroupFromRouteIntent(9) { PlayerId = 1 });
+        Assert.Equal(9, Assert.IsType<Sim.Core.Hauling.UnassignGroupFromRouteIntent>(IntentJson.Deserialize(tn, pl)).GroupId);
         (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ClearHaulRouteIntent(3) { PlayerId = 1 });
         Assert.Equal(3, Assert.IsType<Sim.Core.Hauling.ClearHaulRouteIntent>(IntentJson.Deserialize(tn, pl)).RouteId);
     }
@@ -455,23 +454,15 @@ public class IntentJsonTests
 
         var route = Assert.IsType<Sim.Core.Hauling.SetHaulRouteIntent>(IntentJson.Deserialize("SetHaulRouteIntent",
             "{\"Stops\":[{\"Tile\":{\"X\":1,\"Y\":2},\"Rules\":[{\"Resource\":3,\"Op\":1,\"Percent\":40}]}," +
-            "{\"Tile\":{\"X\":6,\"Y\":2},\"Rules\":[]}],\"Crew\":[11,12],\"PlayerId\":0}"));
+            "{\"Tile\":{\"X\":6,\"Y\":2},\"Rules\":[]}],\"PlayerId\":0}"));
         Assert.Equal(2, route.Stops.Count);
         Assert.Equal(new Sim.Core.Hauling.StopRule(Resource.Ore, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
             Assert.Single(route.Stops[0].Rules));
-        Assert.Equal(new[] { 11, 12 }, route.Crew);
-
-        var crew = Assert.IsType<Sim.Core.Hauling.AddRouteCrewIntent>(IntentJson.Deserialize("AddRouteCrewIntent",
-            "{\"RouteId\":3,\"Members\":[7],\"StartStop\":2,\"PlayerId\":0}"));
-        Assert.Equal((3, 2), (crew.RouteId, crew.StartStop));
-        Assert.Equal(7, Assert.Single(crew.Members));
 
         Assert.Equal(5, Assert.IsType<Sim.Core.Hauling.ClearHaulJobIntent>(IntentJson.Deserialize("ClearHaulJobIntent",
             "{\"JobId\":5,\"PlayerId\":0}")).JobId);
         Assert.Equal(3, Assert.IsType<Sim.Core.Hauling.ClearHaulRouteIntent>(IntentJson.Deserialize("ClearHaulRouteIntent",
             "{\"RouteId\":3,\"PlayerId\":0}")).RouteId);
-        Assert.Equal(2, Assert.IsType<Sim.Core.Hauling.RemoveRouteCrewIntent>(IntentJson.Deserialize("RemoveRouteCrewIntent",
-            "{\"RouteId\":3,\"CrewId\":2,\"PlayerId\":0}")).CrewId);
     }
 
     [Fact]

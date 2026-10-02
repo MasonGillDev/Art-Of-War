@@ -49,11 +49,9 @@ public class HaulRouteEditTests
         return id;
     }
 
-    private static void Crew(Simulation sim, int route, int start, params int[] members)
-    {
-        var o = new AddRouteCrewIntent(route, members.ToList(), start) { PlayerId = 0 }.Resolve(sim);
-        Assert.True(o.IsApplied, o.Reason);
-    }
+    // A crew: a group of exactly these units, put on the route. Returns the group's id.
+    private static int Crew(Simulation sim, int route, int start, params int[] members) =>
+        TestGroups.Crew(sim, route, start, members);
 
     private static HaulingDriver Driver() => new(new HaulingConfig { ThinkPeriodTicks = 1 });
 

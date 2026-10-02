@@ -130,7 +130,7 @@ public class GroupRecordTests
         Create(sim, "a", Array.Empty<int>(), ofGroups: true);
         Do(sim, new DeleteGroupIntent(1));
 
-        sim.SubmitIntent(sim.Now, new FormGroupIntent(new[] { 1 }, new TileCoord(3, 3)));
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(new[] { 1 }, new TileCoord(3, 3)));
         sim.Run(until: sim.Now);
 
         Assert.Equal(2, world.Units[1].GroupId);
@@ -158,7 +158,7 @@ public class GroupRecordTests
     {
         var (sim, world) = MakeWorld();
         var soldier = Add(world, 1, role: UnitRole.Soldier);
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, soldier.Position));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1 }, soldier.Position));
         sim.Run(until: 0);
 
         Assert.True(GroupRules.UnderCommand(world, soldier));
@@ -305,7 +305,7 @@ public class GroupRecordTests
         sim.SubmitIntent(0, new CreateGroupIntent("Bridge Guard", new[] { 1, 2 }, parentId: 1));
         sim.SubmitIntent(0, new CreateGroupIntent("Gone", Array.Empty<int>(), holdsGroups: true));
         sim.SubmitIntent(1, new DeleteGroupIntent(3));
-        sim.SubmitIntent(2, new FormGroupIntent(new[] { 3, 4 }, new TileCoord(10, 8)));
+        sim.SubmitIntent(2, new CreateAndMuster(new[] { 3, 4 }, new TileCoord(10, 8)));
         sim.SubmitIntent(3, new RenameGroupIntent(2, "Night Watch"));
         sim.Run(until: 40);
         return sim;

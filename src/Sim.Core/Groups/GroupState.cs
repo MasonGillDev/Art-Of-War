@@ -1,8 +1,8 @@
 namespace Sim.Core.Groups;
 
 // Append-only enum (serialized into snapshots).
-//   Forming   — members are walking to the rendezvous tile. Cannot accept
-//               MoveGroupIntent; can be Disbanded.
+//   Forming   — mustering: members are walking to their places around the anchor
+//               (or finishing a job first). A move is taken: who has arrived marches.
 //   Idle      — all members present at the group's tile; movable.
 //   Moving    — members walking to PathFinalDest.
 //   Dismissed — (M46) the group stands down: its members are free and do their own

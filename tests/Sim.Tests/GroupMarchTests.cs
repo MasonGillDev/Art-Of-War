@@ -30,7 +30,7 @@ public class GroupMarchTests
             var u = world.AddUnit(new Unit(id, new TileCoord(at.X, at.Y + (id - 1) / 16)) { Role = UnitRole.Soldier });
             dress?.Invoke(u);
         }
-        sim.SubmitIntent(sim.Now, new FormGroupIntent(ids, at));
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(ids, at));
         sim.Run(until: sim.Now + 2000);
         var gid = world.Groups.Keys.Last();
         Assert.Equal(GroupState.Idle, world.Groups[gid].State);

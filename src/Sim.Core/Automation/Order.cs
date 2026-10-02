@@ -95,10 +95,10 @@ public enum RecipeKind : byte
     // Baking a train-fallback inside Staff would have made one recipe do
     // two jobs and hidden the player's workforce design inside it.
     Staff = 4,
-    // Reserved: Reinforce = 5 — BLOCKED on a sim verb. Adding a unit to an
-    // existing Group has no intent (only Form / Move / Disband), and
-    // automation never gets a verb the player lacks. It needs its own
-    // milestone first; see docs/automation-substrate.md Layer 2.
+    // Reserved: Reinforce = 5 — no longer blocked on a sim verb: M46 added
+    // AddToGroupIntent (a newcomer to a mustered group is called to it). It
+    // still needs its own design as an order kind; see
+    // docs/automation-substrate.md Layer 2.
 }
 
 // Append-only enum (serialized). Where an order's hands come from.

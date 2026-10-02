@@ -239,7 +239,7 @@ public class SubtileRouteTests
         // A grouped unit takes group orders.
         var g1 = Put(w, Blue, new TileCoord(2, 2), new Subtile(0, 0));
         var g2 = Put(w, Blue, new TileCoord(2, 2), new Subtile(1, 0));
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { g1.Id, g2.Id }, new TileCoord(2, 2)));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { g1.Id, g2.Id }, new TileCoord(2, 2)));
         sim.Run(until: 0);
         Assert.True(Route(sim, g1, W(new TileCoord(2, 2), 0, 1)).IsRejected);
         // The edge of the map.

@@ -49,11 +49,9 @@ public class HaulRouteTests
         return id;
     }
 
-    private static void Crew(Simulation sim, int route, int start, params int[] members)
-    {
-        var o = new AddRouteCrewIntent(route, members.ToList(), start) { PlayerId = 0 }.Resolve(sim);
-        Assert.True(o.IsApplied, o.Reason);
-    }
+    // A crew: a group of exactly these units, put on the route. Returns the group's id.
+    private static int Crew(Simulation sim, int route, int start, params int[] members) =>
+        TestGroups.Crew(sim, route, start, members);
 
     private static HaulingDriver Driver() => new(new HaulingConfig { ThinkPeriodTicks = 1 });
 
@@ -301,10 +299,10 @@ public class HaulRouteTests
         var route = SetRoute(sim, Stop(new TileCoord(2, 2)), Stop(new TileCoord(6, 2)));
         var a = Add(world, 1, new TileCoord(2, 2));
         var b = Add(world, 2, new TileCoord(2, 2));
-        Crew(sim, route, 0, 1);
+        var first = Crew(sim, route, 0, 1);
         Crew(sim, route, 1, 2);
 
-        Assert.True(new RemoveRouteCrewIntent(route, 1) { PlayerId = 0 }.Resolve(sim).IsApplied);
+        Assert.True(new UnassignGroupFromRouteIntent(first) { PlayerId = 0 }.Resolve(sim).IsApplied);
         Assert.Null(RouteCrews.RouteOf(world, a));
         Assert.Equal(route, RouteCrews.RouteOf(world, b));
 
@@ -314,7 +312,7 @@ public class HaulRouteTests
     }
 
     [Fact]
-    public void SetRoute_And_AddCrew_Validation()
+    public void SetRoute_And_AssignCrew_Validation()
     {
         var sim = MakeSim(out var world);
         IntentOutcome Set(params RouteStop[] stops) =>
@@ -337,37 +335,24 @@ public class HaulRouteTests
         world.Claims[3] = new Claim(3, OrderId: 5, ClaimPurpose.Crew);
         Add(world, 4, t);
 
-        IntentOutcome Crew(int r, int start, params int[] ids) =>
-            new AddRouteCrewIntent(r, ids.ToList(), start) { PlayerId = 0 }.Resolve(sim);
+        int Group(int player, params int[] ids)
+        {
+            var id = world.NextGroupId;
+            Assert.True(new Sim.Core.Groups.CreateGroupIntent("", ids) { PlayerId = player }.Resolve(sim).IsApplied);
+            return id;
+        }
+        IntentOutcome Assign(int group, int r, int start, int player = 0) =>
+            new AssignGroupToRouteIntent(group, r, start) { PlayerId = player }.Resolve(sim);
 
-        Assert.True(Crew(route, 0).IsRejected);          // nobody
-        Assert.True(Crew(route, 2, 1).IsRejected);       // no such stop
-        Assert.True(Crew(route, 0, 2).IsRejected);       // someone else's
-        Assert.True(Crew(route, 0, 3).IsRejected);       // claimed by an order
-        Assert.True(Crew(route, 0, 99).IsRejected);      // doesn't exist
-        Assert.True(Crew(route, 0, 1).IsApplied);
-        Assert.True(Crew(other, 0, 1).IsRejected);       // already on a route
-        Assert.True(new AddRouteCrewIntent(route, new() { 4 }) { PlayerId = 1 }.Resolve(sim).IsRejected);
-    }
-
-    [Fact]
-    public void SetRoute_WithACrew_StaffsItInOneStep_OrNotAtAll()
-    {
-        var sim = MakeSim(out var world);
-        var a = Add(world, 1, new TileCoord(2, 2));
-        Add(world, 2, new TileCoord(2, 2), owner: 1);
-        var stops = new List<RouteStop> { Stop(new TileCoord(2, 2)), Stop(new TileCoord(6, 2)) };
-
-        // A crew that fails its checks takes the route down with it.
-        var bad = new SetHaulRouteIntent(stops, new() { 1, 2 }) { PlayerId = 0 }.Resolve(sim);
-        Assert.True(bad.IsRejected);
-        Assert.Empty(world.HaulRoutes);
-        Assert.Null(RouteCrews.RouteOf(world, a));
-
-        var id = world.NextHaulRouteId;
-        Assert.True(new SetHaulRouteIntent(stops, new() { 1 }) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.Equal(id, RouteCrews.RouteOf(world, a));
-        Assert.Equal(0, CrewOf(world, id).CurrentStop);
+        var nobody = Group(0);
+        Assert.True(Assign(nobody, route, 0).IsRejected);              // nobody to crew it
+        var g = Group(0, 1);
+        Assert.True(Assign(g, route, 2).IsRejected);                   // no such stop
+        Assert.True(Assign(Group(1, 2), route, 0, player: 1).IsRejected);   // someone else's route
+        Assert.True(Assign(Group(0, 3), route, 0).IsRejected);         // claimed by an order
+        Assert.True(Assign(g, route, 0).IsApplied);
+        Assert.True(Assign(g, other, 0).IsRejected);                   // already on a route
+        Assert.True(Assign(Group(0, 4), route, 0, player: 1).IsRejected);   // not the group's owner
     }
 
     [Fact]

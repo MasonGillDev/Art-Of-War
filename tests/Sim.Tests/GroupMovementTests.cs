@@ -25,7 +25,7 @@ public class GroupMovementTests
     {
         foreach (var id in memberIds)
             world.AddUnit(new Unit(id, tile) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(memberIds, tile));
+        sim.SubmitIntent(0, new CreateAndMuster(memberIds, tile));
         sim.Run(until: 0);
         return world.Groups.Keys.Last();
     }
@@ -56,7 +56,7 @@ public class GroupMovementTests
         var (sim, world) = MakeWorld();
         world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, new TileCoord(9, 9)) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, new TileCoord(5, 5)));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, new TileCoord(5, 5)));
         sim.Run(until: 0);
         // Group is Forming.
         var gid = world.Groups.Keys.Last();
@@ -88,7 +88,7 @@ public class GroupMovementTests
         world.Players[1] = new Player(1);
         // Group owned by player 1.
         var u = world.AddUnit(new Unit(1, new TileCoord(5, 5)) { Role = UnitRole.Builder, OwnerId = 1 });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, new TileCoord(5, 5)) { PlayerId = 1 });
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1 }, new TileCoord(5, 5)) { PlayerId = 1 });
         sim.Run(until: 0);
         var gid = world.Groups.Keys.Last();
         // Player 0 attempts the move.
@@ -144,10 +144,10 @@ public class GroupMovementTests
             // Two separate groups walking toward different destinations.
             world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Builder });
             world.AddUnit(new Unit(2, new TileCoord(0, 0)) { Role = UnitRole.Builder });
-            sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, new TileCoord(0, 0)));
+            sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, new TileCoord(0, 0)));
             world.AddUnit(new Unit(3, new TileCoord(11, 11)) { Role = UnitRole.Builder });
             world.AddUnit(new Unit(4, new TileCoord(11, 11)) { Role = UnitRole.Builder });
-            sim.SubmitIntent(0, new FormGroupIntent(new[] { 3, 4 }, new TileCoord(11, 11)));
+            sim.SubmitIntent(0, new CreateAndMuster(new[] { 3, 4 }, new TileCoord(11, 11)));
             sim.Run(until: 0);
 
             var g1 = 1; var g2 = 2;
@@ -172,7 +172,7 @@ public class GroupMovementTests
             world.AddUnit(new Unit(1, new TileCoord(2, 2)) { Role = UnitRole.Builder });
             world.AddUnit(new Unit(2, new TileCoord(2, 2)) { Role = UnitRole.Builder });
             world.AddUnit(new Unit(3, new TileCoord(2, 2)) { Role = UnitRole.Builder });
-            sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2, 3 }, new TileCoord(2, 2)));
+            sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2, 3 }, new TileCoord(2, 2)));
             sim.Run(until: 0);
             sim.SubmitIntent(sim.Now, new MoveGroupIntent(1, new TileCoord(9, 9)));
             return sim;

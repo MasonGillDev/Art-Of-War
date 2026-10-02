@@ -9,7 +9,8 @@ using Snapshot = Sim.Core.Persistence.Snapshot;
 
 namespace Sim.Tests;
 
-// M5 Phase D — DisbandGroupIntent + solo-intent rejection.
+// Deleting a group (DeleteGroupIntent; M46 removed the Disband alias) + solo-intent
+// rejection while a group has its members under command.
 public class GroupDisbandTests
 {
     private static (Simulation sim, GameWorld world) MakeWorld(int w = 12, int h = 12)
@@ -25,7 +26,7 @@ public class GroupDisbandTests
     {
         foreach (var id in memberIds)
             world.AddUnit(new Unit(id, tile) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(memberIds, tile));
+        sim.SubmitIntent(0, new CreateAndMuster(memberIds, tile));
         sim.Run(until: 0);
         return world.Groups.Keys.Last();
     }
@@ -36,7 +37,7 @@ public class GroupDisbandTests
         var (sim, world) = MakeWorld();
         var gid = FormAt(sim, world, new TileCoord(5, 5), 1, 2, 3);
 
-        sim.SubmitIntent(sim.Now, new DisbandGroupIntent(gid));
+        sim.SubmitIntent(sim.Now, new DeleteGroupIntent(gid));
         sim.Run();
 
         Assert.False(world.Groups.ContainsKey(gid));
@@ -56,7 +57,7 @@ public class GroupDisbandTests
         // Run for a few ticks to put the group mid-walk.
         sim.Run(until: sim.Now + 30);
 
-        sim.SubmitIntent(sim.Now, new DisbandGroupIntent(gid));
+        sim.SubmitIntent(sim.Now, new DeleteGroupIntent(gid));
         sim.Run(until: sim.Now);   // the disband resolves
         var where1 = (world.Units[1].Position, world.Units[1].Subtile);
         var where2 = (world.Units[2].Position, world.Units[2].Subtile);
@@ -79,7 +80,7 @@ public class GroupDisbandTests
         var (sim, world) = MakeWorld();
         world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Builder });
         world.AddUnit(new Unit(2, new TileCoord(9, 9)) { Role = UnitRole.Builder });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, new TileCoord(5, 5)));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, new TileCoord(5, 5)));
         sim.Run(until: 0);
         var gid = world.Groups.Keys.Last();
         Assert.Equal(GroupState.Forming, world.Groups[gid].State);
@@ -89,7 +90,7 @@ public class GroupDisbandTests
         var u1Mid = world.Units[1].Position;
         var u2Mid = world.Units[2].Position;
 
-        sim.SubmitIntent(sim.Now, new DisbandGroupIntent(gid));
+        sim.SubmitIntent(sim.Now, new DeleteGroupIntent(gid));
         sim.Run();
 
         Assert.False(world.Groups.ContainsKey(gid));
@@ -105,7 +106,7 @@ public class GroupDisbandTests
     public void Disband_NonexistentGroup_Rejected()
     {
         var (sim, _) = MakeWorld();
-        sim.SubmitIntent(0, new DisbandGroupIntent(999));
+        sim.SubmitIntent(0, new DeleteGroupIntent(999));
         sim.Run();
         Assert.True(sim.ResolvedLog[^1].Outcome.IsRejected);
     }
@@ -116,14 +117,14 @@ public class GroupDisbandTests
         var (sim, world) = MakeWorld();
         world.Players[1] = new Player(1);
         world.AddUnit(new Unit(1, new TileCoord(5, 5)) { Role = UnitRole.Builder, OwnerId = 1 });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, new TileCoord(5, 5)) { PlayerId = 1 });
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1 }, new TileCoord(5, 5)) { PlayerId = 1 });
         sim.Run(until: 0);
         var gid = world.Groups.Keys.Last();
 
-        sim.SubmitIntent(sim.Now, new DisbandGroupIntent(gid) { PlayerId = 0 });
+        sim.SubmitIntent(sim.Now, new DeleteGroupIntent(gid) { PlayerId = 0 });
         sim.Run();
         Assert.True(sim.ResolvedLog.OfType<IntentEvent>()
-            .Last(e => e.Intent is DisbandGroupIntent)
+            .Last(e => e.Intent is DeleteGroupIntent)
             .Outcome.IsRejected);
         Assert.True(world.Groups.ContainsKey(gid));
     }
@@ -154,7 +155,7 @@ public class GroupDisbandTests
 
         // Form a haul-capable unit into a group.
         world.AddUnit(new Unit(1, new TileCoord(5, 5)) { Role = UnitRole.Hauler });
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, new TileCoord(5, 5)));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1 }, new TileCoord(5, 5)));
         sim.Run(until: 0);
 
         sim.SubmitIntent(sim.Now, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(5, 5), Resource.Wood));
@@ -177,7 +178,7 @@ public class GroupDisbandTests
         // Two builders on the site; one grouped, one solo.
         world.AddUnit(new Unit(1, siteTile) { Role = UnitRole.Builder });   // will be grouped
         world.AddUnit(new Unit(2, siteTile) { Role = UnitRole.Builder });   // solo
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, siteTile));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1 }, siteTile));
         sim.Run(until: 0);
 
         sim.SubmitIntent(sim.Now, new AssignBuildersIntent(siteTile, new[] { 1, 2 }));
@@ -197,7 +198,7 @@ public class GroupDisbandTests
 
         world.AddUnit(new Unit(1, campTile) { Role = UnitRole.Lumberjack });  // will be grouped
         world.AddUnit(new Unit(2, campTile) { Role = UnitRole.Lumberjack });  // solo
-        sim.SubmitIntent(0, new FormGroupIntent(new[] { 1 }, campTile));
+        sim.SubmitIntent(0, new CreateAndMuster(new[] { 1 }, campTile));
         sim.Run(until: 0);
 
         sim.SubmitIntent(sim.Now, new AssignWorkersIntent(campTile, new[] { 1, 2 }));
@@ -214,10 +215,10 @@ public class GroupDisbandTests
             var (sim, world) = MakeWorld();
             world.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Builder });
             world.AddUnit(new Unit(2, new TileCoord(0, 0)) { Role = UnitRole.Builder });
-            sim.SubmitIntent(0, new FormGroupIntent(new[] { 1, 2 }, new TileCoord(0, 0)));
+            sim.SubmitIntent(0, new CreateAndMuster(new[] { 1, 2 }, new TileCoord(0, 0)));
             sim.SubmitIntent(0, new MoveGroupIntent(1, new TileCoord(9, 9)));
             sim.Run();
-            sim.SubmitIntent(sim.Now, new DisbandGroupIntent(1));
+            sim.SubmitIntent(sim.Now, new DeleteGroupIntent(1));
             sim.Run();
             return sim;
         }

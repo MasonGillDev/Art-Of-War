@@ -14,10 +14,11 @@ namespace Sim.Core.Groups;
 //
 // Lifecycle (State):
 //   CreateGroupIntent → Dismissed: members are free and do their own work.
-//   FormGroupIntent → Forming, members walk to RendezvousTile. Each member's walk
-//   ending takes it off PendingArrivals; at zero, Idle.
-//   MoveGroupIntent on Idle → Moving; on Moving → epoch bumps, new walks take over.
-//   DeleteGroupIntent / DisbandGroupIntent (any state) → members go solo, group removed.
+//   MusterGroupIntent → Forming: members finish what must finish and walk to their
+//   places around the anchor (GroupMuster); the last one in makes it Idle.
+//   MoveGroupIntent → Moving: the group marches (GroupMarch); Idle on arrival.
+//   DismissGroupIntent → Dismissed again: everyone back to their saved tasks.
+//   DeleteGroupIntent (any state) → dismissed, members go solo, group removed.
 public sealed class Group
 {
     public int Id { get; }

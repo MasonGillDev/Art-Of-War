@@ -7,8 +7,8 @@ namespace Sim.Tests;
 
 // Single-unit and structure-targeting intents must reject when the
 // issuing PlayerId does not own the unit / structure being acted on.
-// The Group-shaped intents (MoveGroupIntent, FormGroupIntent,
-// DisbandGroupIntent) already check this; these tests pin the
+// The Group-shaped intents (MoveGroupIntent, CreateGroupIntent,
+// MusterGroupIntent, DeleteGroupIntent) already check this; these tests pin the
 // matching behaviour on MoveIntent, HaulIntent, AssignWorkers,
 // UnassignWorkers, and AssignBuilders — closing an authorization
 // hole where any player could retask any unit or sabotage any

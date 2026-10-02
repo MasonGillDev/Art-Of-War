@@ -6,6 +6,10 @@ namespace Sim.Core.Hauling;
 // group marches in formation from stop to stop (the hauling driver orders it) and
 // serves each stop together. Running the route is the group's daily task: a player's
 // muster or move suspends it, and dismiss sends the group back to it.
+//
+// A crew is made one way: CreateGroupIntent, then AssignGroupToRouteIntent. (The M36
+// AddRouteCrewIntent / RemoveRouteCrewIntent were removed 2026-10-02; see
+// docs/client-intent-migration.md.)
 
 // Put a group on a route, starting from `StartStop` (which is how a player staggers a
 // second crew round the loop from the first). Its members leave whatever they were
@@ -80,102 +84,6 @@ public sealed class UnassignGroupFromRouteIntent : Intent
     }
 
     public override string Describe() => $"UnassignGroupFromRoute(group={GroupId})";
-}
-
-// M36 — crew a route with the named units. Since M47: a group of exactly those units,
-// named after the route, put on it (kept so old intent logs replay, and as the one-step
-// "these people work that loop"). The units must be free of other standing
-// commitments: not in a group, not claimed by an automation order, not aboard a boat.
-public sealed class AddRouteCrewIntent : Intent
-{
-    public int RouteId { get; }
-    public List<int> Members { get; }
-    public int StartStop { get; }
-
-    [System.Text.Json.Serialization.JsonConstructor]
-    public AddRouteCrewIntent(int routeId, List<int> members, int startStop = 0)
-    {
-        RouteId = routeId;
-        Members = members ?? new();
-        StartStop = startStop;
-    }
-
-    public override IntentOutcome Resolve(Simulation sim)
-    {
-        var world = sim.World;
-        if (RouteCrews.Refusal(world, route: null, RouteId, PlayerId, StartStop) is { } badRoute)
-            return IntentOutcome.Reject(badRoute);
-        var route = world.HaulRoutes[RouteId];
-
-        var members = Members.Distinct().OrderBy(id => id).ToList();
-        if (members.Count == 0)
-            return IntentOutcome.Reject("a crew needs at least one member");
-        if (members.Count > HaulingConstants.MaxMembersPerCrew)
-            return IntentOutcome.Reject(
-                $"crew of {members.Count} exceeds cap {HaulingConstants.MaxMembersPerCrew}");
-        foreach (var id in members)
-        {
-            if (!world.Units.TryGetValue(id, out var u))
-                return IntentOutcome.Reject($"unit {id} does not exist");
-            if (u.OwnerId != PlayerId)
-                return IntentOutcome.Reject($"unit {id} not owned by player {PlayerId}");
-            if (u.GroupId is { } g)
-                return IntentOutcome.Reject(RouteCrews.FindById(world, g) is { } on
-                    ? $"unit {id} already crews route {on.Route.RouteId}"
-                    : $"unit {id} is in a group");
-            if (Sim.Core.Automation.ClaimLedger.IsClaimed(world, id))
-                return IntentOutcome.Reject($"unit {id} is claimed by an automation order");
-            if (u.IsEmbarked || u.Traversal != Traversal.Foot)
-                return IntentOutcome.Reject($"unit {id} can't walk a land route");
-        }
-
-        var name = $"{(route.Name.Length > 0 ? route.Name : $"Route {RouteId}")} crew {route.NextCrewId}";
-        if (name.Length > GroupConstants.MaxNameLength) name = name[..GroupConstants.MaxNameLength].TrimEnd();
-        var group = new Group(GroupRules.NewId(world)) { OwnerId = PlayerId, Name = name, State = GroupState.Dismissed };
-        foreach (var id in members)
-        {
-            group.Members.Add(id);
-            world.Units[id].GroupId = group.Id;
-        }
-        world.Groups[group.Id] = group;
-        RouteCrews.PutOn(sim, route, group, StartStop);
-        return IntentOutcome.Applied;
-    }
-
-    public override string Describe() =>
-        $"AddRouteCrew(route={RouteId}, {Members.Count} members, start={StartStop})";
-}
-
-// Take a crew off its route: its group is dismissed and kept, the members stop where
-// they stand and keep whatever they carry.
-public sealed class RemoveRouteCrewIntent : Intent
-{
-    public int RouteId { get; }
-    public int CrewId { get; }
-
-    [System.Text.Json.Serialization.JsonConstructor]
-    public RemoveRouteCrewIntent(int routeId, int crewId)
-    {
-        RouteId = routeId;
-        CrewId = crewId;
-    }
-
-    public override IntentOutcome Resolve(Simulation sim)
-    {
-        var world = sim.World;
-        if (!world.HaulRoutes.TryGetValue(RouteId, out var route))
-            return IntentOutcome.Reject($"route {RouteId} does not exist");
-        if (route.OwnerId != PlayerId)
-            return IntentOutcome.Reject($"route {RouteId} not owned by player {PlayerId}");
-        var crew = route.Crews.Find(c => c.CrewId == CrewId);
-        if (crew is null)
-            return IntentOutcome.Reject($"route {RouteId} has no crew {CrewId}");
-
-        RouteCrews.Release(sim, route, crew);
-        return IntentOutcome.Applied;
-    }
-
-    public override string Describe() => $"RemoveRouteCrew(route={RouteId}, crew={CrewId})";
 }
 
 // Delete a route and release every crew on it (their groups are dismissed and kept).

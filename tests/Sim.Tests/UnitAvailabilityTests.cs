@@ -93,8 +93,8 @@ public class UnitAvailabilityTests
         {
             new RouteStop { Tile = srcAt, Rules = new() { new StopRule(Resource.Wood, StopRuleOp.Pickup, 100) } },
             new RouteStop { Tile = new TileCoord(18, 5), Rules = new() { new StopRule(Resource.Wood, StopRuleOp.Drop, 100) } },
-        }, crew: new() { 1, 2 }) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        var crewGroup = world.HaulRoutes[route].Crews.Single().GroupId;
+        }) { PlayerId = 0 }.Resolve(sim).IsApplied);
+        var crewGroup = TestGroups.Crew(sim, route, 0, new[] { 1, 2 });
         sim.Run(until: 300);   // the crew forms up at its first stop
         Assert.Equal(GroupState.Idle, world.Groups[crewGroup].State);
 

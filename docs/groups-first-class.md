@@ -139,3 +139,16 @@ Per-role doctrine settings, and the engage and leash radii, are **not** player o
 expand the stances we will give the user more options." The design above (doctrine reusing the M18
 rule atoms) remains the direction for that expansion. A unit's own battlefield doctrine
 (`SetBattleDoctrineIntent`) still overrides its stance.
+
+## Update 2026-10-02: one way per order (the compatibility orders are removed)
+
+M46 and M47 kept `FormGroupIntent`, `DisbandGroupIntent`, `AddRouteCrewIntent`,
+`RemoveRouteCrewIntent` and `SetHaulRouteIntent`'s crew list "so old intent logs replay". The user
+removed them. The game is in development with no saved games to replay, and two ways to do one
+thing was only confusing. The lifecycle is now one path:
+
+**create** (name, members, parent) → **muster** → move, stance, add or split → **dismiss** → muster
+again… → **delete**.
+
+A route crew is create → **assign to route**, and **unassign** to take it off. Client migration:
+`docs/client-intent-migration.md`. Standing rule: no compatibility shims while in development.
