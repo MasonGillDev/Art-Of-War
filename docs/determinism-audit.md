@@ -1661,3 +1661,43 @@ death anchor.
 **Snapshot v48.** The groups block opens with `NextGroupId`. Each row gains its name, kind, parent and
 children (ascending) after its members. Pinned by `GroupRecordTests.Snapshot_RoundTripsTheRecord` and
 `TwinRun_SameHash`.
+
+## M46 Phase C — the group walks (2026-10-02, `docs/m46-status.md`)
+
+**New state on each group.**
+- `MarchPath`: the lead path, the owner's view at order time. It is stored and never recomputed on
+  restore (architecture §4 rule 7).
+- `MarchLead`: the lead's index on the path.
+- `NextStepTick` / `NextStepSeq`: the column's step anchor.
+- `Stragglers`: members that fell out of the column.
+
+**Mutation points.**
+- The march state is written only by `GroupMarch`:
+  - `Begin` (from `MoveGroupIntent`)
+  - `Step` (from `GroupStepEvent`)
+  - `Close`, `DropColumn`, `OnEnrolled`, `WakeColumns`
+  - `Snapshot.ReadGroups`
+- `GroupStepEvent` fences on `(NextStepTick, NextStepSeq) == (At, Seq)`, the same as a unit's
+  `SubtileRouteStepEvent`.
+- A column member's movement goes through `SubtileRoutes.Advance`, the one place a step changes the
+  world (road wear, `TileEntry.Enter`, the combat trigger). It is now shared by solo walks and the
+  column.
+- `Group.Position` is written by the march: the lead's tile, or the destination at closing. The
+  `TileEntry` write ("the lowest-id member's tile") is gone.
+
+**The marker route.** While in the column, a member carries a one-step `SubtileRoute` to its slot
+with **no step anchor of its own**. It counts as walking (friends pass through it), and
+`RegenerateQueue` schedules nothing for it. The group's anchor is what moves it. The marker is dropped
+when the column pauses for a battle, closes, or is retasked.
+
+**Anchor.** `RegenerateQueue` rebuilds one `GroupStepEvent` per marching group, in id order. Pinned by
+`GroupMarchTests.TwinRun_AndMidMarchRestore_EndTheSame`.
+
+**No global iteration on a timer.** `GroupMarch.WakeColumns` walks `world.Groups` only when a board
+closes or a unit leaves one. It is bounded by the number of groups.
+
+**Event volume.** One step event per marching group per step, not one per member.
+
+**Pure reads.** `GroupMarch.Plan`.
+
+**Snapshot v49.** Each group row gains the march after its epoch.

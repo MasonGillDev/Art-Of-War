@@ -2,18 +2,16 @@ using Sim.Core.Movement;
 
 namespace Sim.Core.Groups;
 
-// Moves an Idle or Moving group toward a destination tile (M43: the members walk).
+// Moves an Idle or Moving group toward a destination tile. M46 Phase C: THE GROUP
+// WALKS (GroupMarch). It plans one lead path from its tile, the members march behind
+// it in a column four abreast at the slowest member's pace, and at the destination
+// they close into a block (FormationLayout). The group is Idle when the last member
+// stands in its place.
 //
-// Each member walks its OWN subtile route to the ordered tile, to a subtile of its own:
-// the free subtiles nearest the tile's centre, one each (`reserved` keeps them apart).
-// The group is Moving until the last member has stopped walking (PendingArrivals), then
-// Idle at the ordered tile. Step 5 of docs/m43-status.md will make a group keep its
-// members' relative places while it marches; today they take their own paths and set
-// the pace one by one.
-//
-// Retasking a Moving group replaces every member's walk. Forming groups cannot be
-// moved: they are in their walk-to-rendezvous integrity period. The player waits or
-// Disbands.
+// Retasking a Moving group drops the march under way (the epoch bump and the dropped
+// anchor fence its pending step) and plans afresh from where the lead is. Forming
+// groups cannot be moved: they are in their walk-to-rendezvous integrity period. The
+// player waits or Disbands.
 public sealed class MoveGroupIntent : Intent
 {
     public int GroupId { get; }
@@ -47,44 +45,23 @@ public sealed class MoveGroupIntent : Intent
         if (group.Position == Destination && group.State != GroupState.Moving)
             return IntentOutcome.Applied;   // already there
 
-        Halt(sim, group);
-        group.BumpEpoch();
-
-        // Every member walks to its own subtile of the ordered tile, planned as the
-        // owner sees the world (Walk.Begin). Lowest id first, so the same order gives
-        // the same places.
-        var reserved = new HashSet<Sim.Core.Battlefields.WorldSubtile>();
-        var walking = 0;
-        foreach (var id in group.Members)
-        {
-            if (!world.Units.TryGetValue(id, out var unit) || unit.IsEmbarked) continue;
-            Walk.Begin(sim, unit, Destination, reserved);
-            if (unit.IsWalking) walking++;
-        }
-
-        if (walking == 0)
-        {
-            // Nobody could walk: everyone is already there, or there is nowhere to go.
-            if (group.Members.All(id => !world.Units.TryGetValue(id, out var m) || m.Position == Destination || m.IsEmbarked))
-            {
-                group.Position = Destination;
-                return IntentOutcome.Applied;
-            }
+        // Plan before touching anything: a refusal mutates nothing.
+        if (GroupMarch.Plan(world, group, Destination, sim.Now) is not { } path)
             return IntentOutcome.Reject(
                 $"no path for group {GroupId} from {group.Position.X},{group.Position.Y} " +
                 $"to {Destination.X},{Destination.Y}");
-        }
 
-        group.PathFinalDest = Destination;
-        group.PendingArrivals = walking;
-        group.State = GroupState.Moving;
+        Halt(sim, group);
+        group.BumpEpoch();
+        GroupMarch.Begin(sim, group, path);
         return IntentOutcome.Applied;
     }
 
-    // Stop the group's march: every member's walk is dropped where it stands and the group
-    // is Idle. (Retasking, a fight, a disband: the member walks ARE the group's movement.)
+    // Stop the group's march: the column (if any) is dropped and every member's walk
+    // stops where it stands; the group is Idle. (Retasking, a disband.)
     internal static void Halt(Simulation sim, Group group)
     {
+        GroupMarch.DropColumn(sim.World, group);
         foreach (var id in group.Members)
             if (sim.World.Units.TryGetValue(id, out var m)) Walk.Stop(m);
         group.PathFinalDest = null;

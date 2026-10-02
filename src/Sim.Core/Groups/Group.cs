@@ -53,11 +53,25 @@ public sealed class Group
     // member off: its walk finished, was halted, or it died on the way.
     public int PendingArrivals { get; set; }
 
-    // ---- Movement (M43) ----
-    // A group moves as its members' walks (each member walks its own subtile route
-    // to the ordered tile). PathFinalDest is the ordered tile while Moving; the
-    // group is Idle again when the last walking member finishes (PendingArrivals).
+    // ---- Movement (M46 Phase C: the group walks) ----
+    // A Moving group marches in two stages (GroupMarch):
+    //   1. THE COLUMN — MarchPath is the lead's committed path (the owner's view at
+    //      order time; stored, never recomputed on restore). MarchLead is the lead's
+    //      index on it. One GroupStepEvent (anchor NextStepTick/Seq) moves every
+    //      member a step toward its slot in the column; the lead advances only when
+    //      all of them stand on their slots.
+    //   2. CLOSING — MarchPath is null; each member walks its own short walk to its
+    //      place around the destination (FormationLayout), and PendingArrivals counts
+    //      them down to Idle.
+    // PathFinalDest is the destination tile through both stages.
     public TileCoord? PathFinalDest { get; set; }
+    public List<Sim.Core.Battlefields.WorldSubtile>? MarchPath { get; set; }
+    public int MarchLead { get; set; }
+    public long? NextStepTick { get; set; }
+    public long? NextStepSeq { get; set; }
+    // Members that fell out of the column (no way to their slot) and walk on alone to
+    // the destination; they rejoin the block at closing.
+    public SortedSet<int> Stragglers { get; } = new();
 
     // Monotonic counter bumped on every MoveGroupIntent.Resolve, on a halt by a battle,
     // and on removal. Same fencing-token pattern as Unit.AssignmentEpoch.

@@ -5,8 +5,8 @@ Spec: `docs/m46-groups-spec.md`. Decision: `docs/groups-first-class.md`.
 | Phase | Work | Status |
 |---|---|---|
 | A | Persistent record, id counter, tree, `UnderCommand`, v48 | Built |
-| B | `FormationLayout`: block, overflow across tiles | Not started |
-| C | Formation march (the group walks) | Not started |
+| B | `FormationLayout`: block, overflow across tiles | Built |
+| C | Formation march (the group walks) | Built |
 | D | Muster and dismiss with saved tasks and held slots | Not started |
 | E | Merge and split | Not started |
 | F | Wire and debug client | Not started |
@@ -64,7 +64,7 @@ Spec: `docs/m46-groups-spec.md`. Decision: `docs/groups-first-class.md`.
   - A member with no place gets `null`. The caller reports it; nobody is dropped silently.
 - `FormationLayout.FillOrder` sorts members by role, then id.
 
-## Phase C design (planned before building)
+## Phase C: what was built (the design, as planned before building)
 
 **Two stages.** The column marches, then it closes into the block.
 
@@ -96,3 +96,28 @@ Spec: `docs/m46-groups-spec.md`. Decision: `docs/groups-first-class.md`.
    - This replaces `HaltGroup`'s halt for good.
 5. **Persistence.** The group stores `P`, the lead index, the stage and the step anchor. Nothing is
    recomputed on restore.
+
+### Phase C: calls made while building
+
+- **The step moves first and waits after.** A solo walk waits the step's cost, then moves. The column
+  moves its members, then waits the slowest step just taken before its next event. The pace is the
+  same; only the column's first step is immediate.
+- **Members are marked as walking while in the column**: a one-step marker route and no anchor of
+  their own (see `docs/determinism-audit.md`). They take no room on the tile cap's "standing" count,
+  and friends pass through them.
+- **A rank behind the start waits where it stands.** The column unspools from the block it formed up
+  in, rank by rank, and the lead waits for each rank to reach its slot. Starting a big group is slower
+  than marching it.
+- **The lead checks the ground truth before each step.** A step the plan didn't see coming (a wall in
+  the fog) makes the column plan again from the lead's position, with what the owner can see now. No
+  path at all ends the march there: the group goes Idle at the lead's tile.
+- **`HaltGroup` is gone.** A member enrolled on a board pauses the column (`OnEnrolled`). When a board
+  closes or a unit leaves one, `WakeColumns` restarts every paused column that has no member left on a
+  board. `MovementRulesTests.AMovingGroup_PausesForAFight_ThenMarchesOn` replaces the old
+  "halts as a body" test. Both sides there are given Advance, because two Hold doctrines never fight.
+- **A column narrows to single file** wherever a side-step slot can't be stood on. Ranks are one
+  subtile apart, so a straight trail holds at most 16 members per tile. Where the trail turns inside a
+  tile, more can stand on it for a moment.
+- **An unseated member is not marched.** A unit standing on an over-full tile has no subtile. The game
+  never creates one (spawns use `TileCapacity.RoomNear`), and the march leaves it out rather than guess
+  where it is.

@@ -139,7 +139,6 @@ public static class Battlefields
     // BoardState.
     private static void Enroll(Simulation sim, Unit u, TileCoord tile)
     {
-        HaltGroup(sim, u);
         if (u.Subtile is null) Placement.Seat(sim.World, u);
         if (u.Subtile is null) { u.Board = null; return; }
         if (FriendOnBoardHolds(sim.World, u, tile, u.Subtile.Value))
@@ -151,6 +150,7 @@ public static class Battlefields
         var arrived = u.IsWalking && u.PathFinalDest == tile;
         u.Board = new BoardSlot(tile);
         Sim.Core.Healing.Rest.Interrupt(u);   // no healing on a board (docs/unit-healing.md)
+        GroupMarch.OnEnrolled(sim, u);        // its group's column waits (before AdoptRoute: drops the marker)
         AdoptRoute(u);
         // A walk that was bound for this very tile has arrived: the errand it carries still
         // runs (a hauler caught on the castle still deposits).
@@ -185,15 +185,6 @@ public static class Battlefields
         }
         SubtileRoutes.Cancel(u);
         if (waypoints.Count > 0) slot.Order = BattleOrder.Route(waypoints);
-    }
-
-    // A moving group whose member is drawn into a fight halts as a body: every member
-    // stops where it is (the player re-orders it).
-    private static void HaltGroup(Simulation sim, Unit u)
-    {
-        if (u.GroupId is not { } gid || !sim.World.Groups.TryGetValue(gid, out var group) || group.State != GroupState.Moving) return;
-        MoveGroupIntent.Halt(sim, group);
-        group.BumpEpoch();
     }
 
     // The edge of `tile` that faces the 4-adjacent tile `other`, or null.
@@ -443,6 +434,7 @@ public static class Battlefields
         if (u.Board is not null) return true;   // it walked into another fight
         if (u.PathFinalDest is not null) Walk.Resume(sim, u);
         else Walk.Settle(sim, u);
+        GroupMarch.WakeColumns(sim);   // its group's column may march on (M46)
         return true;
     }
 
@@ -466,6 +458,8 @@ public static class Battlefields
         // The walk each was on carries on from where it stands; any errand without one resumes.
         foreach (var u in resume) Walk.Resume(sim, u);
         CombatRules.ResumeInterrupted(sim, bf.Tile);
+        // A group whose column waited on this fight marches on (M46: pause, not halt).
+        GroupMarch.WakeColumns(sim);
         // Survivors standing on their own shelter start to heal (docs/unit-healing.md).
         Sim.Core.Healing.Rest.ArmAllOn(sim, bf.Tile);
         // A waiting enemy reopens the tile; attackers left alone with a

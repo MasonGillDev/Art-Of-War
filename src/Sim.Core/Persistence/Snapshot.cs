@@ -199,7 +199,11 @@ public static class Snapshot
     //       with GameWorld.NextGroupId; each group row gains its name, kind (byte),
     //       parent (nullable int) and children (count + ids, ascending) after the
     //       members. GroupState gains Dismissed (4).
-    public const int FormatVersion = 48;
+    // v49 — M46 Phase C, the group walks: each group row gains its march after the
+    //       epoch — the lead path (count + subtile X,Y pairs; -1 = none), the lead
+    //       index, the step anchor (nullable tick, nullable seq) and the stragglers
+    //       (count + ids, ascending).
+    public const int FormatVersion = 49;
 
     public static string Hash(Simulation sim)
     {
@@ -2621,6 +2625,19 @@ public static class Snapshot
 
             WriteNullableTileCoord(bw, g.PathFinalDest);
             bw.Write(g.MovementEpoch);
+
+            // v49: the march (GroupMarch).
+            if (g.MarchPath is { } path)
+            {
+                bw.Write(path.Count);
+                foreach (var p in path) { bw.Write(p.X); bw.Write(p.Y); }
+            }
+            else bw.Write(-1);
+            bw.Write(g.MarchLead);
+            WriteNullableLong(bw, g.NextStepTick);
+            WriteNullableLong(bw, g.NextStepSeq);
+            bw.Write(g.Stragglers.Count);
+            foreach (var sid in g.Stragglers) bw.Write(sid);
         }
     }
 
@@ -2651,6 +2668,21 @@ public static class Snapshot
             var pathDest = ReadNullableTileCoord(br);
             var epoch    = br.ReadByte();
 
+            var marchCount = br.ReadInt32();            // v49
+            List<Sim.Core.Battlefields.WorldSubtile>? march = null;
+            if (marchCount >= 0)
+            {
+                march = new List<Sim.Core.Battlefields.WorldSubtile>(marchCount);
+                for (var k = 0; k < marchCount; k++)
+                    march.Add(new Sim.Core.Battlefields.WorldSubtile(br.ReadInt32(), br.ReadInt32()));
+            }
+            var marchLead = br.ReadInt32();
+            var stepTick  = ReadNullableLong(br);
+            var stepSeq   = ReadNullableLong(br);
+            var stragglerCount = br.ReadInt32();
+            var stragglers = new int[stragglerCount];
+            for (var k = 0; k < stragglerCount; k++) stragglers[k] = br.ReadInt32();
+
             var g = new Group(id) { OwnerId = ownerId, Kind = kind, Name = name, ParentId = parentId };
             foreach (var m in memberIds) g.Members.Add(m);
             foreach (var c in childIds) g.Children.Add(c);
@@ -2660,6 +2692,11 @@ public static class Snapshot
             g.PendingArrivals = pending;
             g.PathFinalDest = pathDest;
             g.RestoreMovementEpoch(epoch);
+            g.MarchPath = march;
+            g.MarchLead = marchLead;
+            g.NextStepTick = stepTick;
+            g.NextStepSeq = stepSeq;
+            foreach (var sid in stragglers) g.Stragglers.Add(sid);
 
             world.Groups[id] = g;
         }

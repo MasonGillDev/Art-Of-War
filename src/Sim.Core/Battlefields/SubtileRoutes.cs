@@ -173,22 +173,12 @@ public static class SubtileRoutes
         // board's beats, rather than stepping in and being popped somewhere else. A hostile unit
         // on the arrival subtile is no block: that is a duel. A tile with no board keeps
         // "friends pass through".
-        if (cur.Tile != next.Tile && world.Battlefields.ContainsKey(next.Tile)
-            && (Walk.HeldByStanding(world, u, next.Tile, next.Sub) || !TileCapacity.HasRoom(world, next.Tile, u.OwnerId)))
+        if (MustWaitAtEdge(world, u, cur, next))
             return WaitAtEdge(sim, u, next.Tile);
         u.WaitingToEnter = null;
 
         route.RemoveAt(0);
-        // THE mutation point for road wear (Roads/Road.cs): the step just taken wears its link.
-        if (u.Traversal == Traversal.Foot) Sim.Core.Roads.Road.CreditTraffic(world, cur, next, sim.Now);
-        var crossed = cur.Tile != next.Tile;
-        if (!crossed)
-            u.Subtile = next.Sub;
-        else
-        {
-            TileEntry.Enter(sim, u, cur.Tile, next.Tile, next.Sub);
-            Sim.Core.Combat.CombatTrigger.MaybeBeginCombatOnTile(sim, next.Tile);
-        }
+        Advance(sim, u, cur, next);
 
         // A battle opened here and took the unit: it fights by the board's rules and
         // resumes its walk when it leaves (Battlefields).
@@ -205,6 +195,28 @@ public static class SubtileRoutes
         if (route.Count == 0) Walk.Finished(sim, u);
         else Schedule(sim, u);
         return null;
+    }
+
+    // A step across an edge onto a tile with an open board, where a standing friend holds
+    // the arrival subtile or the unit's side is at the cap: the walker waits at the edge.
+    internal static bool MustWaitAtEdge(GameWorld world, Unit u, WorldSubtile cur, WorldSubtile next) =>
+        cur.Tile != next.Tile && world.Battlefields.ContainsKey(next.Tile)
+        && (Walk.HeldByStanding(world, u, next.Tile, next.Sub) || !TileCapacity.HasRoom(world, next.Tile, u.OwnerId));
+
+    // What one step does to the world, for a solo walk and a group's column alike: the step
+    // wears its road link, moves the unit (entering the next tile, with everything that
+    // entails), and may open a fight there.
+    internal static void Advance(Simulation sim, Unit u, WorldSubtile cur, WorldSubtile next)
+    {
+        // THE mutation point for road wear (Roads/Road.cs): the step just taken wears its link.
+        if (u.Traversal == Traversal.Foot) Sim.Core.Roads.Road.CreditTraffic(sim.World, cur, next, sim.Now);
+        if (cur.Tile == next.Tile)
+            u.Subtile = next.Sub;
+        else
+        {
+            TileEntry.Enter(sim, u, cur.Tile, next.Tile, next.Sub);
+            Sim.Core.Combat.CombatTrigger.MaybeBeginCombatOnTile(sim, next.Tile);
+        }
     }
 
     // The walker stays where it is and tries the same step on the board's next beat; after

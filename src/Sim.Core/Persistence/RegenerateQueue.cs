@@ -49,7 +49,10 @@ public static class RegenerateQueue
             }
         }
 
-        // Groups have no events of their own (M43): a group moves as its members' walks.
+        // M46 — a marching group's column owes its next step (GroupMarch). Id order.
+        foreach (var (_, group) in world.Groups)
+            if (group.NextStepTick is { } stepAt && group.NextStepSeq is { } stepSeq)
+                sim.ScheduleWithSeq(stepAt, stepSeq, new Sim.Core.Groups.GroupStepEvent(group.Id));
 
         // M6: relationships with pending hostile transitions. Each contributes
         // at most one queued WarBecomesEffectiveEvent. Iterated in canonical

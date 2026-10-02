@@ -321,7 +321,7 @@ public static class Walk
 
     // The subtiles of a tile nearest its centre first: squared distance to the centre
     // point (1.5, 1.5), then north to south, west to east.
-    private static readonly Subtile[] CentreOut = Subtile.All()
+    internal static readonly Subtile[] CentreOut = Subtile.All()
         .OrderBy(s => (2 * s.X - 3) * (2 * s.X - 3) + (2 * s.Y - 3) * (2 * s.Y - 3))
         .ThenBy(s => s.Y).ThenBy(s => s.X)
         .ToArray();

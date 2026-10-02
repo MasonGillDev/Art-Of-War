@@ -148,6 +148,9 @@ public static class GroupRules
     {
         if (group.State is not (GroupState.Forming or GroupState.Moving)) return;
         group.PendingArrivals--;
+        // While the column still marches (GroupMarch), the count is only its stragglers:
+        // the group arrives when the column closes, not when they do.
+        if (group.MarchPath is not null) { group.PendingArrivals = Math.Max(0, group.PendingArrivals); return; }
         if (group.PendingArrivals > 0) return;
         if (group.State == GroupState.Moving && group.PathFinalDest is { } dest) group.Position = dest;
         group.PendingArrivals = 0;

@@ -252,18 +252,30 @@ public class MovementRulesTests
     }
 
     [Fact]
-    public void AMovingGroup_HaltsAsABody_WhenAMemberMeetsTheEnemy()
+    public void AMovingGroup_PausesForAFight_ThenMarchesOn()
     {
+        // M46 (docs/m46-groups-spec.md, "Battles"): the column waits while a member is on a
+        // board and carries on to its destination when the fight is over. Before M46 it
+        // halted for good and the player had to order it again.
         var (sim, w) = World(9, 1, enemies: true);
         var ids = new[] { 1, 2, 3 };
-        foreach (var id in ids) Add(w, id, new TileCoord(0, 0), Blue, UnitRole.Soldier);
-        Add(w, 9, new TileCoord(4, 0), Red, UnitRole.Soldier);
+        foreach (var id in ids) Add(w, id, new TileCoord(0, 0), Blue, UnitRole.Soldier).Doctrine = BattleDoctrine.Advance;
+        Add(w, 9, new TileCoord(4, 0), Red, UnitRole.Soldier).Doctrine = BattleDoctrine.Advance;   // two Holds never fight
         var gid = Form(sim, ids, new TileCoord(0, 0));
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, new TileCoord(8, 0)) { PlayerId = Blue });
         for (var t = sim.Now + 1; t < 3000 && !w.Battlefields.ContainsKey(new TileCoord(4, 0)); t++) sim.Run(until: t);
         Assert.True(w.Battlefields.ContainsKey(new TileCoord(4, 0)));
-        Assert.Equal(GroupState.Idle, w.Groups[gid].State);          // the column halted as a body
-        Assert.All(ids, id => Assert.False(w.Units[id].IsWalking && w.Units[id].Board is not null));
+        var group = w.Groups[gid];
+        Assert.Equal(GroupState.Moving, group.State);   // paused, not halted
+        Assert.Null(group.NextStepTick);
+
+        sim.Run(until: sim.Now + 50_000);
+
+        Assert.Empty(w.Battlefields);
+        Assert.False(w.Units.ContainsKey(9));
+        Assert.Equal(GroupState.Idle, group.State);
+        Assert.Equal(new TileCoord(8, 0), group.Position);
+        Assert.All(group.Members, id => Assert.Equal(new TileCoord(8, 0), w.Units[id].Position));
     }
 
     // ---- the contract -------------------------------------------------------------------------------

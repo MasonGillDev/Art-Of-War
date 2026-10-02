@@ -27,10 +27,6 @@ public static class TileEntry
         // shelter starts a fresh period (docs/unit-healing.md).
         Sim.Core.Healing.Rest.Interrupt(unit);
         Sim.Core.Healing.Rest.ArmIfDormant(sim, unit);
-        // A moving group is "at" the tile its lowest-id member last entered.
-        if (unit.GroupId is { } gid && world.Groups.TryGetValue(gid, out var group)
-            && group.State == Sim.Core.Groups.GroupState.Moving && group.Members.Count > 0 && group.Members.Min == unit.Id)
-            group.Position = to;
         // M12 — dock slip-clear hook: if the tile the unit just left is any
         // dock's slip, that dock re-evaluates its production.
         Sim.Core.Boats.DockArmer.OnUnitLeftTile(sim, left);
