@@ -739,9 +739,10 @@ arbitration: orders ascending by id, no RNG. Closure gate:
 (live driver run vs. driverless chronological replay — hash-equal).
 
 No-global-iteration note: the driver walks `world.StandingOrders`
-per think — bounded by the per-player order cap
-(`AutomationConstants.MaxOrdersPerPlayer`), not by world size, and it
-runs server-side outside the sim's event stream. `View.VisibleTiles` is
+per think — bounded by the number of orders players have installed (there
+is no per-player order count since 2026-10-02; staffing orders are implicit
+per structure), not by world size, and it runs server-side outside the
+sim's event stream. `View.VisibleTiles` is
 computed once per owner per think, not per condition.
 
 ## Update 2026-06-16 — M21 water-restores-land + canals

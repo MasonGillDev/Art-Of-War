@@ -116,9 +116,9 @@ you as you play it, rather than dumping you into a running sim and saying
 good luck.
 
 **The exact rungs, triggers, and what hosts a capability once earned are
-open** (knowledge vs. razeable capacity structures, cap curves — see "Still
-open"). What's agreed is the shape: teach by doing, reward with automation,
-open into strategy.
+open** (knowledge vs. razeable capacity structures — see "Still open").
+What's agreed is the shape: teach by doing, reward with automation, open
+into strategy.
 
 ## The async fairness doctrine
 
@@ -289,8 +289,6 @@ specific automation mechanics need more thought:
 - **Where an earned capability lives** — permanent knowledge, razeable
   capacity structures, or both — and how that reconciles with the async
   fairness doctrine (the unkillable minimum).
-- **Caps as economics, not constants.** A kingdom-scale machine wants many
-  orders; the limiter should be mouths and wages, not an arbitrary number.
 - **Frictionless redesign.** In-place editing and re-crewing (a dead crew's
   order accepts a replacement) — core verbs, not deferred niceties, if
   ripping up your own machine is a main activity.

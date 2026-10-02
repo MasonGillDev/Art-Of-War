@@ -14,9 +14,7 @@ never user code) is split across the existing trust boundary:
 2. **Evaluation is a server-side `AutomationDriver`** (Sim.Server), shaped
    exactly like `BanditDriver` (M16) and the M17 AI players: pure view-reads
    in, ordinary durable intents out, ephemeral brain.
-3. **Per-player order count is capped** (config constant; later a balance
-   knob unlock structures can raise).
-4. **Supply lines claim specific haulers.** No pooled job market in v1 — an
+3. **Supply lines claim specific haulers.** No pooled job market in v1 — an
    order names the units that serve it.
 
 ## Why
@@ -77,12 +75,6 @@ are more legible to the player — you can *see* which caravan belongs to which
 route. Pooling can be added later as a separate order kind without disturbing
 claimed lines.
 
-### Why capped
-
-Orders are sim state and driver work; an unbounded count is a snapshot-bloat
-and think-time hazard. A cap is also a natural lever for the planned unlock
-structures (below) to raise.
-
 ## The layers
 
 | Layer | Where | What |
@@ -129,8 +121,8 @@ case that would justify revisiting Core evaluation — as its own decision.
   intent log with the driver disabled; `Snapshot.Hash` matches. (Copy
   `BanditDriverTests.ReplayFromIntentLog_HashesMatch`.)
 - Snapshot round-trip for `GameWorld.StandingOrders` (every field).
-- `SetStandingOrderIntent` resolution: ownership, subject exists, cap
-  enforced, claimed units owned and not grouped/embarked.
+- `SetStandingOrderIntent` resolution: ownership, subject exists,
+  claimed units owned and not grouped/embarked.
 - Fog-fairness: an order whose source the player has never seen produces no
   intents until the source is scouted.
 - Pitfall regression: a route unit mid-march is not re-ordered on the next
@@ -147,7 +139,6 @@ case that would justify revisiting Core evaluation — as its own decision.
   recommended-but-not-locked: orders of a branch suspend while the player
   lacks a functioning structure of that branch.
 - Pooled logistics as a new `OrderKind` alongside claimed lines.
-- Cap raises tied to unlock-structure tiers.
 - Order status enrichment in `ViewDto` (per-order progress, last rejection).
 - `OrderKind` / `WaitCondition` are append-only — new kinds slot in without
   disturbing serialized orders.
@@ -186,8 +177,9 @@ The last unbuilt layer. The client (Unity repo) gained:
   keep-below threshold stepper), Route (unit → stops, each with an
   Always/CargoFull/CargoEmpty departure gate), Standing Craft (item →
   barracks, gated `StoreAtLeast` on the catalog costs so an under-stocked
-  barracks waits instead of burning its retry budget). Caps (16/16) are
-  client-side mirrors of `AutomationConstants` — craft-cost-label convention.
+  barracks waits instead of burning its retry budget). The step and crew
+  limits are client-side mirrors of `AutomationConstants` — craft-cost-label
+  convention.
 
 No server change was needed: Phase F's wire + the notice pipeline (rejection
 toasts, auto-disable notices) already carry everything the UI consumes.
@@ -226,3 +218,15 @@ triggered by performed verbs rather than by unlock structures.
 - `docs/ai-players.md` — second driver, arbitration lessons
 - `docs/persistence-model.md` — intents-as-truth, why driver outputs replay
 - `docs/extraction-model.md` — everything-physical, why claimed haulers fit
+
+## Update 2026-10-02 — the per-player order count is gone
+
+The original decision capped how many orders a player could install (a
+config constant, meant to become a progression lever). It is removed:
+`AutomationConstants.MaxOrdersPerPlayer` and the Set-time check are
+deleted. The reason is the seamless-restaffing design: every structure
+carries a desired-worker count and the kingdom staffs it through an implicit
+Staff order per building, so the order count grows with the kingdom and
+must never be the thing that stops a farm from being re-manned. The
+snapshot-bloat and think-time concerns are bounded by the player's own
+building count instead, which is the physical limit the vision wanted.

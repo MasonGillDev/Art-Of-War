@@ -27,14 +27,9 @@ public sealed class SetOrderIntent : Intent
         var world = sim.World;
         var d = Definition;
 
-        // ---- cap ----
-        var owned = 0;
-        foreach (var (_, existing) in world.Orders)
-            if (existing.OwnerId == PlayerId) owned++;
-        if (owned >= AutomationConstants.MaxOrdersPerPlayer)
-            return IntentOutcome.Reject(
-                $"player {PlayerId} already has {owned} orders " +
-                $"(cap {AutomationConstants.MaxOrdersPerPlayer})");
+        // No per-player order count: staffing orders are created implicitly
+        // per structure (2026-10-02), so the count is whatever the kingdom
+        // needs. Driver cost scales with the player's orders, not the world.
 
         // ---- subject ----
         Structure? subjectStructure = null;

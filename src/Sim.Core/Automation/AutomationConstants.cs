@@ -8,11 +8,6 @@ namespace Sim.Core.Automation;
 // values; never hard-code them (see the biome-degrade-period lesson).
 public static class AutomationConstants
 {
-    // Max orders a single player may have installed at once. The vision
-    // doc wants this to become economics (mouths and wages) rather than a
-    // constant; until then the engine just enforces it.
-    public const int MaxOrdersPerPlayer = 16;
-
     // Max stops in one Routine circuit. Bounds snapshot size and driver
     // work per order.
     public const int MaxStepsPerOrder = 16;

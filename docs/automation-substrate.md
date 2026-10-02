@@ -205,7 +205,7 @@ the morning report compares predicted against actual.
   yet.
 
 Deferred beyond E: the Reflex/trigger-chain program shape, blueprints,
-caps-as-economics, design-time prediction UI, unlock-progression gating
+design-time prediction UI, unlock-progression gating
 (`docs/automation-as-core-game.md`, "Earning the tools").
 
 ## Update 2026-08-06 — the substrate is built; M18 is gone
@@ -425,7 +425,7 @@ strictly 1:1 and never reads the detail string.
 
 Still deferred, unchanged: the unlock progression (explicitly out of scope for
 this pass — the user wants to play the substrate as built), blueprints,
-caps-as-economics, the map-native order editor, the morning report (whose
+the map-native order editor, the morning report (whose
 backbone is now on the wire), and the tactical war layer.
 
 ## References

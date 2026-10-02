@@ -117,10 +117,7 @@ the future per-branch unlock gate keys on, and what the client renders.
    anchors** (`PathRemaining == null`, `NextArrivalTick == null`, `HaulPlan ==
    null`, `Activity == Idle`). A manually-busied unit simply stalls its step
    until free.
-4. **Cap enforced at Set-time.** `AutomationConfig.MaxOrdersPerPlayer` —
-   config constant, balance knob. Per the project convention, tests derive
-   from the config value, never hard-code it.
-5. **Driver contract inherited from M16/M17 verbatim:** `Think(sim, now)` on
+4. **Driver contract inherited from M16/M17 verbatim:** `Think(sim, now)` on
    the sim thread inside the GameHost clock-loop lock, self-gated by
    `ThinkPeriodTicks`; players iterated in ascending id, orders in ascending
    id, claimed units in ascending id — canonical arbitration so two runs over
