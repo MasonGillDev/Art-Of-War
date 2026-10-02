@@ -59,7 +59,7 @@ public sealed record ServerOptions
 
     public static ServerOptions Parse(string[] args)
     {
-        int port = 8080, mapSeed = 233301431, mapWidth = 252, mapHeight = 252;
+        int port = 8080, mapSeed = 3301431, mapWidth = 252, mapHeight = 252;
         var tps = 1.0;
         var preludeTps = 4.0;
         var landingDay = 30;
