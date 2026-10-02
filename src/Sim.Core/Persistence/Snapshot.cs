@@ -214,7 +214,11 @@ public static class Snapshot
     //       after its muster places.
     // v52 — M49 group stance (docs/m49-group-stance-spec.md): each group row gains its
     //       Stance (byte) and ReturnTo (nullable tile) after PendingMuster.
-    public const int FormatVersion = 52;
+    // v53 — M50 march modes and formations (docs/m50-march-formations-spec.md): each group
+    //       row gains MarchMode (byte), MarchStepTicks (long) and its saved formation
+    //       (has-flag; front byte, count, then per slot unit id, role byte, A, B) after
+    //       ReturnTo.
+    public const int FormatVersion = 53;
 
     public static string Hash(Simulation sim)
     {
@@ -2666,6 +2670,16 @@ public static class Snapshot
             // v52: stance (M49).
             bw.Write((byte)g.Stance);
             WriteNullableTileCoord(bw, g.ReturnTo);
+            // v53: march mode and formation (M50).
+            bw.Write((byte)g.MarchMode);
+            bw.Write(g.MarchStepTicks);
+            bw.Write(g.Formation is not null);
+            if (g.Formation is { } f)
+            {
+                bw.Write((byte)f.Front);
+                bw.Write(f.Slots.Count);
+                foreach (var slot in f.Slots) { bw.Write(slot.UnitId); bw.Write((byte)slot.Role); bw.Write(slot.A); bw.Write(slot.B); }
+            }
         }
     }
 
@@ -2721,6 +2735,18 @@ public static class Snapshot
             var pendingMuster = ReadNullableTileCoord(br);
             var stance = (GroupStance)br.ReadByte();       // v52
             var returnTo = ReadNullableTileCoord(br);
+            var marchMode = (MarchMode)br.ReadByte();       // v53
+            var marchStepTicks = br.ReadInt64();
+            SavedFormation? formation = null;
+            if (br.ReadBoolean())
+            {
+                var front = (Sim.Core.Battlefields.Heading)br.ReadByte();
+                var slotCount = br.ReadInt32();
+                var formSlots = new List<FormationSlot>(slotCount);
+                for (var k = 0; k < slotCount; k++)
+                    formSlots.Add(new FormationSlot(br.ReadInt32(), (UnitRole)br.ReadByte(), br.ReadInt32(), br.ReadInt32()));
+                formation = new SavedFormation { Front = front, Slots = formSlots };
+            }
 
             var g = new Group(id) { OwnerId = ownerId, Kind = kind, Name = name, ParentId = parentId };
             foreach (var m in memberIds) g.Members.Add(m);
@@ -2742,6 +2768,9 @@ public static class Snapshot
             g.PendingMuster = pendingMuster;
             g.Stance = stance;
             g.ReturnTo = returnTo;
+            g.MarchMode = marchMode;
+            g.MarchStepTicks = marchStepTicks;
+            g.Formation = formation;
 
             world.Groups[id] = g;
         }

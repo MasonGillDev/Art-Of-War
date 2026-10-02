@@ -395,6 +395,12 @@ public sealed class GroupDto
     public int State { get; set; }               // GroupState: 1 forming, 2 idle, 3 moving, 4 dismissed
     public int Stance { get; set; }              // M49 GroupStance: 1 passive, 2 defensive, 3 aggressive
     public bool Away { get; set; }               // M49: gone to help in a fight or charging; it will return
+    // M50 — how it marches (1 single file, 2 column) and its saved formation: the front
+    // side (0 N, 1 E, 2 S, 3 W; -1 = none saved, the default four abreast) and each slot
+    // relative to the leader in a front-is-north frame (A right, B behind).
+    public int MarchMode { get; set; }
+    public int FormationFront { get; set; } = -1;
+    public FormationSlotDto[] FormationSlots { get; set; } = [];
     public int X { get; set; }                   // where the group is (the muster's anchor, the lead's tile)
     public int Y { get; set; }
     public int DestX { get; set; } = -1;         // where it is marching, -1 when it isn't
@@ -405,6 +411,13 @@ public sealed class GroupDto
     public int OnTheWay { get; set; }
     public int NoRoom { get; set; }
     public GroupFinishingDto[] Finishing { get; set; } = [];
+}
+
+public sealed class FormationSlotDto
+{
+    public int UnitId { get; set; }
+    public int A { get; set; }   // subtiles right of the leader, facing the front
+    public int B { get; set; }   // subtiles behind the leader
 }
 
 public sealed class GroupFinishingDto

@@ -58,6 +58,11 @@ public static class IntentJson
         // M49 — group stance.
         [typeof(SetGroupStanceIntent)]    = "SetGroupStanceIntent",
         [typeof(ChargeGroupIntent)]       = "ChargeGroupIntent",
+        // M50 — march modes and formations.
+        [typeof(SetGroupMarchModeIntent)]   = "SetGroupMarchModeIntent",
+        [typeof(ArrangeGroupMemberIntent)]  = "ArrangeGroupMemberIntent",
+        [typeof(SaveGroupFormationIntent)]  = "SaveGroupFormationIntent",
+        [typeof(ClearGroupFormationIntent)] = "ClearGroupFormationIntent",
         [typeof(DeclareWarIntent)]            = "DeclareWarIntent",
         [typeof(ProposeRelationshipIntent)]   = "ProposeRelationshipIntent",
         [typeof(RespondToProposalIntent)]     = "RespondToProposalIntent",
@@ -162,6 +167,10 @@ public static class IntentJson
             "UnassignGroupFromRouteIntent" => JsonSerializer.Deserialize<Sim.Core.Hauling.UnassignGroupFromRouteIntent>(payload, Options),
             "SetGroupStanceIntent"   => JsonSerializer.Deserialize<SetGroupStanceIntent>(payload, Options),
             "ChargeGroupIntent"      => JsonSerializer.Deserialize<ChargeGroupIntent>(payload, Options),
+            "SetGroupMarchModeIntent"   => JsonSerializer.Deserialize<SetGroupMarchModeIntent>(payload, Options),
+            "ArrangeGroupMemberIntent"  => JsonSerializer.Deserialize<ArrangeGroupMemberIntent>(payload, Options),
+            "SaveGroupFormationIntent"  => JsonSerializer.Deserialize<SaveGroupFormationIntent>(payload, Options),
+            "ClearGroupFormationIntent" => JsonSerializer.Deserialize<ClearGroupFormationIntent>(payload, Options),
             "DeclareWarIntent"             => JsonSerializer.Deserialize<DeclareWarIntent>(payload, Options),
             "ProposeRelationshipIntent"    => JsonSerializer.Deserialize<ProposeRelationshipIntent>(payload, Options),
             "RespondToProposalIntent"      => JsonSerializer.Deserialize<RespondToProposalIntent>(payload, Options),

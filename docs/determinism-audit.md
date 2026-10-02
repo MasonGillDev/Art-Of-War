@@ -1831,3 +1831,30 @@ an intent-log replay reproduces every charge without the driver.
 
 **Snapshot v52.** Each group row gains `Stance` and `ReturnTo`. Pinned by
 `GroupStanceTests.TwinRun_AndMidFightRestore_EndTheSame`.
+
+## M50 — march modes and saved formations (2026-10-02, `docs/m50-march-formations-spec.md`)
+
+**New state on each group.**
+- `MarchMode` (Column / SingleFile).
+- `MarchStepTicks` (the beat in flight, for the wire).
+- `Formation` (the saved shape: front side, plus per slot a unit id, role and A/B offset).
+
+**Mutation points.**
+- `MarchMode` is written by `SetGroupMarchModeIntent` (on the subtree), `RouteCrews.PutOn`
+  (SingleFile) and `Snapshot`.
+- `Formation` is written by `SaveGroupFormationIntent` and `ClearGroupFormationIntent`, and
+  `Snapshot`.
+- `MarchStepTicks` is written by `GroupMarch.Begin` and `GroupMarch.Step`, and `Snapshot`.
+
+**The march beat** lands, then advances, then plans. A member's announced step is its one-step
+`SubtileRoute` with no anchor of its own. It is landed by the group's next `GroupStepEvent`,
+re-checked against the ground then, and stored in the snapshot like any route, so a restore lands it
+identically. Pinned by `MarchFormationTests.TwinRun_AndMidMarchRestore_EndTheSame`.
+
+**Pure reads.**
+- `Formations.Assign`, `FileOrder`, `FacingAt`, `ToWorld`, `ToFrame`
+- `FormationLayout.Shaped`
+- `GroupMarch`'s spot calculation
+- The wire's step in flight for a marching member (`ViewProjector.FillSubtileStep`)
+
+**Snapshot v53.** Each group row gains `MarchMode`, `MarchStepTicks` and its formation.

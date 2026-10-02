@@ -955,9 +955,24 @@ public sealed class ViewProjector
     // it takes. Public, like the hop it replaced: which way something is stepping is visible.
     private static void FillSubtileStep(UnitDto dto, Unit u, GameWorld world)
     {
-        if (u.Subtile is not { } sub || u.SubtileRouteTick is not { } arrive || u.SubtileRoute is not { Count: > 0 } route) return;
+        if (u.Subtile is not { } sub || u.SubtileRoute is not { Count: > 0 } route) return;
         var here = Sim.Core.Battlefields.WorldSubtile.Of(u.Position, sub);
         var next = route[0];
+        // M50 — a member marching with its group takes the step its group announced, landing
+        // on the group's next beat: the same step in flight, so the client glides it like any
+        // walker (docs/m50-march-formations-spec.md, "Smooth on the client").
+        if (u.SubtileRouteTick is null
+            && u.GroupId is { } gid && world.Groups.TryGetValue(gid, out var g)
+            && g.MarchPath is not null && g.NextStepTick is { } beatEnds && g.MarchStepTicks > 0)
+        {
+            if (!here.IsAdjacentTo(next)) return;
+            dto.SubStepX = next.X;
+            dto.SubStepY = next.Y;
+            dto.SubStepArriveTick = beatEnds;
+            dto.SubStepTotalTicks = (int)g.MarchStepTicks;
+            return;
+        }
+        if (u.SubtileRouteTick is not { } arrive) return;
         var total = Sim.Core.Battlefields.SubtileRoutes.StepCost(world, u, here, next, arrive);
         if (!here.IsAdjacentTo(next) || total <= 0) return;
         dto.SubStepX = next.X;
@@ -1056,6 +1071,9 @@ public sealed class ViewProjector
             State = (int)g.State,
             Stance = (int)g.Stance,
             Away = g.ReturnTo is not null,
+            MarchMode = (int)g.MarchMode,
+            FormationFront = g.Formation is { } f ? (int)f.Front : -1,
+            FormationSlots = g.Formation?.Slots.Select(s => new FormationSlotDto { UnitId = s.UnitId, A = s.A, B = s.B }).ToArray() ?? [],
             X = g.Position.X,
             Y = g.Position.Y,
             DestX = g.PathFinalDest?.X ?? -1,

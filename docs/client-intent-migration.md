@@ -44,14 +44,22 @@ are never reused, so `GroupId` is one more than the highest the client has seen.
 | `SplitGroupIntent` | `GroupId, UnitIds, NewName?` | No name means the units go solo |
 | `SetGroupStanceIntent` | `GroupId, Stance` | 1 Passive, 2 Defensive, 3 Aggressive |
 | `ChargeGroupIntent` | `GroupId, TargetUnitId` | Aggressive groups; the server's stance driver also sends it |
-| `AssignGroupToRouteIntent` | `GroupId, RouteId, StartStop` | |
+| `SetGroupMarchModeIntent` | `GroupId, Mode` | M50: 1 single file, 2 column. Cascades to the groups under it |
+| `ArrangeGroupMemberIntent` | `GroupId, UnitId, Tile, SubX, SubY` | M50: while formed, walk a member to a subtile (0..3) within 4 tiles; onto another member's spot, the two swap |
+| `SaveGroupFormationIntent` | `GroupId, LeaderId, Front` | M50: save the shape as it stands. `Front` 0 N, 1 E, 2 S, 3 W |
+| `ClearGroupFormationIntent` | `GroupId` | M50: back to the default (four abreast) |
+| `AssignGroupToRouteIntent` | `GroupId, RouteId, StartStop` | Also switches the group to single file |
 | `UnassignGroupFromRouteIntent` | `GroupId` | |
 
 ## What the client reads
 
 - `ViewDto.Groups`: each `GroupDto` has id, name, kind, parent, children, members,
-  state, stance, `Away`, position, destination, and muster progress (`Here`, `OnTheWay`,
-  `NoRoom`, `Finishing`).
+  state, stance, `Away`, position, destination, muster progress (`Here`, `OnTheWay`,
+  `NoRoom`, `Finishing`), and (M50) `MarchMode`, `FormationFront` (-1 = default) and
+  `FormationSlots` (unit id, `A` right, `B` behind the leader, front-is-north).
+- A marching group member now carries its step in flight in `SubStepX/Y`,
+  `SubStepArriveTick` and `SubStepTotalTicks`, like any walker, so the client glides it
+  instead of snapping it (M50).
 - `UnitDto`: `GroupId`, `GroupState`, `Busy` (why the unit is busy), `SavedTaskKind/X/Y`
   (the job it goes back to on dismiss), `HaulRouteId`.
 - `StructDto.HeldSlots`: work slots held for workers away at a muster.

@@ -93,9 +93,29 @@ public static class GroupMuster
         }
 
         var leaves = Leaves(world, group).Where(l => !finishingLegs.Contains(l.Id)).ToList();
+        var visible = View.VisibleTiles(world, group.OwnerId);
         var ordered = new List<Unit>();
         foreach (var leaf in leaves) ordered.AddRange(FormationLayout.FillOrder(Living(world, leaf)));
-        var places = FormationLayout.Places(world, group.OwnerId, anchor, ordered, View.VisibleTiles(world, group.OwnerId));
+
+        // M50 — a company with a saved formation forms up in it, facing the front it was
+        // saved with, its leader on the anchor's centre. (One shaped company per muster:
+        // the first in tree order; the others fill the block around it. Arranging whole
+        // armies is a later step.)
+        var places = new List<(Unit Member, Sim.Core.Battlefields.WorldSubtile? Place)>();
+        var shapedLeaf = leaves.FirstOrDefault(l => l.Formation is not null);
+        var origin = GroupMarch.CentreStand(new Sim.Core.Battlefields.SubtileStepRules(world,
+            new Sim.Core.Battlefields.StepMover(group.OwnerId, Traversal.Foot, false), visible), anchor);
+        if (shapedLeaf is { Formation: { } formation } && origin is { } o)
+        {
+            places.AddRange(FormationLayout.Shaped(world, group.OwnerId, o, formation.Front,
+                Formations.Assign(shapedLeaf, Living(world, shapedLeaf)), visible));
+            var shapedIds = new HashSet<int>(shapedLeaf.Members);
+            var taken = places.Where(p => p.Place is not null).Select(p => p.Place!.Value).ToList();
+            places.AddRange(FormationLayout.Places(world, group.OwnerId, anchor,
+                ordered.Where(u => !shapedIds.Contains(u.Id)).ToList(), visible, alsoTaken: taken));
+        }
+        else
+            places.AddRange(FormationLayout.Places(world, group.OwnerId, anchor, ordered, visible));
 
         foreach (var (m, place) in places)
         {

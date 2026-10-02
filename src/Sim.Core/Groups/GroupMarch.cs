@@ -5,45 +5,56 @@ using Sim.Core.World;
 
 namespace Sim.Core.Groups;
 
-// M46 Phase C — THE GROUP WALKS (docs/m46-groups-spec.md, "Formation march";
-// design in docs/m46-status.md).
+// M46 Phase C / M50 — THE GROUP WALKS (docs/m46-groups-spec.md "Formation march";
+// docs/m50-march-formations-spec.md).
 //
 // A march has two stages.
 //
-// 1. THE COLUMN. The group plans one LEAD PATH, the owner's view at order time, from
+// 1. THE MARCH. The group plans one LEAD PATH P, the owner's view at order time, from
 //    its tile's centre to the destination's, and stores it (never re-planned on
-//    restore). Members march behind the lead four abreast: member k (FillOrder) has
-//    rank k / 4 and file k % 4, and its SLOT at lead step t is the trail point
-//    P[t − rank], shifted sideways by file − 1 at right angles to the path there.
-//    Where that side-step can't be stood on, the slot is the trail point itself: the
-//    column narrows at a bridge or a gate, friends passing through each other.
-//    A rank whose trail point is still behind the start (t < rank) waits where it
-//    stands; the column unspools from the block it formed up in.
+//    restore). The leader point walks it; every member has a SPOT at each lead step t:
+//      * Column (M50): its place in the group's formation (Formations.Assign — the saved
+//        formation, else four abreast). A member B subtiles behind and A to the right
+//        stands at P[t − B] + A × right(facing), the facing being the path's dominant
+//        direction there (Formations.FacingAt), so the shape follows the path's bends,
+//        holds on the straights and turns only when the route does. Where that spot
+//        can't be stood on, the row's trail point: the formation narrows.
+//      * SingleFile (M50): member k in march order stands at P[t − k]. Nobody steps
+//        sideways: a caravan moves at its slowest member's walking speed.
+//    A spot before the path's start lies on the start's facing, extended backwards.
 //
-//    ONE EVENT PER GROUP STEP moves every member one step toward its slot (a short
-//    local search, ground truth: the member is right there). THE LEAD ADVANCES ONLY
-//    WHEN EVERY MEMBER STANDS ON ITS SLOT: that is the pace. The column waits for its
-//    slowest member, and its outer files wheel at a turn. The next step comes after
-//    the slowest step just taken. A member that can't reach its slot or the trail
-//    point falls out (a straggler) and walks on alone, so the column never deadlocks.
+//    EACH BEAT (one GroupStepEvent per group) LANDS, ADVANCES, PLANS — the shape of a
+//    solo walk, so the client glides members instead of snapping them:
+//      1. land the step each member was announced to be taking;
+//      2. move the leader on, unless a member has fallen more than MaxLag subtiles from
+//         its spot (an elastic gate: no stop-start for a wobble);
+//      3. plan each member's next step toward its spot and announce it (its one-step
+//         route, landing at NextStepTick after MarchStepTicks — what the wire shows as
+//         the step in flight). The beat lasts the slowest step being taken: the slowest
+//         member sets the pace.
+//    A member that can't reach its spot or its trail point falls out (a straggler) and
+//    walks on alone, so the march never deadlocks.
 //
-// 2. CLOSING. When the lead reaches the end of its path and the column is in place,
-//    every member walks its own short walk to its place in the block around the
-//    destination (FormationLayout), and the Phase A pending count takes the group to
-//    Idle when the last one stops.
+// 2. CLOSING. At the end of the path everyone walks the last steps to their places: a
+//    Column group in its formation facing the way it marched, a single file in a block
+//    around the stop. The pending count takes the group to Idle when the last one stops.
 //
-// BATTLES. A member enrolled on a board pauses the column (its anchor is dropped);
-// when no member is left on a board the column carries on from where it stood
-// (WakeColumns). A member in its closing walk is an ordinary walker and resumes on
-// its own (Walk.Resume).
+// BATTLES. A member enrolled on a board pauses the march (its anchor is dropped, every
+// announced step forgotten); when no member is left on a board it carries on from where
+// it stood (WakeColumns). A member in its closing walk is an ordinary walker.
 //
-// While in the column, a member carries a one-step SubtileRoute to its slot with NO
-// step event of its own: it is walking (friends pass through it; it takes no room on
-// the tile cap's "standing" count), and the group's event is what moves it.
+// While marching, a member carries a one-step SubtileRoute (the step announced, or its
+// own subtile when it stands this beat) with NO step event of its own: it is walking
+// (friends pass through it; it takes no room on the tile cap's "standing" count), and
+// the group's event is what moves it.
 public static class GroupMarch
 {
     // How far, in subtiles, a member looks for its way to its slot.
     public const int SearchWindow = 16;
+
+    // The elastic gate: the leader waits only for a member more than this many subtiles
+    // (Manhattan) from its spot.
+    public const int MaxLag = 2;
 
     // ---- planning (pure) ------------------------------------------------------------
 
@@ -73,7 +84,7 @@ public static class GroupMarch
 
     // The subtile of `tile` nearest its centre that a foot unit may stand on (as the
     // rules know the ground), whoever stands there now: the lead is not a body.
-    private static WorldSubtile? CentreStand(SubtileStepRules rules, TileCoord tile)
+    internal static WorldSubtile? CentreStand(SubtileStepRules rules, TileCoord tile)
     {
         foreach (var s in Walk.CentreOut)
         {
@@ -101,6 +112,7 @@ public static class GroupMarch
             if (GroupMuster.Busy(world, m) is not null) group.Stragglers.Add(m.Id);
         group.PathFinalDest = path[^1].Tile;
         group.PendingArrivals = 0;
+        group.MarchStepTicks = 0;
         group.State = GroupState.Moving;
         if (!AnyOnBoard(world, group)) Schedule(sim, group, 0);
     }
@@ -150,11 +162,24 @@ public static class GroupMarch
         var world = sim.World;
         if (AnyOnBoard(world, group)) return;   // paused; WakeColumns resumes it
 
+        // 1. Land the steps announced last beat (in id order), re-checked against the
+        //    ground as it is now.
+        foreach (var m in Column(world, group).OrderBy(m => m.Id))
+        {
+            if (m.SubtileRouteTick is not null || m.SubtileRoute is not [var next]) continue;
+            var cur = Here(m);
+            if (next == cur || !cur.IsAdjacentTo(next)) continue;
+            var truthFor = new SubtileStepRules(world, StepMover.Of(m), null);
+            if (truthFor.Problem(cur, next) is not null || SubtileRoutes.MustWaitAtEdge(world, m, cur, next)) continue;
+            SubtileRoutes.Advance(sim, m, cur, next);
+            if (m.Board is not null) return;   // it walked into a fight: OnEnrolled paused the march
+        }
+
         var column = Column(world, group);
         var slots = Slots(world, group, path, column);
 
-        // The lead moves on when the whole column stands in place.
-        if (column.All(m => Here(m) == slots[m.Id]))
+        // 2. The leader moves on unless someone has fallen behind (the elastic gate).
+        if (column.All(m => Lag(m, slots[m.Id]) <= MaxLag))
         {
             if (group.MarchLead >= path.Count - 1 || column.Count == 0)
             {
@@ -182,27 +207,25 @@ public static class GroupMarch
             slots = Slots(world, group, path, column);
         }
 
-        // Every member one step toward its slot, in id order.
-        long slowest = 0;
+        // 3. Plan and announce each member's next step; the beat is the slowest of them.
+        long beat = 0;
         var waitingAtEdge = false;
         foreach (var m in column.OrderBy(m => m.Id))
         {
             var cur = Here(m);
             var slot = slots[m.Id];
-            if (cur == slot) { Mark(m, slot); continue; }
+            if (cur == slot) { Announce(m, cur); continue; }
             var next = Toward(world, m, cur, slot);
-            if (next is null && Trail(group, path, column.IndexOf(m)) is { } trail && trail != slot)
+            if (next is null && TrailPoint(world, m, path, group.MarchLead) is { } trail && trail != slot)
                 next = Toward(world, m, cur, trail);
             if (next is not { } step)
             {
                 Straggle(sim, group, m);
                 continue;
             }
-            if (SubtileRoutes.MustWaitAtEdge(world, m, cur, step)) { waitingAtEdge = true; continue; }
-            slowest = Math.Max(slowest, SubtileRoutes.StepCost(world, m, cur, step, sim.Now));
-            SubtileRoutes.Advance(sim, m, cur, step);
-            if (m.Board is not null) return;   // it walked into a fight: OnEnrolled paused the column
-            Mark(m, slot);
+            if (SubtileRoutes.MustWaitAtEdge(world, m, cur, step)) { waitingAtEdge = true; Announce(m, cur); continue; }
+            beat = Math.Max(beat, SubtileRoutes.StepCost(world, m, cur, step, sim.Now));
+            Announce(m, step);
         }
 
         if (Column(world, group).Count == 0)
@@ -210,18 +233,27 @@ public static class GroupMarch
             Close(sim, group);
             return;
         }
-        var delay = slowest > 0 ? slowest
+        var delay = beat > 0 ? beat
             : waitingAtEdge ? Math.Max(1, Battlefields.Battlefields.NextBeat(world, sim.Now) - sim.Now)
             : 1;
+        group.MarchStepTicks = delay;
         Schedule(sim, group, delay);
     }
 
-    // The column is in place at the end of the path: everyone walks to their place in
-    // the block around the destination.
+    // How far a member stands from its spot, in subtiles.
+    private static int Lag(Unit m, WorldSubtile spot)
+    {
+        var here = Here(m);
+        return Math.Abs(here.X - spot.X) + Math.Abs(here.Y - spot.Y);
+    }
+
+    // The march reached its end: everyone walks the last steps to their places — a
+    // Column group in its formation facing the way it marched, a single file in a block.
     private static void Close(Simulation sim, Group group)
     {
         var world = sim.World;
         var dest = group.PathFinalDest ?? group.Position;
+        var path = group.MarchPath;
         DropColumn(world, group);
         group.Position = dest;
 
@@ -232,8 +264,30 @@ public static class GroupMarch
             else members.Add(m);
 
         var visible = View.VisibleTiles(world, group.OwnerId);
+        List<(Unit Member, WorldSubtile? Place)> places;
+        if (group.MarchMode == MarchMode.Column && path is { Count: > 0 })
+        {
+            // The formation stops CENTRED on the destination (its footprint's middle on the
+            // tile's centre), facing the way it marched: "move to that tile" leaves the
+            // group on that tile, still in its shape.
+            var facing = Formations.FacingAt(path, path.Count - 1);
+            var shape = Formations.Assign(group, members);
+            var world2 = shape.Select(s => Formations.ToWorld(s.A, s.B, facing)).ToList();
+            // Centre the footprint as it actually lies (after turning), flooring the middle
+            // so an even width straddles the tile's centre subtiles evenly.
+            var midX = world2.Count == 0 ? 0 : (world2.Min(w => w.Dx) + world2.Max(w => w.Dx)) >> 1;
+            var midY = world2.Count == 0 ? 0 : (world2.Min(w => w.Dy) + world2.Max(w => w.Dy)) >> 1;
+            var centred = shape.Select((s, i) =>
+            {
+                var (a, b) = Formations.ToFrame(world2[i].Dx - midX, world2[i].Dy - midY, facing);
+                return (s.Member, a, b);
+            }).ToList();
+            places = FormationLayout.Shaped(world, group.OwnerId, path[^1], facing, centred, visible);
+        }
+        else
+            places = FormationLayout.Places(world, group.OwnerId, dest, FormationLayout.FillOrder(members), visible);
         var walking = 0;
-        foreach (var (m, place) in FormationLayout.Places(world, group.OwnerId, dest, FormationLayout.FillOrder(members), visible))
+        foreach (var (m, place) in places)
         {
             Walk.Stop(m);
             if (place is { } spot && GroupMuster.WalkToPlace(sim, m, spot)) walking++;
@@ -291,46 +345,50 @@ public static class GroupMarch
 
     private static WorldSubtile Here(Unit m) => WorldSubtile.Of(m.Position, m.Subtile!.Value);
 
-    // A column member is walking: a one-step route to its slot, no step event of its own.
-    private static void Mark(Unit m, WorldSubtile slot)
+    // Announce the step a marching member is taking this beat (or its own subtile, when
+    // it stands): a one-step route with no step event of its own — the group's next beat
+    // lands it. The wire shows it as the member's step in flight.
+    private static void Announce(Unit m, WorldSubtile step)
     {
         if (m.SubtileRouteTick is not null) return;
-        m.SubtileRoute = new List<WorldSubtile> { slot };
+        m.SubtileRoute = new List<WorldSubtile> { step };
     }
 
+    // Every member's spot at the leader's current step: its place in the formation
+    // (Column) or on the trail (SingleFile). Pure.
     private static Dictionary<int, WorldSubtile> Slots(GameWorld world, Group group, List<WorldSubtile> path, List<Unit> column)
     {
         var slots = new Dictionary<int, WorldSubtile>(column.Count);
-        for (var k = 0; k < column.Count; k++)
+        var t = group.MarchLead;
+        if (group.MarchMode == MarchMode.SingleFile)
         {
-            var m = column[k];
-            var rank = k / 4;
-            var j = group.MarchLead - rank;
-            if (j < 0) { slots[m.Id] = Here(m); continue; }   // not yet unspooled: wait here
-            var q = path[j];
-            var (hx, hy) = HeadingAt(path, j);
-            var side = k % 4 - 1;                                   // files −1, 0, +1, +2
-            var spot = new WorldSubtile(q.X - hy * side, q.Y + hx * side);   // right of the heading
+            var order = Formations.FileOrder(group, column);
+            for (var k = 0; k < order.Count; k++)
+                slots[order[k].Id] = TrailPoint(world, order[k], path, t - k) ?? Here(order[k]);
+            return slots;
+        }
+        foreach (var (m, a, b) in Formations.Assign(group, column))
+        {
+            if (TrailPoint(world, m, path, t - b) is not { } anchor) { slots[m.Id] = Here(m); continue; }
+            var facing = Formations.FacingAt(path, t - b);
+            var (dx, dy) = Formations.ToWorld(a, 0, facing);   // B is already the row's place on the trail
+            var spot = new WorldSubtile(anchor.X + dx, anchor.Y + dy);
             var rules = new SubtileStepRules(world, StepMover.Of(m), null);
-            slots[m.Id] = side != 0 && world.Grid.InBounds(spot.Tile) && rules.CanStand(spot) ? spot : q;
+            slots[m.Id] = world.Grid.InBounds(spot.Tile) && rules.CanStand(spot) ? spot : anchor;
         }
         return slots;
     }
 
-    // The trail point for the k-th member in fill order (its slot with no side-step), or
-    // null while its rank waits behind the start.
-    private static WorldSubtile? Trail(Group group, List<WorldSubtile> path, int k)
+    // The trail point at path index `j`: on the path, or — before its start — on the start's
+    // facing extended backwards (null where that can't be stood on: the member waits).
+    // Past the end, the end.
+    private static WorldSubtile? TrailPoint(GameWorld world, Unit m, List<WorldSubtile> path, int j)
     {
-        var j = group.MarchLead - k / 4;
-        return j < 0 ? null : path[j];
-    }
-
-    // The path's heading at index j: the step into it (out of it, at the start).
-    private static (int Dx, int Dy) HeadingAt(List<WorldSubtile> path, int j)
-    {
-        if (path.Count < 2) return (0, -1);
-        var (a, b) = j >= 1 ? (path[j - 1], path[j]) : (path[0], path[1]);
-        return (b.X - a.X, b.Y - a.Y);
+        if (j >= 0) return path[Math.Min(j, path.Count - 1)];
+        var facing = Formations.FacingAt(path, 0);
+        var back = new WorldSubtile(path[0].X + j * facing.Dx(), path[0].Y + j * facing.Dy());
+        var rules = new SubtileStepRules(world, StepMover.Of(m), null);
+        return world.Grid.InBounds(back.Tile) && rules.CanStand(back) ? back : null;
     }
 
     // The first step of the shortest way from `cur` to `target` within SearchWindow, by

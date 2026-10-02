@@ -75,6 +75,36 @@ public class GroupWireTests
         Assert.Equal(1, v.Structures.Single(s => s.X == farmAt.X && s.Y == farmAt.Y).HeldSlots);
     }
 
+    // M50 — a marching member carries the step its group announced, landing on the group's
+    // next beat: the client glides it like any walker instead of snapping it.
+    [Fact]
+    public void AMarchingMember_ReportsItsStepInFlight()
+    {
+        var (sim, projector) = MakeWorld();
+        var world = sim.World;
+        var start = world.Units.Values.First(u => u.OwnerId == 0 && u.Role != UnitRole.Boat).Position;
+        var ids = new[] { 9001, 9002, 9003 };
+        foreach (var id in ids) world.AddUnit(new Unit(id, start) { Role = UnitRole.Soldier });
+        var gid = world.NextGroupId;
+        sim.SubmitIntent(sim.Now, new CreateAndMuster(ids, start) { PlayerId = 0 });
+        sim.Run(until: sim.Now);
+        for (var t = sim.Now + 1; t < sim.Now + 2000 && world.Groups[gid].State != GroupState.Idle; t++) sim.Run(until: t);
+        var dest = new TileCoord(start.X + 6, start.Y);
+        sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, dest) { PlayerId = 0 });
+        var g = world.Groups[gid];
+        Sim.Server.Wire.UnitDto? stepping = null;
+        for (var t = sim.Now + 1; t < sim.Now + 3000 && stepping is null; t++)
+        {
+            sim.Run(until: t);
+            if (g.MarchPath is null || g.MarchStepTicks <= 0) continue;
+            stepping = projector.ProjectV2(sim, sim.Now, playerId: 0, reveal: false).Units
+                .FirstOrDefault(u => ids.Contains(u.Id) && u.SubStepArriveTick >= 0);
+        }
+        Assert.NotNull(stepping);
+        Assert.Equal(g.NextStepTick, stepping!.SubStepArriveTick);
+        Assert.Equal((int)g.MarchStepTicks, stepping.SubStepTotalTicks);
+    }
+
     [Fact]
     public void TheProjection_IsAPureRead()
     {

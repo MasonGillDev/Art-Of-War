@@ -171,6 +171,7 @@ public static class RouteCrews
         var world = sim.World;
         route.Crews.Add(new RouteCrew { CrewId = route.NextCrewId++, GroupId = group.Id, CurrentStop = startStop });
         group.RouteSuspended = false;
+        group.MarchMode = MarchMode.SingleFile;   // M50: a caravan wants speed (the player may switch it back)
         group.PendingMuster = null;
         foreach (var u in LivingMembers(world, group))
         {

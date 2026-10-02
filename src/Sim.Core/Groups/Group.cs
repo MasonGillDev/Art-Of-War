@@ -73,6 +73,16 @@ public sealed class Group
     // Where the group goes back to once a fight it went to (aid, a charge) is over. Null
     // when it isn't away helping or charging. GroupStances.
     public TileCoord? ReturnTo { get; set; }
+
+    // ---- M50 march mode and formation (docs/m50-march-formations-spec.md) ----
+    // How the group marches until switched: Column (its formation, held) or SingleFile
+    // (the lead's trail: fast). Put on a route, a group goes SingleFile.
+    public MarchMode MarchMode { get; set; } = MarchMode.Column;
+    // The formation the player arranged and saved; null = the default (four abreast).
+    public SavedFormation? Formation { get; set; }
+    // The beat in flight while marching: how long the step members are taking now lasts
+    // (it lands at NextStepTick). For the wire, so the client glides each member.
+    public long MarchStepTicks { get; set; }
     // Members whose walk for the group's current order (the rendezvous while Forming,
     // the destination while Moving) hasn't ended. GroupRules.OneLessPending takes a
     // member off: its walk finished, was halted, or it died on the way.

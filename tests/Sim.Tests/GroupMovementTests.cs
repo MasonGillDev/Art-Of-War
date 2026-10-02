@@ -193,10 +193,12 @@ public class GroupMovementTests
     [Fact]
     public void GroupMove_WearsTheRoad_PerMember()
     {
-        // A group of N units walking the same links wears each N times (each member steps them).
-        // Diminishing returns naturally stack.
+        // A single-file group (a caravan) walks one trail: each member steps the same links, so
+        // they wear them N times over — supply lines pave themselves. (A column marches in
+        // parallel lanes and spreads its wear; M50.)
         var (sim, world) = MakeWorld();
         var gid = FormAt(sim, world, new TileCoord(2, 2), 1, 2, 3);
+        sim.SubmitIntent(sim.Now, new SetGroupMarchModeIntent(gid, MarchMode.SingleFile));
 
         sim.SubmitIntent(sim.Now, new MoveGroupIntent(gid, new TileCoord(5, 2)));
         sim.Run();

@@ -30,8 +30,10 @@ public static class FormationLayout
 
     // A place for each member, in the order given (see FillOrder), or null where there
     // is no room within reach.
+    // `alsoTaken`: places already handed out (a shaped formation laid out first).
     public static List<(Unit Member, WorldSubtile? Place)> Places(
-        GameWorld world, int owner, TileCoord anchor, IReadOnlyList<Unit> members, HashSet<TileCoord>? visible)
+        GameWorld world, int owner, TileCoord anchor, IReadOnlyList<Unit> members, HashSet<TileCoord>? visible,
+        IEnumerable<WorldSubtile>? alsoTaken = null)
     {
         var result = new List<(Unit, WorldSubtile?)>(members.Count);
         if (members.Count == 0) return result;
@@ -43,7 +45,7 @@ public static class FormationLayout
         // share one, Walk.HeldByStanding). Members standing in the area don't count:
         // they are the ones moving into the block.
         var memberIds = new HashSet<int>(members.Select(m => m.Id));
-        var taken = new HashSet<WorldSubtile>();
+        var taken = new HashSet<WorldSubtile>(alsoTaken ?? Array.Empty<WorldSubtile>());
         foreach (var o in world.Units.Values)
         {
             if (memberIds.Contains(o.Id) || o.IsEmbarked || o.IsWalking || o.Subtile is not { } sub) continue;
@@ -73,6 +75,37 @@ public static class FormationLayout
             result.Add((m, place));
         }
         return result;
+    }
+
+    // M50 — places in a SHAPE: each member at `origin` + its formation offset (A right,
+    // B behind) turned to `facing`. A spot off the map, that the member can't stand on,
+    // or that someone outside the group stands on goes to the nearest free place in the
+    // ordinary block around the origin instead. Pure read.
+    public static List<(Unit Member, WorldSubtile? Place)> Shaped(
+        GameWorld world, int owner, WorldSubtile origin, Heading facing,
+        IReadOnlyList<(Unit Member, int A, int B)> shape, HashSet<TileCoord>? visible)
+    {
+        var memberIds = new HashSet<int>(shape.Select(s => s.Member.Id));
+        var taken = new HashSet<WorldSubtile>();
+        foreach (var o in world.Units.Values)
+        {
+            if (memberIds.Contains(o.Id) || o.IsEmbarked || o.IsWalking || o.Subtile is not { } sub) continue;
+            if (world.Diplomacy.AreHostile(owner, o.OwnerId)) continue;
+            taken.Add(WorldSubtile.Of(o.Position, sub));
+        }
+        var placed = new Dictionary<int, WorldSubtile>();
+        var misfits = new List<Unit>();
+        foreach (var (m, a, b) in shape)
+        {
+            var (dx, dy) = Formations.ToWorld(a, b, facing);
+            var spot = new WorldSubtile(origin.X + dx, origin.Y + dy);
+            var rules = new SubtileStepRules(world, StepMover.Of(m) with { Owner = owner }, visible);
+            if (world.Grid.InBounds(spot.Tile) && rules.CanStand(spot) && taken.Add(spot)) placed[m.Id] = spot;
+            else misfits.Add(m);
+        }
+        var fallback = Places(world, owner, origin.Tile, misfits, visible, alsoTaken: taken);
+        var byId = fallback.ToDictionary(f => f.Member.Id, f => f.Place);
+        return shape.Select(s => (s.Member, placed.TryGetValue(s.Member.Id, out var p) ? p : byId.GetValueOrDefault(s.Member.Id))).ToList();
     }
 
     // Every subtile a foot unit may stand on, on the tiles connected to the anchor within
