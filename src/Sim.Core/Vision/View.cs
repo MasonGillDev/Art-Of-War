@@ -111,22 +111,14 @@ public static class View
         foreach (var u in world.Units.Values)
         {
             if (u.OwnerId != playerId || u.IsEmbarked) continue;
-            if (Within(u.Position, tile, Sight.RadiusFor(u.Role))) return true;
+            if (Sight.Within(u.Position, tile, Sight.RadiusFor(u.Role))) return true;
         }
         foreach (var s in world.Structures.Values)
         {
             if (s.OwnerId != playerId) continue;
-            if (Within(s.At, tile, Sight.RadiusFor(s.Kind))) return true;
+            if (Sight.Within(s.At, tile, Sight.RadiusFor(s.Kind))) return true;
         }
         return Sim.Core.Scouting.Idols.GrantSees(world, playerId, tile);   // M38
-
-        static bool Within(TileCoord c, TileCoord t, int r)
-        {
-            if (r <= 0) return false;
-            var dx = t.X - c.X;
-            var dy = t.Y - c.Y;
-            return dx * dx + dy * dy <= r * r;
-        }
     }
 
     // Builds a player's full filtered view. PURE READ — never writes any
@@ -266,27 +258,12 @@ public static class View
             ongoingCombats);
     }
 
-    // Adds a Euclidean disc of radius `r` around `center` to `into`.
-    // Same shape Sight.Reveal uses for explored — kept identical so the
-    // visible/explored discs match exactly for the same source.
+    // Adds the sight disc of radius `r` around `center` to `into`. The
+    // same Sight.Disc that Reveal writes to Explored, so the visible and
+    // explored discs can never differ for the same source.
     private static void AddDisc(GameWorld world, HashSet<TileCoord> into, TileCoord center, int r)
     {
-        var grid = world.Grid;
-        var rSquared = r * r;
-        var xLo = Math.Max(0, center.X - r);
-        var xHi = Math.Min(grid.Width  - 1, center.X + r);
-        var yLo = Math.Max(0, center.Y - r);
-        var yHi = Math.Min(grid.Height - 1, center.Y + r);
-        for (var y = yLo; y <= yHi; y++)
-        {
-            var dy = y - center.Y;
-            var dy2 = dy * dy;
-            for (var x = xLo; x <= xHi; x++)
-            {
-                var dx = x - center.X;
-                if (dx * dx + dy2 <= rSquared)
-                    into.Add(new TileCoord(x, y));
-            }
-        }
+        foreach (var tile in Sight.Disc(world.Grid, center, r))
+            into.Add(tile);
     }
 }

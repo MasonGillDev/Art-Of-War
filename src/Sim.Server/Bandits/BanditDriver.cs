@@ -640,13 +640,8 @@ public sealed class BanditDriver
     private static bool IsMoving(Unit u) =>
         u.IsWalking;
 
-    private static bool WithinSight(Unit u, TileCoord at)
-    {
-        var r = Sight.RadiusFor(u.Role);
-        var dx = u.Position.X - at.X;
-        var dy = u.Position.Y - at.Y;
-        return dx * dx + dy * dy <= r * r;
-    }
+    private static bool WithinSight(Unit u, TileCoord at) =>
+        Sight.Within(u.Position, at, Sight.RadiusFor(u.Role));
 
     private static int Chebyshev(TileCoord a, TileCoord b) =>
         Math.Max(Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));

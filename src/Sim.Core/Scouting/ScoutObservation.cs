@@ -21,7 +21,6 @@ public static class ScoutObservation
         var center = scout.Position;
         var radius = Sight.RadiusFor(scout.Role);
         if (radius <= 0) return;
-        var rSquared = radius * radius;
 
         var leg = new ObservationLeg { Tick = sim.Now, Center = center, Radius = radius };
 
@@ -36,9 +35,7 @@ public static class ScoutObservation
         {
             if (u.Id == scout.Id) continue;   // never report yourself
             if (u.IsEmbarked) continue;       // off-tile, doesn't occupy
-            var udx = u.Position.X - center.X;
-            var udy = u.Position.Y - center.Y;
-            if (udx * udx + udy * udy > rSquared) continue;
+            if (!Sight.Within(center, u.Position, radius)) continue;
             unitsByTile ??= new Dictionary<TileCoord, List<SightedUnit>>();
             if (!unitsByTile.TryGetValue(u.Position, out var bucket))
                 unitsByTile[u.Position] = bucket = new List<SightedUnit>();
@@ -49,32 +46,19 @@ public static class ScoutObservation
         // tile holding units and/or a structure. Empty tiles are skipped —
         // their emptiness is recorded implicitly by the leg's (Center, Radius)
         // coverage, which is what makes observed-empty distinct from never-seen.
-        var grid = world.Grid;
-        var xLo = Math.Max(0, center.X - radius);
-        var xHi = Math.Min(grid.Width - 1, center.X + radius);
-        var yLo = Math.Max(0, center.Y - radius);
-        var yHi = Math.Min(grid.Height - 1, center.Y + radius);
-        for (var y = yLo; y <= yHi; y++)
+        foreach (var tile in Sight.Disc(world.Grid, center, radius))
         {
-            var dy = y - center.Y;
-            var dy2 = dy * dy;
-            for (var x = xLo; x <= xHi; x++)
+            List<SightedUnit>? units = null;
+            unitsByTile?.TryGetValue(tile, out units);
+            world.Structures.TryGetValue(tile, out var structure);
+            if (units is null && structure is null) continue;
+            leg.Sightings.Add(new Sighting
             {
-                var dx = x - center.X;
-                if (dx * dx + dy2 > rSquared) continue;
-                var tile = new TileCoord(x, y);
-                List<SightedUnit>? units = null;
-                unitsByTile?.TryGetValue(tile, out units);
-                world.Structures.TryGetValue(tile, out var structure);
-                if (units is null && structure is null) continue;
-                leg.Sightings.Add(new Sighting
-                {
-                    Tile = tile,
-                    Biome = BiomeDegradation.BiomeAt(world, tile, sim.Now, world.BiomeDegradationConfig),
-                    Units = units ?? new List<SightedUnit>(),
-                    Structure = structure is null ? null : Describe(structure, sim.Now),
-                });
-            }
+                Tile = tile,
+                Biome = BiomeDegradation.BiomeAt(world, tile, sim.Now, world.BiomeDegradationConfig),
+                Units = units ?? new List<SightedUnit>(),
+                Structure = structure is null ? null : Describe(structure, sim.Now),
+            });
         }
 
         mission.Legs.Add(leg);

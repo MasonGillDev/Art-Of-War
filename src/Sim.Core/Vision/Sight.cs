@@ -11,29 +11,77 @@ namespace Sim.Core.Vision;
 // Phase B; VisibleTiles (pure read) lands in Phase C.
 public static class Sight
 {
-    // Base unit radius: 3 (7×7 area).
-    // Scout: 6 (13×13) — the role's whole point.
-    // Other roles: base.
+    // The sight radii, in tiles (= km). ONE place: every vision source,
+    // player or bandit, unit or structure, reads its radius from here.
+    public const int BaseUnitRadius = 3;     // 7×7 area
+    public const int ScoutRadius    = 6;     // 13×13 — the role's whole point
+    // M16 — raiders hunt by sight (the driver targets only what the party
+    // can SEE — bandits get fog too). Scout-grade eyes make wandering
+    // parties actually find things; their vision is never player-facing
+    // (Reveal skips the faction).
+    public const int BanditRadius   = ScoutRadius;
+    public const int CastleRadius   = 5;
+    public const int TowerRadius    = 7;     // the "pin vision" structure
+
     public static int RadiusFor(UnitRole role) => role switch
     {
-        UnitRole.Scout      => 6,
-        // M16 — raiders hunt by sight (the driver targets only what the
-        // party can SEE — bandits get fog too). Scout-grade eyes make
-        // wandering parties actually find things; their vision is never
-        // player-facing (Reveal skips the faction).
-        UnitRole.Bandit     => 6,
-        _                   => 3,
+        UnitRole.Scout      => ScoutRadius,
+        UnitRole.Bandit     => BanditRadius,
+        _                   => BaseUnitRadius,
     };
 
-    // Castle: 5. Tower: 7 (the "pin vision" structure). Extractor /
-    // Stockpile / ConstructionSite are NOT vision sources — they're
-    // economic. Returns 0 for non-sources so View can union safely.
+    // Extractor / Stockpile / ConstructionSite are NOT vision sources —
+    // they're economic. Returns 0 for non-sources so callers can union
+    // safely (Disc yields nothing and Within is false for r <= 0).
     public static int RadiusFor(StructureKind kind) => kind switch
     {
-        StructureKind.Castle => 5,
-        StructureKind.Tower  => 7,
+        StructureKind.Castle => CastleRadius,
+        StructureKind.Tower  => TowerRadius,
         _                    => 0,
     };
+
+    // THE SHAPE OF SIGHT — Euclidean disc, compared as squared distance
+    // against r*r so the math stays integer-exact and deterministic.
+    //
+    // These two are the only definition of "which tiles a source sees".
+    // Explored reveal (Reveal), live visibility (View.VisibleTiles /
+    // View.Sees), bandit hunting (BanditRules / BanditDriver) and scout
+    // reports (ScoutObservation) all go through them, so the disc can
+    // never drift between the write path and the read paths. Change the
+    // shape here and only here.
+
+    // Is `tile` within sight radius `r` of `center`? False for r <= 0.
+    public static bool Within(TileCoord center, TileCoord tile, int r)
+    {
+        if (r <= 0) return false;
+        var dx = tile.X - center.X;
+        var dy = tile.Y - center.Y;
+        return dx * dx + dy * dy <= r * r;
+    }
+
+    // Every in-bounds tile within radius `r` of `center`, in canonical
+    // (y, x) order — callers that build ordered output (scout sightings)
+    // depend on that order. Yields nothing for r <= 0.
+    public static IEnumerable<TileCoord> Disc(TileGrid grid, TileCoord center, int r)
+    {
+        if (r <= 0) yield break;
+        var rSquared = r * r;
+        var xLo = Math.Max(0, center.X - r);
+        var xHi = Math.Min(grid.Width  - 1, center.X + r);
+        var yLo = Math.Max(0, center.Y - r);
+        var yHi = Math.Min(grid.Height - 1, center.Y + r);
+        for (var y = yLo; y <= yHi; y++)
+        {
+            var dy = y - center.Y;
+            var dy2 = dy * dy;
+            for (var x = xLo; x <= xHi; x++)
+            {
+                var dx = x - center.X;
+                if (dx * dx + dy2 <= rSquared)
+                    yield return new TileCoord(x, y);
+            }
+        }
+    }
 
     // INVERTED PURE-READ WALL — this is the ONE write path for
     // GameWorld.Explored AND GameWorld.RememberedBiome. Called only from
@@ -47,9 +95,8 @@ public static class Sight
     // and the owner's eyes may have fallen on a charted secret
     // (docs/scouting-secrets.md). A new caller must do the same.
     //
-    // Reveal a Euclidean disc of radius `r` around `center` into player
-    // `playerId`'s explored set. Squared-distance comparison keeps the
-    // math integer-exact and runtime-deterministic. Clamps to grid bounds.
+    // Reveal the sight disc (Sight.Disc) of radius `r` around `center`
+    // into player `playerId`'s explored set.
     //
     // M9: also writes RememberedBiome[playerId][tile] = BiomeAt(world, tile,
     // now, config) for each tile in the disc. This is the "last-seen biome"
@@ -87,28 +134,12 @@ public static class Sight
             world.RememberedBiome[playerId] = remembered;
         }
         var config = world.BiomeDegradationConfig;
-        var grid = world.Grid;
-        var rSquared = r * r;
-        var xLo = Math.Max(0, center.X - r);
-        var xHi = Math.Min(grid.Width  - 1, center.X + r);
-        var yLo = Math.Max(0, center.Y - r);
-        var yHi = Math.Min(grid.Height - 1, center.Y + r);
-        for (var y = yLo; y <= yHi; y++)
+        foreach (var tile in Disc(world.Grid, center, r))
         {
-            var dy = y - center.Y;
-            var dy2 = dy * dy;
-            for (var x = xLo; x <= xHi; x++)
-            {
-                var dx = x - center.X;
-                if (dx * dx + dy2 <= rSquared)
-                {
-                    var tile = new TileCoord(x, y);
-                    set.Add(tile);
-                    // M9: refresh the last-seen biome.
-                    remembered[tile] = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
-                        world, tile, now, config);
-                }
-            }
+            set.Add(tile);
+            // M9: refresh the last-seen biome.
+            remembered[tile] = Sim.Core.Biomes.BiomeDegradation.BiomeAt(
+                world, tile, now, config);
         }
     }
 }

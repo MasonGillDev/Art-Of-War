@@ -25,12 +25,12 @@ public static class BanditRules
         {
             if (u.OwnerId == BanditConstants.OwnerId) continue;
             if (u.IsEmbarked) continue;   // passengers don't see out (View rule)
-            if (WithinEuclidean(u.Position, tile, Sight.RadiusFor(u.Role))) return true;
+            if (Sight.Within(u.Position, tile, Sight.RadiusFor(u.Role))) return true;
         }
         foreach (var s in world.Structures.Values)
         {
             if (s.OwnerId == BanditConstants.OwnerId) continue;
-            if (WithinEuclidean(s.At, tile, Sight.RadiusFor(s.Kind))) return true;
+            if (Sight.Within(s.At, tile, Sight.RadiusFor(s.Kind))) return true;
         }
         // M38 — an idol's circle of sight counts: no bandit spawns under it.
         foreach (var g in world.VisionGrants.Values)
@@ -56,14 +56,6 @@ public static class BanditRules
             best = Math.Min(best, Chebyshev(s.At, tile));
         }
         return best;
-    }
-
-    private static bool WithinEuclidean(TileCoord src, TileCoord tile, int r)
-    {
-        if (r <= 0) return false;
-        var dx = src.X - tile.X;
-        var dy = src.Y - tile.Y;
-        return dx * dx + dy * dy <= r * r;
     }
 
     private static int Chebyshev(TileCoord a, TileCoord b) =>
