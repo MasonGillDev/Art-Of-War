@@ -106,4 +106,9 @@ public sealed record StructureSpec
     // point, so a broken alliance closes the gate mid-march. Meaningless
     // when BlocksMovement is false.
     public bool AlliedPassage { get; init; }
+
+    // Rest healing (docs/unit-healing.md). The owner's wounded units standing
+    // on this kind's tile, off any battlefield, heal at the flat
+    // RestConstants rate. Castle, House and Barracks only.
+    public bool Shelters { get; init; }
 }

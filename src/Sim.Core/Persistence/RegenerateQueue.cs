@@ -19,8 +19,8 @@ public static class RegenerateQueue
     {
         var world = sim.World;
 
-        // Units in id order (matches snapshot canonical order). Each unit can
-        // contribute at most one queued event — its next walk step.
+        // Units in id order (matches snapshot canonical order): a unit's next
+        // walk step, survey report and rest heal.
         foreach (var (id, unit) in world.Units)
         {
             // M43 — a unit on a walk owes one step event.
@@ -29,6 +29,9 @@ public static class RegenerateQueue
             // M44 — a Miner digging at a survey slope owes his report.
             if (unit.Survey is { CompleteTick: { } surveyAt, CompleteSeq: { } surveySeq })
                 sim.ScheduleWithSeq(surveyAt, surveySeq, new Sim.Core.Mining.SurveyCompleteEvent(unit.Id));
+            // A wounded unit resting on its shelter owes its next heal (docs/unit-healing.md).
+            if (unit.NextRestHealTick is { } healAt && unit.NextRestHealSeq is { } healSeq)
+                sim.ScheduleWithSeq(healAt, healSeq, new Sim.Core.Healing.RestHealEvent(unit.Id));
         }
 
         // Structures in (y, x) order. Each contributes at most one queued

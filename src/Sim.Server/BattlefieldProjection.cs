@@ -60,7 +60,7 @@ internal static class BattlefieldProjection
                 Waiting = false,       // M42: nobody waits in an outside lane any more
                 Sheltered = false,     // M42: nobody is sheltered any more
                 Hp = u.Health,
-                MaxHp = MaxHealth(u, sim.Now),
+                MaxHp = CombatRules.MaxHealth(u, sim.Now),
                 Morale = onBoard is not null ? TurnResolver.Morale(board, onBoard, cfg) : BattleConfig.SteadyMorale,
                 InDuel = onBoard is not null && board.InDuel(onBoard),
                 Ranged = spec.Ranged,
@@ -108,7 +108,7 @@ internal static class BattlefieldProjection
                 Id = u.Id, OwnerId = u.OwnerId, Role = (int)u.Role,
                 SX = outside.X, SY = outside.Y,
                 Waiting = true,
-                Hp = u.Health, MaxHp = MaxHealth(u, sim.Now),
+                Hp = u.Health, MaxHp = CombatRules.MaxHealth(u, sim.Now),
                 Morale = BattleConfig.SteadyMorale,
                 Ranged = spec.Ranged,
             };
@@ -163,14 +163,5 @@ internal static class BattlefieldProjection
             };
         }
         return result;
-    }
-
-    // A unit's full health: its role's base plus what its gear adds (a shield).
-    public static int MaxHealth(Unit u, long now)
-    {
-        var hp = UnitCombatCatalog.Spec(u.Role).BaseHealth;
-        foreach (var b in u.Buffs)
-            if (b.ExpiresAt is not { } expiry || expiry > now) hp += b.HealthModifier;
-        return hp;
     }
 }

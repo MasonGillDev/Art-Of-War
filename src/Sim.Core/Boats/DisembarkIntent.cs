@@ -67,6 +67,7 @@ public sealed class DisembarkIntent : Intent
             // Reveal vision for the now-on-tile unit.
             Sight.Reveal(world, p.OwnerId, p.Position, Sight.RadiusFor(p.Role), sim.Now);
             Sight.AfterReveal(sim, p.OwnerId, p.Position, Sight.RadiusFor(p.Role));   // M37/M38
+            Sim.Core.Healing.Rest.ArmIfDormant(sim, p);   // landed on an own shelter (docs/unit-healing.md)
         }
         boat.Passengers.Clear();
 

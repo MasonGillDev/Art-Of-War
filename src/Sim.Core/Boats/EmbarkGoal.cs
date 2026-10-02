@@ -135,6 +135,7 @@ public static class EmbarkGoal
         boat.Passengers.Add(passenger.Id);
         passenger.EmbarkedOn = boat.Id;
         passenger.Subtile = null;   // M42 — a passenger stands on no subtile
+        Sim.Core.Healing.Rest.Interrupt(passenger);   // no healing aboard (docs/unit-healing.md)
         return true;
     }
 }

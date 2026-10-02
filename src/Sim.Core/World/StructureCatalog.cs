@@ -15,6 +15,8 @@ public static class StructureCatalog
             // attacker a long sustained presence (no defender shielding) and
             // razing it ends the owner. See docs/sieges-and-conquest.md.
             BaseHealth = 1000,
+            // Rest healing (docs/unit-healing.md): the wounded heal at home.
+            Shelters = true,
         },
         [StructureKind.Stockpile] = new StructureSpec
         {
@@ -183,6 +185,7 @@ public static class StructureCatalog
             BuildDurationTicks = 30 * Time.Hour,
             RequiredBuilderCount = 1,
             BaseHealth = 50,
+            Shelters = true,   // rest healing (docs/unit-healing.md)
         },
         // Training — School. A placeable seam where TrainUnitIntent
         // resolves. No production, no storage. Cheap-ish: training is a
@@ -215,6 +218,7 @@ public static class StructureCatalog
             BuildDurationTicks = 100 * Time.Minute,
             RequiredBuilderCount = 1,
             BaseHealth = 200,
+            Shelters = true,   // rest healing (docs/unit-healing.md)
         },
         // M20 — Lodge. The intelligence structure: a placeable seam (like the
         // School) whose completed presence gates DispatchScoutIntent. No

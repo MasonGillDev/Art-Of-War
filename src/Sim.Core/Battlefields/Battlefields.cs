@@ -150,6 +150,7 @@ public static class Battlefields
         }
         var arrived = u.IsWalking && u.PathFinalDest == tile;
         u.Board = new BoardSlot(tile);
+        Sim.Core.Healing.Rest.Interrupt(u);   // no healing on a board (docs/unit-healing.md)
         AdoptRoute(u);
         // A walk that was bound for this very tile has arrived: the errand it carries still
         // runs (a hauler caught on the castle still deposits).
@@ -469,6 +470,8 @@ public static class Battlefields
         // The walk each was on carries on from where it stands; any errand without one resumes.
         foreach (var u in resume) Walk.Resume(sim, u);
         CombatRules.ResumeInterrupted(sim, bf.Tile);
+        // Survivors standing on their own shelter start to heal (docs/unit-healing.md).
+        Sim.Core.Healing.Rest.ArmAllOn(sim, bf.Tile);
         // A waiting enemy reopens the tile; attackers left alone with a
         // hostile structure lay siege to it (D4).
         OnPresenceChanged(sim, bf.Tile);

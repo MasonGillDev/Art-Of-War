@@ -23,6 +23,10 @@ public static class TileEntry
         // goes back out that way).
         unit.EnteredFrom = left;
         unit.EnteredTick = sim.Now;
+        // Rest healing: leaving a tile breaks any rest; arriving at an own
+        // shelter starts a fresh period (docs/unit-healing.md).
+        Sim.Core.Healing.Rest.Interrupt(unit);
+        Sim.Core.Healing.Rest.ArmIfDormant(sim, unit);
         // A moving group is "at" the tile its lowest-id member last entered.
         if (unit.GroupId is { } gid && world.Groups.TryGetValue(gid, out var group)
             && group.State == Sim.Core.Groups.GroupState.Moving && group.Members.Count > 0 && group.Members.Min == unit.Id)

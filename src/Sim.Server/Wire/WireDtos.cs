@@ -497,6 +497,11 @@ public sealed class UnitDto
     // (v1 readers ignore the extra field), and the v2 client needs it for wounded-unit
     // presentation. Own units only — enemy health is private, same rule as Power.
     public int Health { get; set; } = -1;
+    // Rest healing (docs/unit-healing.md): the ceiling Health heals back to
+    // (role base + gear), and whether the unit is healing now (wounded, on its
+    // own Castle/House/Barracks tile, off any battlefield). Own units only.
+    public int MaxHealth { get; set; } = -1;
+    public bool Resting { get; set; }
     public int Activity { get; set; }   // Sim.Core Activity enum; -1 = hidden (not the viewer's unit)
     public int PassengerCap { get; set; } // boats: max passengers (0 for non-boats / not own)
     public int Passengers { get; set; }   // boats: current embarked passenger count

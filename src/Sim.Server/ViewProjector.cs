@@ -898,6 +898,8 @@ public sealed class ViewProjector
             Id = u.Id, X = u.Position.X, Y = u.Position.Y, Role = (int)u.Role, OwnerId = u.OwnerId,
             Age = Sim.Core.Population.Population.AgeYears(u, now, world.PopulationConfig),
             Health = mine ? u.Health : -1,
+            MaxHealth = mine ? Sim.Core.Combat.CombatRules.MaxHealth(u, now) : -1,
+            Resting = mine && Sim.Core.Healing.Rest.IsResting(world, u, now),
             Activity = mine ? (int)u.Activity : -1,
             PassengerCap = mine ? u.PassengerCap : 0,
             Passengers = mine ? u.Passengers.Count : 0,
@@ -1065,6 +1067,8 @@ public sealed class ViewProjector
         var groupState = 0;
         var royal = 0;
         var settled = false;
+        var maxHealth = -1;
+        var resting = false;
         // The hop is public, so the real unit is looked up for EVERY visible unit,
         // not only the viewer's own. The own-only enrichment stays inside the branch.
         world.Units.TryGetValue(uv.Id, out var live);
@@ -1074,6 +1078,8 @@ public sealed class ViewProjector
             groupState = GroupStateOf(real, world);
             royal = RoyalTagOf(real, world);
             settled = Sim.Core.Population.Housing.IsSettled(world, real, now);
+            maxHealth = Sim.Core.Combat.CombatRules.MaxHealth(real, now);
+            resting = Sim.Core.Healing.Rest.IsResting(world, real, now);
             goalKind = (int)(real.Goal?.Kind ?? 0);
             goalState = GoalStateOf(real, world);
             goalX = real.Goal?.TargetTile.X ?? -1;
@@ -1093,6 +1099,8 @@ public sealed class ViewProjector
             Id = uv.Id, X = uv.Position.X, Y = uv.Position.Y, Role = (int)uv.Role, OwnerId = uv.OwnerId,
             Age = uv.AgeYears,
             Health = uv.OwnerId == viewerPlayerId ? uv.Health : -1,
+            MaxHealth = maxHealth,
+            Resting = resting,
             Activity = activity,
             PassengerCap = cap,
             Passengers = pax,

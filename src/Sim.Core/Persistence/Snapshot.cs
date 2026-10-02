@@ -193,7 +193,9 @@ public static class Snapshot
     //       veins holds, per route in id order, its name and revision, and per
     //       crew (list order) its last serve (has-flag, stop, tick, loaded,
     //       unloaded, notes byte).
-    public const int FormatVersion = 46;
+    // v47 — rest healing (docs/unit-healing.md): each unit row gains its rest-heal
+    //       anchor after the death anchor (nullable tick, nullable seq).
+    public const int FormatVersion = 47;
 
     public static string Hash(Simulation sim)
     {
@@ -1094,6 +1096,9 @@ public static class Snapshot
             bw.Write(u.BornTick);
             WriteNullableLong(bw, u.DeathTick);
             WriteNullableLong(bw, u.DeathSeq);
+            // v47: rest-heal anchor (docs/unit-healing.md).
+            WriteNullableLong(bw, u.NextRestHealTick);
+            WriteNullableLong(bw, u.NextRestHealSeq);
             // M12: movement domain.
             bw.Write((byte)u.Traversal);
             // M12: carrier state.
@@ -1360,6 +1365,8 @@ public static class Snapshot
             var bornTick = br.ReadInt64();
             var deathTick = ReadNullableLong(br);
             var deathSeq = ReadNullableLong(br);
+            var restHealTick = ReadNullableLong(br);   // v47
+            var restHealSeq = ReadNullableLong(br);
             var traversal = (Traversal)br.ReadByte();
             var passengerCap = br.ReadInt32();
             var passengerCount = br.ReadInt32();
@@ -1392,6 +1399,8 @@ public static class Snapshot
             foreach (var b in buffs) u.Buffs.Add(b);
             u.DeathTick = deathTick;
             u.DeathSeq  = deathSeq;
+            u.NextRestHealTick = restHealTick;
+            u.NextRestHealSeq  = restHealSeq;
             if (activity != Activity.Idle)
             {
                 // Idle is the default; only call TrySet if we actually move off it.

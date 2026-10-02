@@ -112,6 +112,10 @@ public static class Construction
         // and moves them in nearest-first until the beds fill.
         if (built is House newHouse)
             MoveNearbyWorkersIn(sim, newHouse);
+        // Rest healing: a shelter finished under its owner's wounded (its
+        // builders, say) starts them healing (docs/unit-healing.md).
+        if (StructureCatalog.Spec(built.Kind).Shelters)
+            Sim.Core.Healing.Rest.ArmAllOn(sim, built.At);
 
         // M37 — last, once the structure fully stands: it counts toward the
         // owner's progress, and a tower's reveal may have moved the explored

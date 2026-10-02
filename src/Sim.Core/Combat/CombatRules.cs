@@ -36,6 +36,17 @@ public static class CombatRules
         return p < 0 ? 0 : p;
     }
 
+    // A unit's full health: its role's base plus what its live gear adds (a
+    // shield). Health is the stored number combat lowers; this is the ceiling
+    // rest healing climbs back to (docs/unit-healing.md). Pure read.
+    public static int MaxHealth(Unit u, long now)
+    {
+        var hp = UnitCombatCatalog.Spec(u.Role).BaseHealth;
+        foreach (var b in u.Buffs)
+            if (b.ExpiresAt is not { } expiry || expiry > now) hp += b.HealthModifier;
+        return hp;
+    }
+
     // M31 — power AS FOUGHT: own power plus the King's Buff if the unit is
     // standing inside its disc (docs/king-and-dynasty.md).
     //

@@ -1597,3 +1597,34 @@ and `TwinRun_WithAnEditMidway_SameHash`.
 
 **Pure reads.** The projector's `FillHaul` (unit `CargoCapacity`, `HaulRouteId`) and the route block's
 `Name` and `Last*` fields.
+
+## Rest healing (2026-10-02, `docs/unit-healing.md`)
+
+**New state.** `Unit.NextRestHealTick` / `Unit.NextRestHealSeq`: the anchor of a resting unit's
+queued `RestHealEvent`. Null = dormant. `StructureSpec.Shelters` is catalog data (Castle, House,
+Barracks), not world state.
+
+**Mutation points.**
+- The anchor is written only by `Rest.Schedule` / `Rest.Interrupt` (`src/Sim.Core/Healing/Rest.cs`)
+  and by `Snapshot.ReadUnits`. `Rest.ArmIfDormant` is called from `TileEntry.Enter` (after
+  `Interrupt`: a fresh rest on every tile change), `Battlefields.Close` (`ArmAllOn` the tile),
+  `Construction.Complete` (a shelter finished: `ArmAllOn` its tile) and `DisembarkIntent`.
+  `Interrupt` is also called from `Battlefields.Enroll`, `EmbarkIntent` and `EmbarkGoal`.
+- `Unit.Health` gains one writer: `RestHealEvent.Apply`, `+HealPerPeriod` clamped to
+  `CombatRules.MaxHealth`. Every other writer is unchanged.
+
+**Anchor.** `RegenerateQueue` rebuilds the event per unit (id order); `RestHealEvent` fences on
+`(NextRestHealTick, NextRestHealSeq) == (At, Seq)` and on the unit existing. Pinned by
+`RestHealingTests.MidRest_SnapshotRestore_HealsIdentically` and `TwinRun_IsDeterministic`.
+
+**Event volume.** One event per resting wounded unit per game-hour; a unit at full health, off a
+shelter, on a board or aboard a boat owns none. No global iteration: `ArmAllOn` scans units for
+one tile, the same O(units)-per-call shape flagged in invariant 1, called once per battle close
+and per shelter completion.
+
+**Pure reads.** `Rest.IsSheltered`, `Rest.IsResting`, `CombatRules.MaxHealth` (moved from
+`Sim.Server.BattlefieldProjection`); the projector's `UnitDto.MaxHealth` / `Resting`. Pinned by
+`RestHealingTests.IsResting_IsAPureRead`.
+
+**Snapshot v47.** A unit row gains the rest-heal anchor (nullable tick, nullable seq) after the
+death anchor.

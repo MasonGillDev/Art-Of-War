@@ -665,3 +665,13 @@ tile back to front from the edge it entered by.
 This replaces seating at battle open and the overflow shelter (build decision D1), and
 settles pre-battle formations: your formation is where your units stand. See
 `docs/subtile-movement.md` and `docs/m42-status.md`.
+
+## Update 2026-10-02 — §8 Health answered: rest at your own shelter
+
+**Decision (the user's).** HP recovers only by resting. A wounded unit standing on its own Castle,
+House or Barracks, off any board and not aboard a boat, heals a flat 1 HP per completed game-hour
+up to its full health (role base + gear). It is free. Nothing heals on a board, and a worker wounded
+at a field must walk home. This closes note 8 above ("nothing heals today").
+
+The full rationale, the losing options (heal anywhere outside combat, own territory, percent of
+max, a food cost) and the mechanics are in `docs/unit-healing.md`.

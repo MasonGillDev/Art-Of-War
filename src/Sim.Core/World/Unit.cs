@@ -213,6 +213,14 @@ public sealed class Unit
     public long? DeathTick { get; set; }
     public long? DeathSeq { get; set; }
 
+    // ---- rest healing (docs/unit-healing.md) ----
+    // The anchor of this unit's queued RestHealEvent: a wounded unit standing
+    // on its own shelter heals once per completed RestConstants.PeriodTicks.
+    // Null = dormant (not sheltered, or at full health). Written only by
+    // Sim.Core.Healing.Rest (Schedule / Interrupt) and Snapshot restore.
+    public long? NextRestHealTick { get; internal set; }
+    public long? NextRestHealSeq { get; internal set; }
+
     // ---- M19 home (docs/m19-per-house-food-spec.md) ----
     // The tile of this unit's home HOUSE; null = homed at the owner's
     // castle (the default and the universal fallback). The home is the

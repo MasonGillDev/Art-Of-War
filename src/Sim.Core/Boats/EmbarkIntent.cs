@@ -131,6 +131,7 @@ public sealed class EmbarkIntent : Intent
             boat.Passengers.Add(pid);
             p.EmbarkedOn = BoatId;
             p.Subtile = null;   // M42 — a passenger stands on no subtile
+            Sim.Core.Healing.Rest.Interrupt(p);   // no healing aboard (docs/unit-healing.md)
         }
 
         // Everyone else walks to the quay and boards when they and the hull are
