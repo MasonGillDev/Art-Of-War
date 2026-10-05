@@ -152,8 +152,8 @@ public sealed class GameHost : IDisposable
         // faction ids run the Rival ladder, the rest stay Homesteaders.
         // Highest-first keeps faction 1 (the balance lab's baseline in every
         // pre-M25 test) a Homesteader. Rank by the ids actually present —
-        // FindAiStart can skip a faction (no viable start), so ids aren't
-        // guaranteed contiguous.
+        // SeatPlacer can run out of land for the last seats, so don't assume
+        // how many AI ids there are.
         if (aiConfig is { Enabled: true })
         {
             var aiIds = build.Spec.FactionStarts

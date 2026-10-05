@@ -73,7 +73,10 @@ public static class WorldFactory
 
     private static GenesisSpec BuildSpec(GeneratedMap map, int aiPlayers, int cacheCount, Sim.Core.Biomes.BiomeDegradationConfig fertility, bool godMode, bool progression, int idolCount, int landingDay)
     {
-        var start = map.Start;
+        // Every kingdom's castle, the human seat first: the land shared out evenly
+        // (docs/fair-start-placement.md).
+        var seats = SeatPlacer.Place(map, 1 + aiPlayers);
+        var start = seats[0];
         var nextId = 1;
 
         // M17 — every AI faction gets the IDENTICAL start: fairness includes
@@ -235,20 +238,13 @@ public static class WorldFactory
         };
 
         // M17 — N full AI factions (the token "neutral scout" faction is
-        // retired; AI players are the "other" now). Castles placed on
-        // grassland a real march away from the player and from each other;
-        // perfect fair-start placement stays deferred to M11 Phase 2.
-        var castles = new List<TileCoord> { start };
-        for (var i = 0; i < aiPlayers; i++)
-        {
-            if (FindAiStart(map, castles) is not { } aiCastle)
-            {
-                Console.WriteLine($"WARN: no viable start for AI faction {i + 1} — skipping.");
-                continue;
-            }
-            castles.Add(aiCastle);
-            factions.Add(MakeFaction(i + 1, aiCastle));
-        }
+        // retired; AI players are the "other" now), on the seats after the
+        // human's. A seat the land had no room for is skipped.
+        var castles = seats;
+        for (var i = 1; i < seats.Count; i++)
+            factions.Add(MakeFaction(i, seats[i]));
+        if (seats.Count < 1 + aiPlayers)
+            Console.WriteLine($"WARN: no viable start for {1 + aiPlayers - seats.Count} AI faction(s) — skipping.");
 
         var spec = new GenesisSpec
         {
@@ -275,50 +271,6 @@ public static class WorldFactory
             $"river tiles: {spec.Rivers.Count}.");
         LogVeinReach(map, castles);
         return spec;
-    }
-
-    // M17 — pick a grassland castle tile for an AI faction: as far from the
-    // player as the map allows (preferring ~half-map separation, walking
-    // inward if the continent is small), and at least MinSeparation from
-    // every already-placed castle. Deterministic: ring-perimeter scan in
-    // (dist, y, x) order, same shape as FindGrasslandNear.
-    private const int MinSeparation = 24;
-
-    private static TileCoord? FindAiStart(GeneratedMap map, List<TileCoord> castles)
-    {
-        var origin = castles[0];   // the player start anchors the search
-        var preferred = Math.Min(64, Math.Max(map.Width, map.Height) / 2);
-        for (var r = preferred; r >= MinSeparation; r -= 4)
-        for (var dy = -r; dy <= r; dy++)
-        for (var dx = -r; dx <= r; dx++)
-        {
-            if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue; // perimeter only
-            int x = origin.X + dx, y = origin.Y + dy;
-            if (x < 0 || x >= map.Width || y < 0 || y >= map.Height) continue;
-            if (map.Grid[x, y] != Biome.Grassland) continue;
-            var clear = true;
-            foreach (var c in castles)
-                if (Math.Max(Math.Abs(c.X - x), Math.Abs(c.Y - y)) < MinSeparation) { clear = false; break; }
-            if (!clear) continue;
-            // A castle TILE isn't a START — the faction needs farmable
-            // land in walking range. Under the 18-mouths-per-farm economy
-            // (2026-06-11) a start whose nearest grassland sits 10 tiles
-            // out dies to haul distance (the balance lab watched faction 1
-            // starve on exactly such a spot). Demand a real meadow:
-            // enough grassland within ring 6 for several farms + claims.
-            if (GrasslandWithin(map, x, y, radius: 6) < 40) continue;
-            return new TileCoord(x, y);
-        }
-        return null;
-    }
-
-    private static int GrasslandWithin(GeneratedMap map, int cx, int cy, int radius)
-    {
-        var count = 0;
-        for (var y = Math.Max(0, cy - radius); y <= Math.Min(map.Height - 1, cy + radius); y++)
-        for (var x = Math.Max(0, cx - radius); x <= Math.Min(map.Width - 1, cx + radius); x++)
-            if (map.Grid[x, y] == Biome.Grassland) count++;
-        return count;
     }
 
     // M44 — tuning aid: each start's distance to the nearest mountain, so an

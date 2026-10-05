@@ -60,9 +60,9 @@ public class IrrigateTests
         IrrigateWaterRadius = 2,
     };
 
-    // A hand-built INLAND farm southeast of the coastal castle: its claim
-    // ring (8 tiles around the farm) sits well beyond the water-recovery
-    // radius of the NW ocean — the dry belt a canal should reach.
+    // A hand-built INLAND farm southeast of the castle: its claim ring (8
+    // tiles around the farm) sits beyond the water-recovery radius of the
+    // nearest water — the dry belt a canal should reach.
     private static (Extractor Farm, List<TileCoord> Claims) AddInlandFarm(Simulation sim)
     {
         var keep = CastleOf(sim, 1).At;
@@ -89,7 +89,9 @@ public class IrrigateTests
     [Fact]
     public void Irrigate_DigsARealCanal_ThenTheBeltReadsWatered()
     {
-        var (sim, projector) = MakeMatch();
+        // Seed 3: faction 1's castle sits a few tiles from water (fair start placement keeps
+        // castles inland on seed 7), so a canal of 12 tiles or fewer can reach the farm below.
+        var (sim, projector) = MakeMatch(mapSeed: 3);
         var cfg = TestCfg;
         var castle = CastleOf(sim, 1);
         castle.Deposit(Resource.Stone, 600);

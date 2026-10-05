@@ -141,7 +141,9 @@ public class FortifyTests
     [Fact]
     public void Fortify_StoneShort_BootstrapsAQuarry_NoWallsYet()
     {
-        var (sim, projector) = MakeMatch();
+        // Seed 3: hills in faction 1's sight from the start. Since M44 a quarry needs a known
+        // hill pocket, and fair start placement moved seed 7's castle away from the hills.
+        var (sim, projector) = MakeMatch(mapSeed: 3);
         var cfg = new AiConfig
         {
             FortifyPopulationFloor = 1,
@@ -196,19 +198,21 @@ public class FortifyTests
     [Fact]
     public void Fortify_WallsTheThreatArcFirst()
     {
-        var keepY = 7;   // faction 1's castle sits at (70,7) on this seed
+        var (probe, _) = MakeMatch();
+        var keep = CastleOf(probe, 1).At;
+        var keepY = keep.Y;
 
-        // A: no threat picture — the ring walks clockwise, and on this
-        // coastal map the first placeable arc is the EAST side.
+        // A: no threat picture — the ring walks clockwise from the north,
+        // so the south arc is never first.
         var calm = FirstWallSegment(new AiMemory());
         Assert.NotNull(calm);
         Assert.True(calm![0].Y < keepY + 5,
             $"calm build should not start on the south arc (started {calm[0].X},{calm[0].Y})");
 
         // B: a fresh hostile sighting far to the SOUTH pivots the build —
-        // the south arc goes up first even though walk order prefers east.
+        // the south arc goes up first even though walk order prefers north.
         var threatened = new AiMemory();
-        threatened.SightedHostiles[(70, 90)] = (Tick: 0L, Count: 3);
+        threatened.SightedHostiles[(keep.X, Math.Min(keep.Y + 40, 95))] = (Tick: 0L, Count: 3);
         var southFirst = FirstWallSegment(threatened);
         Assert.NotNull(southFirst);
         Assert.All(southFirst!, t => Assert.Equal(keepY + 5, t.Y));
@@ -223,7 +227,7 @@ public class FortifyTests
             FortifyPopulationFloor = 1,
             FortifyRadius = 5,
             FortifyStoneFloor = 50,
-            FortifyMaxOpenSites = 12,   // generous — this pin is the mend loop, not pacing
+            FortifyMaxOpenSites = 40,   // generous — this pin is the mend loop, not pacing
         };
         var castle = CastleOf(sim, 1);
         castle.Deposit(Resource.Stone, 600);

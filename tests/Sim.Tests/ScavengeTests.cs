@@ -264,7 +264,9 @@ public class ScavengeTests
         // hauls it home. Player 0's larder is emptied so the tracers are
         // the richest rows — and if starvation defeats them before the
         // campaign does, extinction feeds the very same scavenge path.
-        var (sim, projector, _) = MakeMatch();
+        // Seed 3: this lab is sensitive to where the two castles sit, and on seed 7 the fair
+        // start placement layout never brings the vault home inside the window.
+        var (sim, projector, _) = MakeMatch(mapSeed: 3);
         var c0 = CastleOf(sim, 0).At;
         var c1 = CastleOf(sim, 1).At;
         var nextId = 9000;

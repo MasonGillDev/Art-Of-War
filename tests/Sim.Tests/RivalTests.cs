@@ -190,9 +190,11 @@ public class RivalTests
     [Fact]
     public void RivalPersonality_Assignment_CyclesDeterministically()
     {
+        // 128 tiles: since fair start placement (every castle needs wood in reach) a 96-tile
+        // continent holds only three kingdoms on this seed.
         var build = WorldFactory.Build(new ServerOptions
         {
-            MapWidth = 96, MapHeight = 96, MapSeed = 7, AiPlayers = 4,
+            MapWidth = 128, MapHeight = 128, MapSeed = 7, AiPlayers = 4,
         });
 
         static List<(int Id, RivalPersonality? P)> Spread(GameHost host) =>

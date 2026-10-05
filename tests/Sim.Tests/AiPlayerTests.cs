@@ -481,9 +481,11 @@ public class AiPlayerTests
     public void CropRotation_VsSlashAndBurn_LabReport()
     {
         var results = new Dictionary<bool, (int Pop, int Farms, int Desert)>();
+        // 128 tiles: fair start placement shares a 96-tile continent so evenly that the two
+        // kingdoms start ~24 tiles apart and crowd each other; 128 gives them room.
         foreach (var rotate in new[] { true, false })
         {
-            var (sim, projector, _) = MakeMatch();
+            var (sim, projector, _) = MakeMatch(size: 128);
             var cfg = new AiConfig { RotateFarms = rotate };
             var drivers = new[] { new AiPlayerDriver(0, cfg), new AiPlayerDriver(1, cfg) };
             for (long t = sim.Now; t <= LabDays * Time.Day; t += cfg.ThinkPeriodTicks)

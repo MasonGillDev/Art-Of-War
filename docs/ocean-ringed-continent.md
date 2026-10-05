@@ -93,3 +93,10 @@ harness 2026-07-06):
 - Deliberately deferred: guaranteed-fair multi-player coastal access (each
   faction gets a usable harbor site) — lands with the multiplayer fairness
   milestone, not worldgen.
+
+## Update 2026-10-05 — interior-first is for one kingdom only
+
+`StartPicker`'s centre-out scan now places only a lone kingdom. With two or more, every
+castle comes from `SeatPlacer`, which shares the mainland out evenly and keeps the castles
+off the coast by the same token (each sits in the middle of its share). See
+`docs/fair-start-placement.md`.

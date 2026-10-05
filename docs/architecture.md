@@ -384,7 +384,7 @@ These are the milestones the design doc (`persistent-rts-design.md`) calls out a
 
 **M10 — Clients & networking.** The current `Sim.Host` is a one-shot smoke driver. M10 turns it into a real server: WebSocket / gRPC intent submission, per-player `BuildPlayerView` over the wire, push notifications (§12). This is what the M3 `BuildPlayerView` design exists to feed.
 
-**M11 — World generation.** Phase 1 landed: Perlin + Whittaker pipeline, frozen integer-biome output, deterministic start picker, water made passable-but-expensive so generated maps never trap the player. See `docs/world-generation.md`. Phase 2+ (larger worlds, named locations, multi-player fair start placement, post-classification feature passes) is deferred until gameplay needs it.
+**M11 — World generation.** Phase 1 landed: Perlin + Whittaker pipeline, frozen integer-biome output, deterministic start picker, water made passable-but-expensive so generated maps never trap the player. See `docs/world-generation.md`. Fair start placement landed 2026-10-05 (`docs/fair-start-placement.md`). The rest of Phase 2+ (larger worlds, named locations, post-classification feature passes) is deferred until gameplay needs it.
 
 (Order is suggested, not locked. M10 can come earlier if the user wants to drive the game from a real client. M11 can come whenever the world feels too small.)
 

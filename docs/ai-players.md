@@ -594,3 +594,11 @@ dial — `Arm`, `ArmPopulationFloor`, `ArmMineWorkers`/`ArmSmelterWorkers`.
      schools one Miner, and Miners are kept out of the retraining pool.
 - The view feeds all of this through `ViewDto.Veins` / `BarrenX` /
   `BarrenY` and `UnitDto.Survey*`. See `docs/stone-and-ore-land.md`.
+
+## Update 2026-10-05 — start placement
+
+`FindAiStart` is gone. Every castle, the human seat's included, is now placed by
+`SeatPlacer` (Lloyd relaxation over the mainland), which shares the land out evenly; the old
+search anchored on the human's centre start and scanned rows from the top, so every AI landed
+north of it. The meadow rule (40+ grassland within 6) and the 24-tile separation carry over;
+a seat also needs forest within 10. See `docs/fair-start-placement.md`.
