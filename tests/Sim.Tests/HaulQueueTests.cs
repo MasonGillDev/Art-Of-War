@@ -253,7 +253,7 @@ public class HaulQueueTests
         Pile(world, Src, wood: 500);
         var job = SetJob(sim, Src, Pile(world, new TileCoord(8, 2)).At, 100);
         world.AddUnit(new Unit(1, Src) { Role = UnitRole.Builder });              // not a hauler
-        world.AddUnit(new Unit(2, Src) { Role = UnitRole.Hauler, Cargo = { { Resource.Ore, 1 } } }); // laden
+        world.AddUnit(new Unit(2, Src) { Role = UnitRole.Hauler, Cargo = { { Resource.CopperOre, 1 } } }); // laden
         Hauler(world, 3, Src);
         world.Claims[3] = new Claim(3, OrderId: 99, ClaimPurpose.Crew);          // the AI substrate's
         Hauler(world, 4, Src, owner: 1);                                          // someone else's
@@ -446,10 +446,10 @@ public class HaulQueueTests
     {
         var sim = MakeSim(out var world);
         var mine = Pile(world, Src);
-        mine.Deposit(Resource.Ore, 100);
+        mine.Deposit(Resource.CopperOre, 100);
         var smelter = (Extractor)world.AddStructure(new Extractor(StructureKind.Smelter, new TileCoord(8, 2)) { OwnerId = 0 });
-        smelter.DepositInput(Resource.Ore, 12);
-        var job = SetJob(sim, Src, smelter.At, 12, r: Resource.Ore);
+        smelter.DepositInput(Resource.CopperOre, 12);
+        var job = SetJob(sim, Src, smelter.At, 12, r: Resource.CopperOre);
         Hauler(world, 1, Src);
         var driver = Driver();
 

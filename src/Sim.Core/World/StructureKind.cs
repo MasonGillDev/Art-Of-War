@@ -9,7 +9,7 @@ public enum StructureKind : byte
     Castle = 4,
     LumberCamp = 5,
     Quarry = 6,
-    Mine = 7,
+    CopperMine = 7,  // M51 — the copper-ore mine (was Mine); docs/m51-ore-tiers-spec.md
     Farm = 8,
     House = 9, // M8 — breeding structure
     Dock = 10, // M12 — boat shipyard + embark/disembark seam
@@ -22,10 +22,12 @@ public enum StructureKind : byte
     Wall = 17, // M26 — blocks movement for everyone; placed as a line via PlaceWallIntent (docs/walls-and-gates.md)
     Gate = 18, // M26 — blocks movement except owner + allies (docs/walls-and-gates.md)
     // Refining (docs/refining-structures.md) — the second hop of the supply chain.
-    Smelter = 19,  // refiner: Ore + Wood (fuel) → Iron; the only Extractor with inputs
+    Smelter = 19,  // refiner: ore + wood (fuel) → a metal bar; the only Extractor with inputs
     Workshop = 20, // civil crafting storage: the Cart is forged here, not at the Barracks
-    Smithy = 21,   // weapons crafting storage: Sword / Bow / Shield; the Barracks now only trains
+    Smithy = 21,   // weapons crafting storage: swords / Bow / Shield; the Barracks now only trains
     Idol = 22,     // M38 — a statue in the fog; activate it for a timed circle of sight, then it crumbles (docs/scouting-secrets.md)
     BanditCamp = 23, // M39 — bandit-owned: a garrison, raiders on a schedule, a hoard of their takings (docs/bandit-camps.md)
     Bridge = 24,     // a deck across a straight canal tile: the way over a canal; boats pass under (docs/structure-footprints.md)
+    IronMine = 25,   // M51 — mines an iron-ore vein; built with bronze (docs/m51-ore-tiers-spec.md)
+    SteelMine = 26,  // M51 — mines a steel-ore vein; built with iron
 }

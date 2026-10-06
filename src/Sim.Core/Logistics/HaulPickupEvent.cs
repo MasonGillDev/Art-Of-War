@@ -111,7 +111,7 @@ public sealed class HaulPickupEvent : ScheduledEvent
         var availableFromStructure = source switch
         {
             StorageStructure ss => ss.AmountOf(Resource),
-            Extractor ex when ex.Spec.OutputResource == Resource => ex.Buffer,
+            Extractor ex => ex.OutputOf(Resource),
             _ => 0,
         };
         var availableFromGround = 0;
@@ -158,7 +158,7 @@ public sealed class HaulPickupEvent : ScheduledEvent
                     ss.Withdraw(Resource, pickup);
                     break;
                 case Extractor ex:
-                    ex.Buffer -= pickup;
+                    ex.TakeOutput(Resource, pickup);
                     // Phase-D hook: freeing buffer space may re-arm dormant production.
                     ex.ArmIfDormant(sim);
                     break;

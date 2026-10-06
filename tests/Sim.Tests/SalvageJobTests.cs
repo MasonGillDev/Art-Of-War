@@ -26,8 +26,8 @@ public class SalvageJobTests
         world.Players[CacheConstants.OwnerId] = new Player(CacheConstants.OwnerId);
         world.AddStructure(new Castle(Seat) { OwnerId = 0 });
         var cache = world.AddStructure(new Cache(CacheAt) { OwnerId = CacheConstants.OwnerId });
-        cache.Deposit(Resource.Ore, 30);
-        cache.Deposit(Resource.Sword, 1);
+        cache.Deposit(Resource.CopperOre, 30);
+        cache.Deposit(Resource.BronzeSword, 1);
         for (var i = 0; i < haulers; i++)
             world.AddUnit(new Unit(world.NextUnitId++, Seat) { OwnerId = 0, Role = UnitRole.Hauler });
         return (new Simulation(world, seed: 1), cache);
@@ -86,7 +86,7 @@ public class SalvageJobTests
     {
         var (sim, _) = MakeSim();
         Chart(sim, CacheAt);
-        Assert.False(Set(sim, CacheAt, resource: Resource.Ore));                          // names no resource
+        Assert.False(Set(sim, CacheAt, resource: Resource.CopperOre));                          // names no resource
         Assert.False(Set(sim, CacheAt, crew: 0));
         Assert.False(Set(sim, CacheAt, crew: HaulingConstants.MaxSalvageCrew + 1));
         var yours = new TileCoord(9, 9);
@@ -105,8 +105,8 @@ public class SalvageJobTests
 
         RunDriver(sim, days: 12);
 
-        Assert.Equal(30, Held(sim, Resource.Ore));
-        Assert.Equal(1, Held(sim, Resource.Sword));
+        Assert.Equal(30, Held(sim, Resource.CopperOre));
+        Assert.Equal(1, Held(sim, Resource.BronzeSword));
         Assert.False(sim.World.Structures.ContainsKey(CacheAt));
         Assert.Empty(sim.World.HaulJobs);
         Assert.Equal(ChartState.Gone, sim.World.Charts[0][CacheAt].State);
@@ -117,13 +117,13 @@ public class SalvageJobTests
     {
         var (sim, _) = MakeSim();
         var spill = new TileCoord(8, 20);
-        sim.World.GroundResources[spill] = new SortedDictionary<Resource, int> { [Resource.Iron] = 12, [Resource.Stone] = 7 };
+        sim.World.GroundResources[spill] = new SortedDictionary<Resource, int> { [Resource.Bronze] = 12, [Resource.Stone] = 7 };
         sim.World.AddUnit(new Unit(sim.World.NextUnitId++, new TileCoord(8, 19)) { OwnerId = 0 });   // watching it
         Assert.True(Set(sim, spill));
 
         RunDriver(sim, days: 8);
 
-        Assert.Equal(12, Held(sim, Resource.Iron));
+        Assert.Equal(12, Held(sim, Resource.Bronze));
         Assert.Equal(7, Held(sim, Resource.Stone));
         Assert.False(sim.World.GroundResources.ContainsKey(spill));
         Assert.Empty(sim.World.HaulJobs);
@@ -143,7 +143,7 @@ public class SalvageJobTests
         RunDriver(sim, days: 8);
 
         Assert.Empty(sim.World.HaulJobs);
-        Assert.Equal(0, Held(sim, Resource.Ore));
+        Assert.Equal(0, Held(sim, Resource.CopperOre));
         Assert.Equal(ChartState.Gone, sim.World.Charts[0][CacheAt].State);
     }
 

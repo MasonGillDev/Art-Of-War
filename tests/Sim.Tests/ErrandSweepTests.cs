@@ -57,7 +57,7 @@ public class ErrandSweepTests
     private static Stockpile AddStore(Simulation sim, int swords)
     {
         var store = (Stockpile)sim.World.AddStructure(new Stockpile(Store) { OwnerId = 0 });
-        if (swords > 0) store.Deposit(Resource.Sword, swords);
+        if (swords > 0) store.Deposit(Resource.BronzeSword, swords);
         return store;
     }
 
@@ -69,7 +69,7 @@ public class ErrandSweepTests
         var sim = BuildWorld();
         var store = AddStore(sim, swords: 1);
 
-        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword, Store) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword, Store) { PlayerId = 0 });
         sim.Run(0);
 
         Assert.False(sim.ResolvedLog[^1].Outcome.IsRejected);
@@ -81,7 +81,7 @@ public class ErrandSweepTests
         Assert.Equal(Store, sim.World.Units[1].Position);
         Assert.NotEmpty(sim.World.Units[1].Buffs);
         Assert.Null(sim.World.Units[1].Goal);
-        Assert.Equal(0, store.AmountOf(Resource.Sword));
+        Assert.Equal(0, store.AmountOf(Resource.BronzeSword));
     }
 
     [Fact]
@@ -93,14 +93,14 @@ public class ErrandSweepTests
         var sim = BuildWorld();
         var store = AddStore(sim, swords: 0);
 
-        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword, Store) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword, Store) { PlayerId = 0 });
         sim.Run(10 * Time.Day);
 
         Assert.Equal(Store, sim.World.Units[1].Position);
         Assert.Equal(Activity.Waiting, sim.World.Units[1].Activity);
         Assert.Empty(sim.World.Units[1].Buffs);
 
-        CargoTransfer.DepositInto(sim, store, Resource.Sword, 1);
+        CargoTransfer.DepositInto(sim, store, Resource.BronzeSword, 1);
 
         Assert.NotEmpty(sim.World.Units[1].Buffs);
         Assert.Null(sim.World.Units[1].Goal);
@@ -118,17 +118,17 @@ public class ErrandSweepTests
             Role = UnitRole.Soldier, OwnerId = 0, BornTick = -25 * cfg.TicksPerYear,
         });
 
-        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword, Store) { PlayerId = 0 });
-        sim.SubmitIntent(0, new EquipUnitIntent(2, Resource.Sword, Store) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword, Store) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(2, Resource.BronzeSword, Store) { PlayerId = 0 });
         sim.Run(10 * Time.Day);
         Assert.Equal(Activity.Waiting, sim.World.Units[1].Activity);
         Assert.Equal(Activity.Waiting, sim.World.Units[2].Activity);
 
-        CargoTransfer.DepositInto(sim, store, Resource.Sword, 1);
+        CargoTransfer.DepositInto(sim, store, Resource.BronzeSword, 1);
 
         var armed = sim.World.Units.Values.Count(u => u.Buffs.Count > 0);
         Assert.Equal(1, armed);
-        Assert.Equal(0, store.AmountOf(Resource.Sword));
+        Assert.Equal(0, store.AmountOf(Resource.BronzeSword));
         // The other is still waiting, not dissolved — his sword may yet come.
         Assert.Contains(sim.World.Units.Values, u => u.Activity == Activity.Waiting);
     }
@@ -143,7 +143,7 @@ public class ErrandSweepTests
         AddStore(sim, swords: 0);
         sim.World.Units[1].Position = Store;
 
-        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword) { PlayerId = 0 });
         sim.Run(0);
 
         Assert.True(sim.ResolvedLog[^1].Outcome.IsRejected);
@@ -172,7 +172,7 @@ public class ErrandSweepTests
         var sim = BuildWorld();
         var store = AddStore(sim, swords: 1);
 
-        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword, Store) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword, Store) { PlayerId = 0 });
         sim.Run(0);
         SiegeDamage.RazeStructure(sim, store);
         sim.Run(sim.Now);
@@ -443,14 +443,14 @@ public class ErrandSweepTests
         var cfg = sim.World.PopulationConfig;
         sim.World.AddUnit(new Unit(2, Keep) { Role = UnitRole.Hauler, OwnerId = 0, BornTick = -25 * cfg.TicksPerYear });
 
-        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword, Store) { PlayerId = 0 });
+        sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword, Store) { PlayerId = 0 });
         sim.SubmitIntent(0, new LootCacheIntent(2, Resource.Wood, CacheAt) { PlayerId = 0 });
         sim.Run(0);
 
         var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 30);
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
         Assert.Equal(GoalKind.Equip, restored.World.Units[1].Goal!.Kind);
-        Assert.Equal((int)Resource.Sword, restored.World.Units[1].Goal!.Arg);
+        Assert.Equal((int)Resource.BronzeSword, restored.World.Units[1].Goal!.Arg);
         Assert.Equal(GoalKind.Loot, restored.World.Units[2].Goal!.Kind);
 
         // And they still complete on the far side of the restart.
@@ -466,7 +466,7 @@ public class ErrandSweepTests
         {
             var sim = BuildWorld();
             AddStore(sim, swords: 1);
-            sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.Sword, Store) { PlayerId = 0 });
+            sim.SubmitIntent(0, new EquipUnitIntent(1, Resource.BronzeSword, Store) { PlayerId = 0 });
             sim.Run(10 * Time.Day);
             return Snapshot.Hash(sim);
         }

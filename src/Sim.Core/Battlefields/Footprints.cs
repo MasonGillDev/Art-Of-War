@@ -225,7 +225,7 @@ public static class Footprints
         StructureKind.Rubble => new List<(Subtile At, SubtileKind Kind, Heading[] Closed)>(),
         StructureKind.Smelter => Blocked((1, 1)).Concat(Cover((2, 1))).ToList(),
         StructureKind.Smithy => Blocked((1, 1)).Concat(Cover((3, 1))).ToList(),
-        StructureKind.Mine => Blocked((2, 0)),
+        StructureKind.CopperMine or StructureKind.IronMine or StructureKind.SteelMine => Blocked((2, 0)),
         StructureKind.Stockpile => Blocked((1, 1), (1, 2)),
         StructureKind.ConstructionSite => Blocked((1, 1)).Concat(Cover((2, 2))).ToList(),
         StructureKind.LumberCamp => Blocked((0, 1), (2, 2)),

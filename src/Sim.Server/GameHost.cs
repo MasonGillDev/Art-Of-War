@@ -434,7 +434,7 @@ public sealed class GameHost : IDisposable
                     AddNotice(sr.OwnerId, sr.At, sr.Abandoned is { } why
                         ? $"survey at {sr.Target.X},{sr.Target.Y} abandoned — {why}"
                         : sr.Vein is { } v
-                            ? $"ore vein found at {v.X},{v.Y} — a Mine can go there"
+                            ? $"{OreName(sr.Ore)} ore vein found at {v.X},{v.Y} — {Article(OreName(sr.Ore))} {OreName(sr.Ore)} mine can go there"
                             : $"survey at {sr.Target.X},{sr.Target.Y}: nothing in these slopes");
                     continue;
                 case Sim.Core.Sieges.GameOverEvent over:
@@ -605,4 +605,15 @@ public sealed class GameHost : IDisposable
 
     private static string Ack(bool accepted, string reason) =>
         JsonSerializer.Serialize(new AckDto { Accepted = accepted, Reason = reason }, ServerJson.Options);
+
+    // M51 — an ore's plain name for notices (docs/m51-ore-tiers-spec.md).
+    private static string OreName(Sim.Core.World.Resource ore) => ore switch
+    {
+        Sim.Core.World.Resource.CopperOre => "copper",
+        Sim.Core.World.Resource.IronOre => "iron",
+        Sim.Core.World.Resource.SteelOre => "steel",
+        _ => "ore",
+    };
+
+    private static string Article(string word) => word.Length > 0 && "aeiou".Contains(word[0]) ? "an" : "a";
 }

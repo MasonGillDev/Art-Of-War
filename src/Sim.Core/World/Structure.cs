@@ -194,7 +194,52 @@ public sealed class Extractor : Structure
     // which cancels the absent unit's saved task. Written by GroupMuster, WorkAssignment
     // and AssignWorkersIntent; a death clears its own entry.
     public SortedSet<int> HeldBy { get; } = new();
-    public int Buffer { get; set; }
+
+    // What the extractor has made and holds for pickup, by resource (sorted by
+    // ordinal, so the snapshot walks it canonically). An ordinary extractor
+    // holds only its OutputResource; a refiner may hold several bars at once
+    // (M51: the smelter makes bronze, iron and steel — docs/m51-ore-tiers-spec.md).
+    // BufferCap bounds the total. Written by the production tick (AddOutput),
+    // pickups (TakeOutput), razing and restore.
+    public SortedDictionary<Resource, int> Output { get; } = new();
+
+    // The total held. Setting it is for an ordinary extractor only (its one
+    // output); a refiner's mixed store is written through AddOutput/TakeOutput.
+    public int Buffer
+    {
+        get
+        {
+            var total = 0;
+            foreach (var v in Output.Values) total += v;
+            return total;
+        }
+        set
+        {
+            if (IsRefiner)
+                throw new InvalidOperationException($"{Kind} holds several outputs; use AddOutput/TakeOutput.");
+            Output.Clear();
+            if (value > 0) Output[Spec.OutputResource] = value;
+        }
+    }
+
+    public int OutputOf(Resource r) => Output.TryGetValue(r, out var v) ? v : 0;
+
+    internal void AddOutput(Resource r, int amount)
+    {
+        if (amount <= 0) return;
+        Output[r] = OutputOf(r) + amount;
+    }
+
+    // Takes up to `amount` of `r`; returns what was taken.
+    internal int TakeOutput(Resource r, int amount)
+    {
+        var taken = Math.Min(Math.Max(0, amount), OutputOf(r));
+        if (taken == 0) return 0;
+        var left = OutputOf(r) - taken;
+        if (left == 0) Output.Remove(r);
+        else Output[r] = left;
+        return taken;
+    }
     public long LastProductionTick { get; set; }
     // True iff a ProductionTick is currently scheduled. When the buffer fills
     // or workers leave, the next tick fires, finds nothing to do, sets this
@@ -222,8 +267,8 @@ public sealed class Extractor : Structure
     // Refining (docs/refining-structures.md) — a REFINER's input store. Only
     // a refiner (Spec.IsRefiner) ever holds anything here; ordinary
     // extractors keep it empty. Haulers feed it through
-    // CargoTransfer.DepositInto → DepositInput (accepts only InputCost
-    // resources, capped by Spec.InputCap); the production tick is the sole
+    // CargoTransfer.DepositInto → DepositInput (accepts only resources a
+    // recipe names, capped by Spec.InputCap); the production tick is the sole
     // consumer (ConsumeBatches); razing spills it. Sorted by enum ordinal so
     // the snapshot walks it canonically.
     public SortedDictionary<Resource, int> Inputs { get; } = new();
@@ -234,7 +279,7 @@ public sealed class Extractor : Structure
     {
         _kind = kind;
         Spec = StructureCatalog.Spec(kind);
-        if (Spec.RequiredBiome == Biome.None && !Spec.IsRefiner)
+        if (!Spec.IsExtractor)
             throw new InvalidOperationException($"{kind} is not an extractor kind.");
     }
 
@@ -257,14 +302,14 @@ public sealed class Extractor : Structure
     // the ore leg could never deliver, so the smelter starved while full.
     // With a cap per recipe line, no supply line can crowd another out.
     public int FreeInputSpace(Resource r) =>
-        Spec.InputCost.ContainsKey(r) ? Math.Max(0, Spec.InputCap - InputOf(r)) : 0;
+        Spec.TakesInput(r) ? Math.Max(0, Spec.InputCap - InputOf(r)) : 0;
 
-    // Accepts only resources this refiner's recipe names, up to InputCap of
-    // EACH. Returns what was accepted; the caller keeps the remainder (the
-    // same contract as StorageStructure.Deposit).
+    // Accepts only resources one of this refiner's recipes names, up to
+    // InputCap of EACH. Returns what was accepted; the caller keeps the
+    // remainder (the same contract as StorageStructure.Deposit).
     public int DepositInput(Resource r, int amount)
     {
-        if (amount <= 0 || !Spec.InputCost.ContainsKey(r)) return 0;
+        if (amount <= 0 || !Spec.TakesInput(r)) return 0;
         var accepted = Math.Min(amount, FreeInputSpace(r));
         if (accepted == 0) return 0;
         Inputs.TryGetValue(r, out var current);
@@ -272,22 +317,30 @@ public sealed class Extractor : Structure
         return accepted;
     }
 
-    // How many whole batches the input store can pay for right now. Integer
-    // floor per input, min across inputs — all-or-nothing per batch.
-    public int AffordableBatches()
+    // How many whole batches of `recipe` the input store can pay for right
+    // now. Integer floor per input, min across inputs — all-or-nothing.
+    public int AffordableBatches(RefineRecipe recipe)
     {
-        if (!IsRefiner) return 0;
         var batches = int.MaxValue;
-        foreach (var (r, cost) in Spec.InputCost)
+        foreach (var (r, cost) in recipe.Inputs)
             batches = Math.Min(batches, InputOf(r) / cost);
         return batches;
     }
 
-    // The tick's one consumption point. Caller guarantees
-    // batches <= AffordableBatches().
-    internal void ConsumeBatches(int batches)
+    // M51 — the recipe the next tick makes: the first (best) one it can afford
+    // at least one batch of, or null (docs/m51-ore-tiers-spec.md).
+    public RefineRecipe? NextRecipe()
     {
-        foreach (var (r, cost) in Spec.InputCost)
+        foreach (var recipe in Spec.Recipes)
+            if (AffordableBatches(recipe) > 0) return recipe;
+        return null;
+    }
+
+    // The tick's one consumption point. Caller guarantees
+    // batches <= AffordableBatches(recipe).
+    internal void ConsumeBatches(RefineRecipe recipe, int batches)
+    {
+        foreach (var (r, cost) in recipe.Inputs)
         {
             var remaining = InputOf(r) - cost * batches;
             if (remaining < 0)
@@ -301,7 +354,7 @@ public sealed class Extractor : Structure
     // Everything a production tick needs to do work: workers, room for
     // output, and (refiners) at least one batch of inputs.
     public bool CanProduce() =>
-        Workers.Count > 0 && !BufferFull() && (!IsRefiner || AffordableBatches() > 0);
+        Workers.Count > 0 && !BufferFull() && (!IsRefiner || NextRecipe() is not null);
 
     // Centralizes the production re-arm rule so it lives in one place. Called
     // by AssignWorkersIntent (worker count crossed 0→1+) and, in Phase E, by

@@ -269,6 +269,8 @@ public static class Genesis
         // (docs/wilderness-bands.md).
         world.RestoreWilderness(Sim.Core.Wilderness.WildernessField.Compute(
             world, spec.FactionStarts.OrderBy(f => f.OwnerId).Select(f => f.CastlePosition).ToList(), spec.Wilderness));
+        // M51 — each vein's ore, ranked by that remoteness (docs/m51-ore-tiers-spec.md).
+        Sim.Core.Mining.Veins.AssignOres(world);
 
         // M8: seed the monotonic unit-id counter so BirthEvent allocates
         // ids that don't collide with any spawned unit.

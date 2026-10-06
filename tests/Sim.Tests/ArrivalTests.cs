@@ -179,8 +179,8 @@ public class ArrivalTests
         var ruin = Assert.IsType<Cache>(sim.World.Structures[rumour.Target]);
         Assert.DoesNotContain(rumour.Target, known);
         Assert.Equal(rumour.From, Omens.SectorOf(rumour.Target.X - Seat.X, rumour.Target.Y - Seat.Y));
-        Assert.Equal(Cfg.FarHorizonsIron, ruin.Holdings.GetValueOrDefault(Resource.Iron));
-        Assert.Equal(Cfg.FarHorizonsSwords, ruin.Holdings.GetValueOrDefault(Resource.Sword));
+        Assert.Equal(Cfg.FarHorizonsIron, ruin.Holdings.GetValueOrDefault(Resource.Bronze));
+        Assert.Equal(Cfg.FarHorizonsSwords, ruin.Holdings.GetValueOrDefault(Resource.BronzeSword));
 
         // Empty it, a load at a time.
         var looter = sim.World.AddUnit(new Unit(sim.World.NextUnitId++, rumour.Target) { OwnerId = 0, Role = UnitRole.Hauler });

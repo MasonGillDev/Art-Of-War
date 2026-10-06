@@ -573,9 +573,14 @@ public sealed class BanditDriver
         {
             switch (s)
             {
-                case Extractor ex when ex.Buffer > 0
-                        && (u.CargoAmount == 0 || u.CargoResource == ex.Spec.OutputResource):
-                    return ex.Spec.OutputResource;
+                case Extractor ex:
+                    // M51 — a smelter may hold several bars: the largest the raider can carry.
+                    var made = ex.Output
+                        .Where(kv => kv.Value > 0 && (u.CargoAmount == 0 || u.CargoResource == kv.Key))
+                        .OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key)
+                        .Select(kv => (Resource?)kv.Key).FirstOrDefault();
+                    if (made is not null) return made;
+                    break;
                 case StorageStructure ss:
                     var pick = ss.Holdings
                         .Where(kv => kv.Value > 0

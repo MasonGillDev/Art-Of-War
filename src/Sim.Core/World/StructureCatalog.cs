@@ -81,31 +81,14 @@ public static class StructureCatalog
             ClaimRange = 2,
             BaseHealth = 50,
         },
-        [StructureKind.Mine] = new StructureSpec
-        {
-            Kind = StructureKind.Mine,
-            IsPlayerBuildable = true,
-            // M44 — ore comes from mountain veins (docs/stone-and-ore-land.md):
-            // only on a vein the placing faction has surveyed (or seen mined).
-            RequiredBiome = Biome.Mountain,
-            RequiresVein = true,
-            OutputResource = Resource.Ore,
-            BaseRatePerWorker = 1,
-            ProductionPeriodTicks = 1 * Time.Day,
-            WorkerCap = 3,
-            BufferCap = 20,
-            PreferredRole = UnitRole.Miner,
-            RoleBonusNumerator = 2,
-            RoleBonusDenominator = 1,
-            BuildCost = new SortedDictionary<Resource, int>
-            {
-                [Resource.Wood] = 15,
-                [Resource.Stone] = 10,
-            },
-            BuildDurationTicks = 25 * Time.Hour,
-            RequiredBuilderCount = 2,
-            BaseHealth = 50,
-        },
+        // M44 — ore comes from mountain veins (docs/stone-and-ore-land.md):
+        // only on a vein the placing faction has surveyed (or seen mined).
+        // M51 — one mine per ore, each built with the metal of the tier below
+        // (docs/m51-ore-tiers-spec.md): to mine steel you must have mined and
+        // smelted copper and iron.
+        [StructureKind.CopperMine] = Mine(StructureKind.CopperMine, Resource.CopperOre),
+        [StructureKind.IronMine] = Mine(StructureKind.IronMine, Resource.IronOre, (Resource.Bronze, 10)),
+        [StructureKind.SteelMine] = Mine(StructureKind.SteelMine, Resource.SteelOre, (Resource.Iron, 10)),
         [StructureKind.Farm] = new StructureSpec
         {
             Kind = StructureKind.Farm,
@@ -420,17 +403,22 @@ public static class StructureCatalog
         {
             Kind = StructureKind.Smelter,
             IsPlayerBuildable = true,
-            OutputResource = Resource.Iron,
-            InputCost = new SortedDictionary<Resource, int>
+            // M51 — one smelter for every ore, the best ore it holds first
+            // (docs/m51-ore-tiers-spec.md). Two ore a bar; the fuel climbs
+            // steeply — 10, 20, 50 wood (user, 2026-10-06): a steel economy is
+            // a forestry economy, and wood was too easy and too little needed.
+            Recipes = new[]
             {
-                [Resource.Ore] = 2,
-                // 10 wood (fuel) per ingot (user, 2026-09-23): iron is a
-                // forestry economy as much as a mining one.
-                [Resource.Wood] = 10,
+                new RefineRecipe(Resource.Steel, new SortedDictionary<Resource, int>
+                    { [Resource.Wood] = 50, [Resource.SteelOre] = 2 }),
+                new RefineRecipe(Resource.Iron, new SortedDictionary<Resource, int>
+                    { [Resource.Wood] = 20, [Resource.IronOre] = 2 }),
+                new RefineRecipe(Resource.Bronze, new SortedDictionary<Resource, int>
+                    { [Resource.Wood] = 10, [Resource.CopperOre] = 2 }),
             },
-            // Per input. 200 keeps "a few days of feed" true at 10 wood an
-            // ingot (60 starved a two-worker smelter inside two days).
-            InputCap = 200,
+            // Per input. A full crew makes up to 4 bars a day; at 50 wood a
+            // steel bar, 500 is about 2.5 days of feed (200 was one).
+            InputCap = 500,
             BaseRatePerWorker = 1,
             ProductionPeriodTicks = 1 * Time.Day,
             WorkerCap = 2,
@@ -476,6 +464,37 @@ public static class StructureCatalog
             BaseHealth = 200,
         },
     };
+
+    // M51 — a mine for one ore: today's Mine, the same rate, crew and buffer for
+    // every ore, plus the lower metal its build needs (docs/m51-ore-tiers-spec.md).
+    private static StructureSpec Mine(StructureKind kind, Resource ore, params (Resource Metal, int Amount)[] lowerMetal)
+    {
+        var cost = new SortedDictionary<Resource, int>
+        {
+            [Resource.Wood] = 15,
+            [Resource.Stone] = 10,
+        };
+        foreach (var (metal, amount) in lowerMetal) cost[metal] = amount;
+        return new StructureSpec
+        {
+            Kind = kind,
+            IsPlayerBuildable = true,
+            RequiredBiome = Biome.Mountain,
+            RequiredOre = ore,
+            OutputResource = ore,
+            BaseRatePerWorker = 1,
+            ProductionPeriodTicks = 1 * Time.Day,
+            WorkerCap = 3,
+            BufferCap = 20,
+            PreferredRole = UnitRole.Miner,
+            RoleBonusNumerator = 2,
+            RoleBonusDenominator = 1,
+            BuildCost = cost,
+            BuildDurationTicks = 25 * Time.Hour,
+            RequiredBuilderCount = 2,
+            BaseHealth = 50,
+        };
+    }
 
     public static StructureSpec Spec(StructureKind kind) =>
         Specs.TryGetValue(kind, out var s)

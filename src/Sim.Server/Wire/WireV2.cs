@@ -343,11 +343,13 @@ public sealed class BuildOptionDto
     /// How many may call it home (0 = not a home, or uncapped as with the Castle).
     public int ResidentCap { get; set; }
 
-    /// Refiners only (docs/refining-structures.md): what ONE unit of OutputResource
-    /// consumes from the building's input store, and how much input it will hold.
-    /// Empty / 0 for everything else. This is what lets the build menu say
-    /// "2 Ore + 1 Wood → 1 Iron" without a recipe table of its own.
-    public ResAmtDto[] Inputs { get; set; } = [];
+    /// Refiners only (docs/refining-structures.md): what ONE unit of each output
+    /// consumes from the building's input store, and how much of each input it will
+    /// hold. Empty / 0 for everything else. This is what lets the build menu say
+    /// "2 copper ore + 10 wood → 1 bronze" without a recipe table of its own.
+    /// M51: a list, best first — the smelter makes the first one it can afford
+    /// (docs/m51-ore-tiers-spec.md). A refiner's OutputResource is 0.
+    public RecipeDto[] Recipes { get; set; } = [];
     public int InputCap { get; set; }
 
     /// Roles a unit STANDING ON THIS BUILDING can be trained into — the School's
@@ -469,4 +471,11 @@ public sealed class ViewV2Dto : ViewDto
     /// The client's clock runs at this rate between polls.
     public double TicksPerSecond { get; set; }
     public bool Paused { get; set; }
+}
+
+// M51 — one refiner recipe: one unit of Output from Inputs (docs/m51-ore-tiers-spec.md).
+public sealed class RecipeDto
+{
+    public int Output { get; set; }
+    public ResAmtDto[] Inputs { get; set; } = [];
 }

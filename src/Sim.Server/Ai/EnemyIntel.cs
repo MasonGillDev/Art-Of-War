@@ -112,7 +112,7 @@ public static class EnemyIntel
     private static int AssumedArmsPower(UnitRole role)
     {
         var best = 0;
-        foreach (var item in new[] { Resource.Sword, Resource.Bow, Resource.Shield })
+        foreach (var item in new[] { Resource.BronzeSword, Resource.Bow, Resource.Shield })
         {
             var spec = Sim.Core.Equipment.EquipmentCatalog.Spec(item);
             if (spec.AllowedRoles.Contains(role) && spec.PowerModifier > best)

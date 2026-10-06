@@ -289,3 +289,22 @@ ore at a smelter can read as satisfied instead of pushing ore into a full store.
 The Mine moved from Hills to Mountain, and it may only stand on an ore vein
 its owner knows (surveyed by a Miner, or seen under someone's mine). The
 Smelter recipe is unchanged. See `docs/stone-and-ore-land.md`.
+
+## Update 2026-10-06 — one smelter, three recipes (M51)
+
+The Smelter's single `InputCost` became an ordered `Recipes` list, best first. Each tick makes
+the first recipe it can afford (`docs/m51-ore-tiers-spec.md`):
+
+| Recipe | Ore | Wood |
+|---|---|---|
+| Steel | 2 steel ore | 50 |
+| Iron | 2 iron ore | 20 |
+| Bronze | 2 copper ore | 10 |
+
+- **Wood climbs on purpose** (the user: wood was too easy and too little needed).
+- **`InputCap` 200 → 500,** so steel isn't starved at up to 200 wood a day.
+- **The output store:** a refiner holds several bars at once, so the extractor's single
+  `Buffer` int became an output store by resource (`Extractor.Output`); `Buffer` is now the
+  total.
+- **Still two hops:** ore → bar → sword.
+- **Renamed:** what this doc calls Iron is now Bronze, and the Ore it smelts is copper ore.

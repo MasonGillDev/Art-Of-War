@@ -66,14 +66,14 @@ public class MilitaryTrainingTests
         var sim = MakeSim();
         var castle = sim.World.AddStructure(new Castle(new TileCoord(0, 0)));
         var barracks = sim.World.AddStructure(new Barracks(new TileCoord(4, 0)));
-        castle.Deposit(Resource.Sword, 3);
+        castle.Deposit(Resource.BronzeSword, 3);
         AddUnit(sim, 1, new TileCoord(0, 0), UnitRole.Hauler);
 
-        sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(4, 0), Resource.Sword));
+        sim.SubmitIntent(0, new HaulIntent(1, new TileCoord(0, 0), new TileCoord(4, 0), Resource.BronzeSword));
         sim.Run();
 
-        Assert.Equal(0, castle.AmountOf(Resource.Sword));
-        Assert.Equal(3, barracks.AmountOf(Resource.Sword));
+        Assert.Equal(0, castle.AmountOf(Resource.BronzeSword));
+        Assert.Equal(3, barracks.AmountOf(Resource.BronzeSword));
     }
 
     [Fact]
@@ -82,16 +82,16 @@ public class MilitaryTrainingTests
         var sim = MakeSim();
         var barracks = sim.World.AddStructure(new Barracks(new TileCoord(2, 2)) { OwnerId = 0 });
         barracks.Deposit(Resource.Wood, 10);
-        barracks.Deposit(Resource.Ore, 5);
-        barracks.Deposit(Resource.Sword, 2);
+        barracks.Deposit(Resource.CopperOre, 5);
+        barracks.Deposit(Resource.BronzeSword, 2);
 
         var bytes = Snapshot.Serialize(sim);
         var restored = Snapshot.Restore(bytes, seed: 1);
 
         var rb = Assert.IsType<Barracks>(restored.World.Structures[new TileCoord(2, 2)]);
         Assert.Equal(10, rb.AmountOf(Resource.Wood));
-        Assert.Equal(5, rb.AmountOf(Resource.Ore));
-        Assert.Equal(2, rb.AmountOf(Resource.Sword));
+        Assert.Equal(5, rb.AmountOf(Resource.CopperOre));
+        Assert.Equal(2, rb.AmountOf(Resource.BronzeSword));
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
     }
 
@@ -232,7 +232,7 @@ public class MilitaryTrainingTests
 
         // Hand-add a full catalog loadout (sword + shield); the intent
         // path is pinned end-to-end in EquipUnitTests / EquipmentCombatTests.
-        var sword = EquipmentCatalog.Spec(Resource.Sword);
+        var sword = EquipmentCatalog.Spec(Resource.BronzeSword);
         var shield = EquipmentCatalog.Spec(Resource.Shield);
         citizen.Buffs.Add(new Buff(sword.BuffKind, sword.PowerModifier, sword.HealthModifier, null));
         citizen.Buffs.Add(new Buff(shield.BuffKind, shield.PowerModifier, shield.HealthModifier, null));
@@ -244,7 +244,7 @@ public class MilitaryTrainingTests
         Assert.Equal(UnitRole.Archer, citizen.Role);
         Assert.Empty(citizen.Buffs);
         var pile = sim.World.GroundResources[citizen.Position];
-        Assert.Equal(1, pile[Resource.Sword]);
+        Assert.Equal(1, pile[Resource.BronzeSword]);
         Assert.Equal(1, pile[Resource.Shield]);
         // Shield's HealthModifier reversed, then the Soldier→Archer base
         // delta applied — all catalog-derived.

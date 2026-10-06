@@ -147,7 +147,7 @@ public class GroupRecordTests
 
         Assert.Null(Retask.Refusal(sim, soldier));
         Assert.True(ClaimLedger.IsDormant(world, soldier));
-        Assert.Null(EquipRules.Blocker(world, soldier, Resource.Sword));
+        Assert.Null(EquipRules.Blocker(world, soldier, Resource.BronzeSword));
 
         Assert.False(Do(sim, new MoveIntent(1, new TileCoord(10, 3))).IsRejected);
         Assert.True(soldier.IsWalking);
@@ -164,7 +164,7 @@ public class GroupRecordTests
         Assert.True(GroupRules.UnderCommand(world, soldier));
         Assert.NotNull(Retask.Refusal(sim, soldier));
         Assert.False(ClaimLedger.IsDormant(world, soldier));
-        Assert.NotNull(EquipRules.Blocker(world, soldier, Resource.Sword));
+        Assert.NotNull(EquipRules.Blocker(world, soldier, Resource.BronzeSword));
         Assert.True(Do(sim, new MoveIntent(1, new TileCoord(10, 3))).IsRejected);
     }
 

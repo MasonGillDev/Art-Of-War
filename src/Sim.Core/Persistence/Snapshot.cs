@@ -222,7 +222,12 @@ public static class Snapshot
     //       flag, then the three band cut-offs (int minutes) and one ushort per tile in
     //       (y, x) order: walking minutes from the nearest starting castle, or the Water /
     //       BeyondReach markers.
-    public const int FormatVersion = 54;
+    // v55 — M51 ore tiers (docs/m51-ore-tiers-spec.md): each extractor row's single
+    //       buffer int becomes its output store (count + resource byte, amount; by
+    //       ordinal), as the smelter holds several bars; the vein block gains the
+    //       VeinConfig ore shares (iron, steel) after SurveyRadius and each vein's ore
+    //       byte after the vein tiles.
+    public const int FormatVersion = 55;
 
     public static string Hash(Simulation sim)
     {
@@ -1313,7 +1318,11 @@ public static class Snapshot
         bw.Write(c.Seed);
         bw.Write(c.SurveyTicks);
         bw.Write(c.SurveyRadius);
+        bw.Write(c.IronSharePercent);    // v55
+        bw.Write(c.SteelSharePercent);   // v55
         WriteTileSet(bw, world.Veins);
+        // v55: each vein's ore, in the vein set's (y, x) order.
+        foreach (var t in world.Veins) bw.Write((byte)Sim.Core.Mining.Veins.OreAt(world, t));
         WritePlayerTileSets(bw, world.KnownVeins);
         WritePlayerTileSets(bw, world.SurveyedBarren);
     }
@@ -1324,8 +1333,11 @@ public static class Snapshot
             OneIn: br.ReadInt32(),
             Seed: br.ReadUInt64(),
             SurveyTicks: br.ReadInt64(),
-            SurveyRadius: br.ReadInt32()));
+            SurveyRadius: br.ReadInt32(),
+            IronSharePercent: br.ReadInt32(),
+            SteelSharePercent: br.ReadInt32()));
         foreach (var t in ReadTileList(br)) world.Veins.Add(t);
+        foreach (var t in world.Veins) world.VeinOre[t] = (Resource)br.ReadByte();   // v55
         ReadPlayerTileSets(br, world.KnownVeins);
         ReadPlayerTileSets(br, world.SurveyedBarren);
     }
@@ -1564,11 +1576,8 @@ public static class Snapshot
             {
                 StructureKind.Castle           => ReadCastleWithAnchors(br, at, ownerId),
                 StructureKind.Stockpile        => ReadStorage(br, new Stockpile(at) { OwnerId = ownerId }),
-                StructureKind.LumberCamp
-                  or StructureKind.Quarry
-                  or StructureKind.Mine
-                  or StructureKind.Farm
-                  or StructureKind.Smelter     => ReadExtractor(br, new Extractor(kind, at) { OwnerId = ownerId }),
+                _ when StructureCatalog.TryGetSpec(kind, out var spec) && spec.IsExtractor
+                                               => ReadExtractor(br, new Extractor(kind, at) { OwnerId = ownerId }),
                 StructureKind.Workshop         => ReadStorage(br, new Workshop(at) { OwnerId = ownerId }),
                 StructureKind.Smithy           => ReadStorage(br, new Smithy(at) { OwnerId = ownerId }),
                 StructureKind.ConstructionSite => ReadConstruction(br, at, ownerId),
@@ -1648,7 +1657,9 @@ public static class Snapshot
     {
         bw.Write(e.Workers.Count);
         foreach (var w in e.Workers) bw.Write(w); // SortedSet → ascending
-        bw.Write(e.Buffer);
+        // v55: the output store, by resource (enum-ordinal order).
+        bw.Write(e.Output.Count);
+        foreach (var (r, amt) in e.Output) { bw.Write((byte)r); bw.Write(amt); }
         bw.Write(e.LastProductionTick);
         bw.Write(e.TickArmed);
         // M4: queued ProductionTickEvent anchor.
@@ -1668,7 +1679,12 @@ public static class Snapshot
     {
         var n = br.ReadInt32();
         for (var i = 0; i < n; i++) e.Workers.Add(br.ReadInt32());
-        e.Buffer = br.ReadInt32();
+        var outputs = br.ReadInt32();   // v55
+        for (var i = 0; i < outputs; i++)
+        {
+            var r = (Resource)br.ReadByte();
+            e.Output[r] = br.ReadInt32();
+        }
         e.LastProductionTick = br.ReadInt64();
         e.TickArmed = br.ReadBoolean();
         e.NextProductionTickSeq = ReadNullableLong(br);

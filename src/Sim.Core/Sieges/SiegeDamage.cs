@@ -79,7 +79,7 @@ public static class SiegeDamage
                 foreach (var (r, amt) in ss.Holdings) Spill(world, at, r, amt);
                 break;
             case Extractor ex:
-                Spill(world, at, ex.Spec.OutputResource, ex.Buffer);
+                foreach (var (r, amt) in ex.Output) Spill(world, at, r, amt);
                 // Refining: the input store spills too — the ore and fuel a
                 // razed smelter was fed are loot like everything else.
                 foreach (var (r, amt) in ex.Inputs) Spill(world, at, r, amt);

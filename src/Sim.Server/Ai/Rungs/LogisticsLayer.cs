@@ -185,8 +185,8 @@ public static class LogisticsLayer
     {
         var castle = ctx.Castle!;
         var smithy = ctx.Cfg.Arm ? ctx.OwnStructure(StructureKind.Smithy) : null;
-        var swordSpec = Sim.Core.Equipment.EquipmentCatalog.Spec(Resource.Sword);
-        var ironPerSword = swordSpec.CraftCost.TryGetValue(Resource.Iron, out var ips) ? ips : 0;
+        var swordSpec = Sim.Core.Equipment.EquipmentCatalog.Spec(Resource.BronzeSword);
+        var ironPerSword = swordSpec.CraftCost.TryGetValue(Resource.Bronze, out var ips) ? ips : 0;
 
         bool InFlightTo(TileCoord dest) => ctx.OwnUnits.Any(u =>
             u.DestX == dest.X && u.DestY == dest.Y
@@ -208,21 +208,23 @@ public static class LogisticsLayer
         foreach (var furnace in ctx.Own.Where(s => ctx.Cfg.Arm && (StructureKind)s.Kind == StructureKind.Smelter)
                      .OrderBy(s => s.Y).ThenBy(s => s.X))
         {
-            var spec = StructureCatalog.Spec(StructureKind.Smelter);
+            // M51 — the AI smelts bronze only (docs/m51-ore-tiers-spec.md): it mines
+            // copper and arms with bronze swords; climbing the ladder is a follow-up.
+            var recipe = StructureCatalog.Spec(StructureKind.Smelter).Recipes.Single(r => r.Output == Resource.Bronze);
             var tile = ThinkContext.TileOf(furnace);
-            // Iron out first (frees the buffer, so the furnace never idles at cap).
-            var iron = ThinkContext.AmountOf(furnace.Holdings, spec.OutputResource);
+            // Bars out first (frees the buffer, so the furnace never idles at cap).
+            var iron = ThinkContext.AmountOf(furnace.Holdings, recipe.Output);
             var dest = smithy is not null ? ThinkContext.TileOf(smithy) : ctx.CastleTile;
             var smithyShort = smithy is not null
-                && ThinkContext.AmountOf(smithy.Holdings, Resource.Iron) < ironPerSword;
+                && ThinkContext.AmountOf(smithy.Holdings, Resource.Bronze) < ironPerSword;
             if ((iron >= ctx.Cfg.HaulBufferThreshold || (smithyShort && iron >= ironPerSword))
                 && !InFlightTo(dest)
-                && !Haul(tile, dest, spec.OutputResource)) return;
+                && !Haul(tile, dest, recipe.Output)) return;
             // Inputs in: one per think, the recipe line that covers the
             // FEWEST batches first (ore is 2 a batch, fuel 1 — a furnace
             // with 20 wood and no ore is starving, not half-fed).
             if (InFlightTo(tile)) continue;
-            var shortest = spec.InputCost
+            var shortest = recipe.Inputs
                 .Where(kv => ThinkContext.AmountOf(furnace.Holdings, kv.Key) < ctx.Cfg.ArmFeedFloor)
                 .Where(kv => Spare(kv.Key) > 0)
                 .OrderBy(kv => ThinkContext.AmountOf(furnace.Holdings, kv.Key) / kv.Value)
@@ -237,7 +239,7 @@ public static class LogisticsLayer
         // per store; the lowest line first.
         var stores = new List<(StructDto Store, Resource[] Lines)>();
         if (smithy is not null)
-            stores.Add((smithy, new[] { Resource.Iron, Resource.Wood, Resource.Stone }));
+            stores.Add((smithy, new[] { Resource.Bronze, Resource.Wood, Resource.Stone }));
         if (ctx.Cfg.Carts && ctx.OwnStructure(StructureKind.Workshop) is { } workshop)
             stores.Add((workshop, new[] { Resource.Wood, Resource.Stone }));
         foreach (var (store, lines) in stores)
@@ -260,7 +262,7 @@ public static class LogisticsLayer
     private static int StockTarget(ThinkContext ctx, StructureKind store, Resource line)
     {
         var target = ctx.Cfg.ArmSmithyStockTarget;
-        foreach (var item in new[] { Resource.Sword, Resource.Bow, Resource.Shield, Resource.Cart })
+        foreach (var item in new[] { Resource.BronzeSword, Resource.Bow, Resource.Shield, Resource.Cart })
         {
             var spec = Sim.Core.Equipment.EquipmentCatalog.Spec(item);
             if (spec.CraftedAt == store && spec.CraftCost.TryGetValue(line, out var need) && need > target)

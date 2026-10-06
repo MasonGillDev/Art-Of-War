@@ -285,9 +285,15 @@ public sealed class ViewProjector
                 StorageCapacity = spec.StorageCapacity,
                 ResidentCap = spec.ResidentCap,
                 TrainsRoles = TrainableAt(kind),
-                Inputs = spec.InputCost
-                    .OrderBy(kv => (int)kv.Key)
-                    .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+                Recipes = spec.Recipes
+                    .Select(r => new RecipeDto
+                    {
+                        Output = (int)r.Output,
+                        Inputs = r.Inputs
+                            .OrderBy(kv => (int)kv.Key)
+                            .Select(kv => new ResAmtDto { Resource = (int)kv.Key, Amount = kv.Value })
+                            .ToArray(),
+                    })
                     .ToArray(),
                 InputCap = spec.InputCap,
             });
@@ -545,7 +551,12 @@ public sealed class ViewProjector
 
         // M44 — the viewer's own ore knowledge. Pure read; (y, x) order.
         dto.Veins = world.KnownVeins.TryGetValue(playerId, out var known)
-            ? known.Select(t => new VeinDto { X = t.X, Y = t.Y, Mined = MineStandsOn(world, t) }).ToArray()
+            ? known.Select(t => new VeinDto
+                {
+                    X = t.X, Y = t.Y,
+                    Mined = Sim.Core.Mining.Veins.IsMineAt(world, t),
+                    Ore = (int)Sim.Core.Mining.Veins.OreAt(world, t),
+                }).ToArray()
             : [];
         if (world.SurveyedBarren.TryGetValue(playerId, out var barren))
         {
@@ -554,10 +565,6 @@ public sealed class ViewProjector
         }
     }
 
-    private static bool MineStandsOn(GameWorld world, TileCoord tile) =>
-        world.Structures.TryGetValue(tile, out var s)
-        && (s.Kind == StructureKind.Mine
-            || (s is ConstructionSite c && c.TargetKind == StructureKind.Mine));
 
     // M37 — the viewer's OWN omens (docs/progression.md): live ones, and the
     // outcome of any that ended within OmenDto.RecentTicks. Pure read. A
@@ -1365,7 +1372,7 @@ public sealed class ViewProjector
                 dto.WorkerCap = ex.Spec.WorkerCap;
                 dto.HeldSlots = ex.HeldBy.Count;   // EnrichOwned: the owner's own
                 // Analytics: the rate the tick would spend, per day. Pure read.
-                if (ex.Spec.OutputResource != Resource.None)
+                if (ex.Spec.OutputResource != Resource.None || ex.IsRefiner)
                 {
                     dto.OutputPerDay = (int)Math.Min(int.MaxValue,
                         Sim.Core.Logistics.ProductionRate.PerDay(world, ex, now));
@@ -1376,8 +1383,8 @@ public sealed class ViewProjector
                     // the smelter's ore and fuel on hand. Empty for ordinary
                     // extractors, so their payload is unchanged.
                     var held = new List<ResAmtDto>();
-                    if (ex.Buffer > 0 && ex.Spec.OutputResource != Resource.None)
-                        held.Add(new ResAmtDto { Resource = (int)ex.Spec.OutputResource, Amount = ex.Buffer });
+                    foreach (var (r, amt) in ex.Output)
+                        held.Add(new ResAmtDto { Resource = (int)r, Amount = amt });
                     foreach (var (r, amt) in ex.Inputs)
                         held.Add(new ResAmtDto { Resource = (int)r, Amount = amt });
                     if (held.Count > 0) dto.Holdings = held.ToArray();

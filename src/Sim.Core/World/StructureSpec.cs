@@ -30,8 +30,11 @@ public sealed record StructureSpec
     // Extractor fields. Default values mark "not an extractor."
     public Biome RequiredBiome { get; init; } = Biome.None;
     // M44 — the site tile must be an ore vein the placing faction knows
-    // (Sim.Core.Mining.Veins). Only the Mine. docs/stone-and-ore-land.md.
-    public bool RequiresVein { get; init; }
+    // (Sim.Core.Mining.Veins). docs/stone-and-ore-land.md.
+    // M51 — and the vein must hold THIS ore: one mine per ore
+    // (docs/m51-ore-tiers-spec.md). None = not a mine.
+    public Resource RequiredOre { get; init; } = Resource.None;
+    public bool RequiresVein => RequiredOre != Resource.None;
     public Resource OutputResource { get; init; } = Resource.None;
     public int BaseRatePerWorker { get; init; }
     public int ProductionPeriodTicks { get; init; }
@@ -43,15 +46,30 @@ public sealed record StructureSpec
 
     // Refining (docs/refining-structures.md). A REFINER is an Extractor
     // whose production tick EATS from its own input store before it deposits
-    // output: InputCost is what one batch (one unit of OutputResource)
-    // consumes, InputCap bounds how much of EACH input it will accept from
-    // haulers (per recipe line, so one supply line can never crowd out another).
-    // Empty InputCost = ordinary extractor. A refiner has no RequiredBiome —
-    // WHERE it sits is the player's siting decision — and no claim.
-    public IReadOnlyDictionary<Resource, int> InputCost { get; init; } =
-        new SortedDictionary<Resource, int>();
+    // output. M51 (docs/m51-ore-tiers-spec.md): it has RECIPES, best first —
+    // each one batch's inputs and the one unit of output it makes — and a tick
+    // makes the first recipe it can afford. InputCap bounds how much of EACH
+    // input it will accept from haulers (per input line, so one supply line can
+    // never crowd out another). No recipes = ordinary extractor. A refiner has
+    // no RequiredBiome — WHERE it sits is the player's siting decision — and no
+    // claim, and no OutputResource of its own (its recipes name the outputs).
+    public IReadOnlyList<RefineRecipe> Recipes { get; init; } = Array.Empty<RefineRecipe>();
     public int InputCap { get; init; }
-    public bool IsRefiner => InputCost.Count > 0;
+    public bool IsRefiner => Recipes.Count > 0;
+
+    // An Extractor kind: one that works land (a required biome) or refines.
+    // The one place that rule lives — the constructors (Construction,
+    // Snapshot) and the Extractor itself read it (M51 added two mines and
+    // three hand-kept kind lists missed them).
+    public bool IsExtractor => RequiredBiome != Biome.None || IsRefiner;
+
+    // Does any recipe take `r` as an input?
+    public bool TakesInput(Resource r)
+    {
+        foreach (var recipe in Recipes)
+            if (recipe.Inputs.ContainsKey(r)) return true;
+        return false;
+    }
 
     // Build requirements. Empty BuildCost + zero RequiredBuilderCount means
     // not buildable (paired with IsPlayerBuildable = false).
@@ -112,3 +130,7 @@ public sealed record StructureSpec
     // RestConstants rate. Castle, House and Barracks only.
     public bool Shelters { get; init; }
 }
+
+// M51 — one refiner recipe: what one batch consumes, and the one unit of
+// `Output` it makes (docs/m51-ore-tiers-spec.md).
+public sealed record RefineRecipe(Resource Output, IReadOnlyDictionary<Resource, int> Inputs);

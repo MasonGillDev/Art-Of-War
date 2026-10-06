@@ -64,3 +64,52 @@ are never reused, so `GroupId` is one more than the highest the client has seen.
   (the job it goes back to on dismiss), `HaulRouteId`.
 - `StructDto.HeldSlots`: work slots held for workers away at a muster.
 - `HaulCrewDto.GroupId`: the group that crews a route.
+
+## Update 2026-10-06 — M51 ore tiers (`docs/m51-ore-tiers-spec.md`)
+
+No intents were removed. Enums travel as numbers, so payloads keep their shape, but what some
+numbers **mean** changed, and there are new ones.
+
+### Resources: renamed and new
+
+| Id | Was | Now |
+|---|---|---|
+| 3 | Ore | **Copper ore** |
+| 5 | Sword | **Bronze sword** |
+| 9 | Iron | **Bronze** (the bar) |
+| 10 | — | Iron ore |
+| 11 | — | Iron (the bar) |
+| 12 | — | Iron sword |
+| 13 | — | Steel ore |
+| 14 | — | Steel (the bar) |
+| 15 | — | Steel sword |
+
+Relabel 3, 5 and 9, and add names and icons for 10–15.
+
+### Structure kinds
+
+| Id | Was | Now |
+|---|---|---|
+| 7 | Mine | **Copper mine** |
+| 25 | — | Iron mine (costs bronze to build) |
+| 26 | — | Steel mine (costs iron to build) |
+
+`PlaceSiteIntent` refuses a mine on another ore's vein ("… holds IronOre").
+
+### What the client reads
+
+- **`VeinDto.Ore`:** the resource id of the vein's ore (3, 10 or 13). Show it, and offer only
+  the matching mine.
+- **The build menu's structure spec:**
+  - a refiner's `Inputs` became **`Recipes`**: one `RecipeDto` per bar, each an `Output` and
+    its `Inputs`, best first;
+  - a refiner's `OutputResource` is now 0;
+  - the smelter makes the best bar it holds ore for.
+- **A smelter's `Holdings`** can list several bars at once.
+- **Survey notices** name the ore ("iron ore vein found at …").
+
+### Equipping
+
+A soldier carries one sword. Equipping a **better** one swaps it in, and the old sword goes
+back into the store it was equipped from. A sword of the same or a lower tier is refused
+("already carries …").

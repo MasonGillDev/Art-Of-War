@@ -39,7 +39,7 @@ public class EquipmentCombatTests
         var u = sim.World.AddUnit(new Unit(id, tile) { Role = UnitRole.Soldier, OwnerId = owner });
         if (sword)
         {
-            var spec = EquipmentCatalog.Spec(Resource.Sword);
+            var spec = EquipmentCatalog.Spec(Resource.BronzeSword);
             u.Buffs.Add(new Buff(spec.BuffKind, spec.PowerModifier, spec.HealthModifier, null));
             u.Health += spec.HealthModifier;
         }
@@ -60,7 +60,7 @@ public class EquipmentCombatTests
         CombatRules.OnUnitDeath(sim, doomed);
 
         var pile = sim.World.GroundResources[tile];
-        Assert.Equal(1, pile[Resource.Sword]);
+        Assert.Equal(1, pile[Resource.BronzeSword]);
         Assert.Equal(1, pile[Resource.Shield]);
         Assert.False(sim.World.Units.ContainsKey(doomed.Id));
     }
@@ -79,16 +79,16 @@ public class EquipmentCombatTests
 
         var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(2, 5)) { OwnerId = 0 });
         sim.World.AddUnit(new Unit(101, tile) { Role = UnitRole.Hauler, OwnerId = 0 });
-        sim.SubmitIntent(0, new HaulIntent(101, tile, stockpile.At, Resource.Sword));
+        sim.SubmitIntent(0, new HaulIntent(101, tile, stockpile.At, Resource.BronzeSword));
         sim.Run();
-        Assert.Equal(1, stockpile.AmountOf(Resource.Sword));
+        Assert.Equal(1, stockpile.AmountOf(Resource.BronzeSword));
 
         var recruit = sim.World.AddUnit(new Unit(102, stockpile.At) { Role = UnitRole.Soldier, OwnerId = 0 });
-        var outcome = new EquipUnitIntent(recruit.Id, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new EquipUnitIntent(recruit.Id, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim);
 
         Assert.True(outcome.IsApplied);
         Assert.Single(recruit.Buffs);
-        Assert.Equal(0, stockpile.AmountOf(Resource.Sword));
+        Assert.Equal(0, stockpile.AmountOf(Resource.BronzeSword));
     }
 
 }

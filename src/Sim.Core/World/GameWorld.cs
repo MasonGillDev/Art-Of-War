@@ -197,6 +197,10 @@ public sealed class GameWorld
     public Sim.Core.Mining.VeinConfig VeinConfig { get; private set; } = new();
     internal void RestoreVeinConfig(Sim.Core.Mining.VeinConfig config) => VeinConfig = config;
     public SortedSet<TileCoord> Veins { get; } = new(TileOrder.Instance);
+    // M51 — which ore each vein holds (docs/m51-ore-tiers-spec.md): CopperOre,
+    // IronOre or SteelOre. Terrain like Veins: the same keys, set once at genesis
+    // (Veins.AssignOres, after the wilderness field) and by Snapshot, never after.
+    public SortedDictionary<TileCoord, Resource> VeinOre { get; } = new(TileOrder.Instance);
     public SortedDictionary<int, SortedSet<TileCoord>> KnownVeins { get; } = new();
     public SortedDictionary<int, SortedSet<TileCoord>> SurveyedBarren { get; } = new();
 

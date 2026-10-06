@@ -208,21 +208,19 @@ public static class Construction
     }
 
     // Catalog dispatch. Every player-buildable kind needs a row here.
+    // Every extractor kind (farms, camps, quarries, the mines, the smelter) is one
+    // row: StructureSpec.IsExtractor.
     private static Structure BuildStructure(StructureKind kind, TileCoord at, int ownerId, TileCoord? dockSlip) => kind switch
     {
+        _ when StructureCatalog.TryGetSpec(kind, out var spec) && spec.IsExtractor
+                                 => new Extractor(kind, at) { OwnerId = ownerId },
         StructureKind.Stockpile  => new Stockpile(at) { OwnerId = ownerId },
-        StructureKind.LumberCamp => new Extractor(StructureKind.LumberCamp, at) { OwnerId = ownerId },
-        StructureKind.Quarry     => new Extractor(StructureKind.Quarry, at) { OwnerId = ownerId },
-        StructureKind.Mine       => new Extractor(StructureKind.Mine, at) { OwnerId = ownerId },
-        StructureKind.Farm       => new Extractor(StructureKind.Farm, at) { OwnerId = ownerId },
         StructureKind.Tower      => new Tower(at) { OwnerId = ownerId },
         StructureKind.Bridge     => new Bridge(at) { OwnerId = ownerId },
         StructureKind.House      => new House(at) { OwnerId = ownerId },
         StructureKind.School     => new School(at) { OwnerId = ownerId },
         StructureKind.Barracks   => new Barracks(at) { OwnerId = ownerId },
         StructureKind.Lodge      => new Lodge(at) { OwnerId = ownerId },
-        // Refining (docs/refining-structures.md).
-        StructureKind.Smelter    => new Extractor(StructureKind.Smelter, at) { OwnerId = ownerId },
         StructureKind.Workshop   => new Workshop(at) { OwnerId = ownerId },
         StructureKind.Smithy     => new Smithy(at) { OwnerId = ownerId },
         // M26 — fortifications. Blocking starts NOW (entry-only): a builder

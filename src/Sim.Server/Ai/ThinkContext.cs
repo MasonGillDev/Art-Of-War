@@ -95,7 +95,9 @@ public sealed class ThinkContext
         foreach (var v in view.Veins)
         {
             d._surveyed.Add((v.X, v.Y));
-            if (!v.Mined) d._freeVeins.Add((v.X, v.Y));
+            // M51 — the AI mines copper only (bronze swords); iron and steel
+            // veins wait for the ladder follow-up (docs/m51-ore-tiers-spec.md).
+            if (!v.Mined && v.Ore == (int)Resource.CopperOre) d._freeVeins.Add((v.X, v.Y));
         }
         for (var i = 0; i < view.BarrenX.Length; i++) d._surveyed.Add((view.BarrenX[i], view.BarrenY[i]));
         foreach (var s in view.Structures)
@@ -124,8 +126,8 @@ public sealed class ThinkContext
         Own.Where(s => (StructureKind)s.Kind == StructureKind.ConstructionSite)
            .OrderBy(s => s.Y).ThenBy(s => s.X);
     public IEnumerable<StructDto> OwnExtractors() =>
-        Own.Where(s => (StructureKind)s.Kind is StructureKind.Farm or StructureKind.LumberCamp
-            or StructureKind.Quarry or StructureKind.Mine)
+        Own.Where(s => StructureCatalog.TryGetSpec((StructureKind)s.Kind, out var spec)
+            && spec.RequiredBiome != Biome.None)   // the land-working extractors
            .OrderBy(s => s.Y).ThenBy(s => s.X);
 
     // Idle AND standing still — a marching unit reads Activity.Idle
@@ -382,9 +384,8 @@ public sealed class ThinkContext
     // think a food haul, every idler a mule (docs/ai-players.md).
     public int HaulerDemand()
     {
-        var extractors = Own.Count(s => (StructureKind)s.Kind is StructureKind.Farm
-            or StructureKind.LumberCamp or StructureKind.Quarry or StructureKind.Mine
-            or StructureKind.Smelter);
+        var extractors = Own.Count(s => StructureCatalog.TryGetSpec((StructureKind)s.Kind, out var spec)
+            && spec.IsExtractor);
         return Math.Max(Cfg.HaulerFloor, extractors / Math.Max(1, Cfg.ExtractorsPerHauler));
     }
 

@@ -14,7 +14,7 @@ namespace Sim.Tests;
 public class StoneAndOreTests
 {
     private static readonly StructureSpec QuarrySpec = StructureCatalog.Spec(StructureKind.Quarry);
-    private static readonly StructureSpec MineSpec = StructureCatalog.Spec(StructureKind.Mine);
+    private static readonly StructureSpec MineSpec = StructureCatalog.Spec(StructureKind.CopperMine);
 
     private static Simulation HillsSim(int size = 12)
     {
@@ -30,11 +30,11 @@ public class StoneAndOreTests
     public void Hills_YieldStone_Mountain_YieldsOre()
     {
         Assert.Equal(Resource.Stone, Biomes.Resource(Biome.Hills));
-        Assert.Equal(Resource.Ore, Biomes.Resource(Biome.Mountain));
+        Assert.Equal(Resource.CopperOre, Biomes.Resource(Biome.Mountain));
         Assert.Equal(Biome.Hills, QuarrySpec.RequiredBiome);
         Assert.Equal(Resource.Stone, QuarrySpec.OutputResource);
         Assert.Equal(Biome.Mountain, MineSpec.RequiredBiome);
-        Assert.Equal(Resource.Ore, MineSpec.OutputResource);
+        Assert.Equal(Resource.CopperOre, MineSpec.OutputResource);
     }
 
     [Fact]

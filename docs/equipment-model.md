@@ -244,3 +244,20 @@ Recorded so the next person does not have to rediscover it:
   and hauling. A timed craft would need an anchor plus an event, the same shape
   as construction.
 
+
+## Update 2026-10-06 — the sword ladder (M51)
+
+The Sword became the **Bronze sword** (+3), joined by the **Iron sword** (+5) and the
+**Steel sword** (+7). Each costs 3 of its bar plus 2 wood at the Smithy
+(`docs/m51-ore-tiers-spec.md`).
+
+**Each sword has its own buff kind,** so a stripped or dropped sword turns back into the right
+item.
+
+**Swords share a slot** (`EquipmentSpec.Slot = "sword"`, ordered by `Rank`), so a soldier
+carries one:
+- a better sword swaps in, and the old one returns to the store it was equipped from;
+- a sword of the same or a lower rank is refused.
+
+Every other item is still its own slot, so the "no duplicate kinds" loadout rule is unchanged
+for them.

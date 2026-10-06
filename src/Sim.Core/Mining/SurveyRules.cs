@@ -104,7 +104,8 @@ public static class SurveyRules
 
         unit.Survey = null;
         unit.TrySetActivity(Activity.Idle);
-        sim.Schedule(sim.Now, new SurveyReportEvent(unit.Id, owner, plan.Target, found, null));
+        sim.Schedule(sim.Now, new SurveyReportEvent(unit.Id, owner, plan.Target, found, null,
+            found is { } f ? Veins.OreAt(sim.World, f) : Resource.None));
         Sim.Core.Groups.GroupMuster.OnFreed(sim, unit);   // M46: the survey done, it answers its group's muster
     }
 }

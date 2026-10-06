@@ -99,3 +99,16 @@ bump (`Snapshot.Restore` requires an exact version match).
 - **Wear on Hills.** This would reverse "slow, not scarce" and needs an
   addendum here first.
 - **Rebalancing stone and ore rates.** Catalog rates are unchanged by M44.
+
+## Update 2026-10-06 — three ores (M51)
+
+Veins now hold one of three ores: copper, iron or steel (`docs/m51-ore-tiers-spec.md`).
+
+- **Where they lie:** at genesis, after the wilderness field (`docs/wilderness-bands.md`), the
+  veins are ranked by remoteness. The farthest `SteelSharePercent` (10) are steel, the next
+  `IronSharePercent` (20) iron, the rest copper.
+- **Seeding is unchanged:** density, the per-range safety net and private knowledge work as
+  above.
+- **Surveys:** a survey reports the ore.
+- **Mines:** the Mine became the Copper mine. The Iron mine (costs bronze) and the Steel mine
+  (costs iron) stand only on their own ore.

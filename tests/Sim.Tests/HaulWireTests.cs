@@ -39,7 +39,7 @@ public class HaulWireTests
             new() { Tile = pileAt },
         }) { PlayerId = 0 }.Resolve(sim).IsApplied);
         var carrier = world.Units.Values.First(u => u.OwnerId == 0);
-        carrier.Cargo.Add(Resource.Ore, 2);
+        carrier.Cargo.Add(Resource.CopperOre, 2);
         carrier.Cargo.Add(Resource.Wood, 1);
 
         driver.Think(sim, sim.Now);
@@ -56,8 +56,8 @@ public class HaulWireTests
 
         var row = mine.Units.Single(u => u.Id == carrier.Id);
         Assert.Equal(3, row.CargoAmount);
-        Assert.Equal((int)Resource.Ore, row.CargoResource);
-        Assert.Equal(new[] { (int)Resource.Wood, (int)Resource.Ore },
+        Assert.Equal((int)Resource.CopperOre, row.CargoResource);
+        Assert.Equal(new[] { (int)Resource.Wood, (int)Resource.CopperOre },
             row.Cargo.Select(c => c.Resource).ToArray());   // enum order
 
         Assert.Empty(theirs.HaulQueue.Jobs);

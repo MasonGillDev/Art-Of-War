@@ -26,14 +26,14 @@ public class MixedCargoTests
     {
         var hold = new CargoHold();
         hold.Add(Resource.Wood, 10);
-        hold.Add(Resource.Ore, 4);
+        hold.Add(Resource.CopperOre, 4);
         hold.Add(Resource.Wood, 2);
 
         Assert.Equal(16, hold.Total);
         Assert.Equal(12, hold.AmountOf(Resource.Wood));
 
-        Assert.Equal(4, hold.Take(Resource.Ore, 99));   // capped at what is held
-        Assert.False(hold.Items.ContainsKey(Resource.Ore));
+        Assert.Equal(4, hold.Take(Resource.CopperOre, 99));   // capped at what is held
+        Assert.False(hold.Items.ContainsKey(Resource.CopperOre));
         Assert.Equal(0, hold.Take(Resource.Stone, 5));  // not held: nothing taken
         Assert.Equal(12, hold.Total);
     }
@@ -44,9 +44,9 @@ public class MixedCargoTests
         var hold = new CargoHold();
         Assert.Equal(Resource.None, hold.Dominant);
 
-        hold.Add(Resource.Ore, 5);
+        hold.Add(Resource.CopperOre, 5);
         hold.Add(Resource.Wood, 5);
-        var lower = (byte)Resource.Ore < (byte)Resource.Wood ? Resource.Ore : Resource.Wood;
+        var lower = (byte)Resource.CopperOre < (byte)Resource.Wood ? Resource.CopperOre : Resource.Wood;
         Assert.Equal(lower, hold.Dominant);
 
         hold.Add(Resource.Wood, 1);
@@ -76,7 +76,7 @@ public class MixedCargoTests
         pile.Deposit(Resource.Stone, pile.FreeSpace() - 3);   // room for 3 more
         var hauler = world.AddUnit(new Unit(1, Here)
         {
-            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 2 }, { Resource.Ore, 5 } },
+            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 2 }, { Resource.CopperOre, 5 } },
         });
 
         var outcome = new UnloadCargoIntent(1) { PlayerId = 0 }.Resolve(sim);
@@ -87,7 +87,7 @@ public class MixedCargoTests
         // ground. Nothing was destroyed.
         var ground = world.GroundResources.TryGetValue(Here, out var g) ? g : new();
         Assert.Equal(2, pile.AmountOf(Resource.Wood) + ground.GetValueOrDefault(Resource.Wood));
-        Assert.Equal(5, pile.AmountOf(Resource.Ore) + ground.GetValueOrDefault(Resource.Ore));
+        Assert.Equal(5, pile.AmountOf(Resource.CopperOre) + ground.GetValueOrDefault(Resource.CopperOre));
         Assert.Equal(0, pile.FreeSpace());
     }
 
@@ -99,7 +99,7 @@ public class MixedCargoTests
         pile.Deposit(Resource.Stone, pile.FreeSpace() - 4);   // room for 4 more
         var hauler = world.AddUnit(new Unit(1, Here)
         {
-            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 10 }, { Resource.Ore, 6 } },
+            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 10 }, { Resource.CopperOre, 6 } },
         });
 
         var outcome = new UnloadCargoIntent(1, Resource.Wood, amount: 8) { PlayerId = 0 }.Resolve(sim);
@@ -107,7 +107,7 @@ public class MixedCargoTests
         Assert.True(outcome.IsApplied, outcome.Reason);
         Assert.Equal(4, pile.AmountOf(Resource.Wood));       // what fit
         Assert.Equal(6, hauler.Cargo.AmountOf(Resource.Wood)); // 10 − 4, not dumped
-        Assert.Equal(6, hauler.Cargo.AmountOf(Resource.Ore));  // untouched
+        Assert.Equal(6, hauler.Cargo.AmountOf(Resource.CopperOre));  // untouched
         Assert.False(world.GroundResources.ContainsKey(Here));
     }
 
@@ -117,14 +117,14 @@ public class MixedCargoTests
         var sim = MakeSim(out var world);
         var hauler = world.AddUnit(new Unit(1, Here)
         {
-            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 10 }, { Resource.Ore, 6 } },
+            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 10 }, { Resource.CopperOre, 6 } },
         });
 
-        var outcome = new UnloadCargoIntent(1, Resource.Ore, amount: 2) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new UnloadCargoIntent(1, Resource.CopperOre, amount: 2) { PlayerId = 0 }.Resolve(sim);
 
         Assert.True(outcome.IsApplied, outcome.Reason);
-        Assert.Equal(2, world.GroundResources[Here][Resource.Ore]);
-        Assert.Equal(4, hauler.Cargo.AmountOf(Resource.Ore));
+        Assert.Equal(2, world.GroundResources[Here][Resource.CopperOre]);
+        Assert.Equal(4, hauler.Cargo.AmountOf(Resource.CopperOre));
         Assert.Equal(10, hauler.Cargo.AmountOf(Resource.Wood));
     }
 
@@ -134,7 +134,7 @@ public class MixedCargoTests
         var sim = MakeSim(out var world);
         world.AddUnit(new Unit(1, Here) { Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 10 } } });
 
-        Assert.True(new UnloadCargoIntent(1, Resource.Ore) { PlayerId = 0 }.Resolve(sim).IsRejected);
+        Assert.True(new UnloadCargoIntent(1, Resource.CopperOre) { PlayerId = 0 }.Resolve(sim).IsRejected);
         Assert.True(new UnloadCargoIntent(1, Resource.Wood, amount: -1) { PlayerId = 0 }.Resolve(sim).IsRejected);
     }
 
@@ -160,13 +160,13 @@ public class MixedCargoTests
         var sim = MakeSim(out var world);
         var unit = world.AddUnit(new Unit(1, Here)
         {
-            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 3 }, { Resource.Iron, 2 } },
+            Role = UnitRole.Hauler, Cargo = { { Resource.Wood, 3 }, { Resource.Bronze, 2 } },
         });
 
         CombatRules.OnUnitDeath(sim, unit);
 
         Assert.Equal(3, world.GroundResources[Here][Resource.Wood]);
-        Assert.Equal(2, world.GroundResources[Here][Resource.Iron]);
+        Assert.Equal(2, world.GroundResources[Here][Resource.Bronze]);
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class MixedCargoTests
         var dst = (Stockpile)world.AddStructure(new Stockpile(new TileCoord(9, 1)));
         world.AddUnit(new Unit(1, Here)
         {
-            Role = UnitRole.Hauler, Cargo = { { Resource.Ore, 4 }, { Resource.Food, 1 } },
+            Role = UnitRole.Hauler, Cargo = { { Resource.CopperOre, 4 }, { Resource.Food, 1 } },
         });
         world.AddUnit(new Unit(2, new TileCoord(1, 1)) { Role = UnitRole.Hauler });
         sim.SubmitIntent(0, new HaulIntent(2, src.At, dst.At, Resource.Wood, amount: 12) { PlayerId = 0 });
@@ -187,7 +187,7 @@ public class MixedCargoTests
         var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 0xCA96);
 
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
-        Assert.Equal(4, restored.World.Units[1].Cargo.AmountOf(Resource.Ore));
+        Assert.Equal(4, restored.World.Units[1].Cargo.AmountOf(Resource.CopperOre));
         Assert.Equal(1, restored.World.Units[1].Cargo.AmountOf(Resource.Food));
         Assert.Equal(12, restored.World.Units[2].HaulPlan!.Amount);
     }

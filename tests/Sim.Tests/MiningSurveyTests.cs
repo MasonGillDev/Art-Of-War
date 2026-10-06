@@ -28,7 +28,11 @@ public class MiningSurveyTests
             for (var x = 12; x <= 18; x++)
                 grid.SetBiome(new TileCoord(x, y), Biome.Mountain);
         var world = new GameWorld(grid);
-        foreach (var v in veins) world.Veins.Add(v);
+        foreach (var v in veins)
+        {
+            world.Veins.Add(v);
+            world.VeinOre[v] = Resource.CopperOre;   // M51 — the copper mine's ore
+        }
 
         world.Players[0] = new Player(0);
         world.Players[1] = new Player(1);
@@ -188,15 +192,15 @@ public class MiningSurveyTests
         var vein = new TileCoord(15, 7);
         var sim = BuildWorld(vein);
 
-        var unknown = new PlaceSiteIntent(vein, StructureKind.Mine) { PlayerId = 0 }.Resolve(sim);
+        var unknown = new PlaceSiteIntent(vein, StructureKind.CopperMine) { PlayerId = 0 }.Resolve(sim);
         Assert.False(unknown.IsApplied);
         Assert.Contains("survey", unknown.Reason);
-        var bareRock = new PlaceSiteIntent(new TileCoord(13, 3), StructureKind.Mine) { PlayerId = 0 }.Resolve(sim);
+        var bareRock = new PlaceSiteIntent(new TileCoord(13, 3), StructureKind.CopperMine) { PlayerId = 0 }.Resolve(sim);
         Assert.False(bareRock.IsApplied);
 
         sim.SubmitIntent(sim.Now, new SurveyIntent(1, Slope) { PlayerId = 0 });
         sim.Run(Plenty(sim));
-        var known = new PlaceSiteIntent(vein, StructureKind.Mine) { PlayerId = 0 }.Resolve(sim);
+        var known = new PlaceSiteIntent(vein, StructureKind.CopperMine) { PlayerId = 0 }.Resolve(sim);
         Assert.True(known.IsApplied, known.Reason);
     }
 
@@ -211,7 +215,7 @@ public class MiningSurveyTests
         // Faction 1's Miner stands watching the slope when the mine goes up.
         sim.World.Units[2].Position = new TileCoord(14, 8);
         Assert.True(Sim.Core.Vision.View.Sees(sim.World, 1, vein));
-        Assert.True(new PlaceSiteIntent(vein, StructureKind.Mine) { PlayerId = 0 }.Resolve(sim).IsApplied);
+        Assert.True(new PlaceSiteIntent(vein, StructureKind.CopperMine) { PlayerId = 0 }.Resolve(sim).IsApplied);
         Assert.True(Veins.Knows(sim.World, 1, vein));
 
         // And it stays known after the mine is gone.
@@ -239,7 +243,7 @@ public class MiningSurveyTests
         for (var i = 0; i < 50; i++) projector.Project(sim, sim.Now, playerId: 0, reveal: false);
         Assert.Equal(hash, Snapshot.Hash(sim));   // the vein block is a pure read
 
-        var option = projector.BuildWorldDto().Buildable.Single(o => o.Kind == (int)StructureKind.Mine);
+        var option = projector.BuildWorldDto().Buildable.Single(o => o.Kind == (int)StructureKind.CopperMine);
         Assert.True(option.RequiresVein);
     }
 

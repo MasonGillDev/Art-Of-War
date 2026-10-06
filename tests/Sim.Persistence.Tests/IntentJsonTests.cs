@@ -58,7 +58,7 @@ public class IntentJsonTests
 
         var equip = Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize("EquipUnitIntent",
             "{\"UnitId\":7,\"Item\":5,\"StoreTile\":{\"X\":14,\"Y\":4},\"PlayerId\":0}"));
-        Assert.Equal(Resource.Sword, equip.Item);
+        Assert.Equal(Resource.BronzeSword, equip.Item);
         Assert.Equal(new TileCoord(14, 4), equip.StoreTile);
 
         var loot = Assert.IsType<Sim.Core.Caches.LootCacheIntent>(
@@ -199,13 +199,13 @@ public class IntentJsonTests
         // told apart only by whether the tile is present — so both shapes have
         // to survive the durable log, or a replay would arm the wrong soldier
         // in the wrong place.
-        var far = new EquipUnitIntent(7, Resource.Sword, new TileCoord(14, 4)) { PlayerId = 0 };
+        var far = new EquipUnitIntent(7, Resource.BronzeSword, new TileCoord(14, 4)) { PlayerId = 0 };
         var (n1, p1) = IntentJson.Serialize(far);
         var r1 = Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize(n1, p1));
         Assert.Equal(new TileCoord(14, 4), r1.StoreTile);
-        Assert.Equal(Resource.Sword, r1.Item);
+        Assert.Equal(Resource.BronzeSword, r1.Item);
 
-        var here = new EquipUnitIntent(7, Resource.Sword) { PlayerId = 0 };
+        var here = new EquipUnitIntent(7, Resource.BronzeSword) { PlayerId = 0 };
         var (n2, p2) = IntentJson.Serialize(here);
         Assert.Null(Assert.IsType<EquipUnitIntent>(IntentJson.Deserialize(n2, p2)).StoreTile);
     }
@@ -291,7 +291,7 @@ public class IntentJsonTests
             IntentJson.Deserialize("CraftEquipmentIntent", payload));
 
         Assert.Equal(new TileCoord(6, 9), replay.BarracksTile);
-        Assert.Equal(Resource.Sword, replay.Item);
+        Assert.Equal(Resource.BronzeSword, replay.Item);
     }
 
     // ---- M36 — mixed cargo + the haul queue ------------------------------
@@ -321,11 +321,11 @@ public class IntentJsonTests
     public void HaulQueueIntents_RoundTrip()
     {
         var set = new Sim.Core.Hauling.SetHaulJobIntent(new TileCoord(1, 2), new TileCoord(3, 4),
-            Resource.Iron, Sim.Core.Hauling.HaulJobKind.Once, 40) { PlayerId = 1 };
+            Resource.Bronze, Sim.Core.Hauling.HaulJobKind.Once, 40) { PlayerId = 1 };
         var (tn, pl) = IntentJson.Serialize(set);
         Assert.Equal("SetHaulJobIntent", tn);
         var s2 = Assert.IsType<Sim.Core.Hauling.SetHaulJobIntent>(IntentJson.Deserialize(tn, pl));
-        Assert.Equal((new TileCoord(1, 2), new TileCoord(3, 4), Resource.Iron, Sim.Core.Hauling.HaulJobKind.Once, 40, 1),
+        Assert.Equal((new TileCoord(1, 2), new TileCoord(3, 4), Resource.Bronze, Sim.Core.Hauling.HaulJobKind.Once, 40, 1),
             (s2.Source, s2.Dest, s2.Resource, s2.Kind, s2.Target, s2.PlayerId));
 
         (tn, pl) = IntentJson.Serialize(new Sim.Core.Hauling.ClearHaulJobIntent(9) { PlayerId = 1 });
@@ -341,9 +341,9 @@ public class IntentJsonTests
         var h = Assert.IsType<HaulIntent>(IntentJson.Deserialize(tn, pl));
         Assert.Equal((12, 9), (h.Amount, h.JobId));
 
-        (tn, pl) = IntentJson.Serialize(new UnloadCargoIntent(3, Resource.Ore, amount: 4) { PlayerId = 1 });
+        (tn, pl) = IntentJson.Serialize(new UnloadCargoIntent(3, Resource.CopperOre, amount: 4) { PlayerId = 1 });
         var u = Assert.IsType<UnloadCargoIntent>(IntentJson.Deserialize(tn, pl));
-        Assert.Equal((Resource.Ore, 4), (u.Resource, u.Amount));
+        Assert.Equal((Resource.CopperOre, 4), (u.Resource, u.Amount));
     }
 
     [Fact]
@@ -357,7 +357,7 @@ public class IntentJsonTests
         {
             new() { Tile = new TileCoord(1, 2), Rules = new()
             {
-                new(Resource.Ore, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
+                new(Resource.CopperOre, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
                 new(Resource.Wood, Sim.Core.Hauling.StopRuleOp.Drop, 25),
             } },
             new() { Tile = new TileCoord(5, 6) },
@@ -456,7 +456,7 @@ public class IntentJsonTests
             "{\"Stops\":[{\"Tile\":{\"X\":1,\"Y\":2},\"Rules\":[{\"Resource\":3,\"Op\":1,\"Percent\":40}]}," +
             "{\"Tile\":{\"X\":6,\"Y\":2},\"Rules\":[]}],\"PlayerId\":0}"));
         Assert.Equal(2, route.Stops.Count);
-        Assert.Equal(new Sim.Core.Hauling.StopRule(Resource.Ore, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
+        Assert.Equal(new Sim.Core.Hauling.StopRule(Resource.CopperOre, Sim.Core.Hauling.StopRuleOp.Pickup, 40),
             Assert.Single(route.Stops[0].Rules));
 
         Assert.Equal(5, Assert.IsType<Sim.Core.Hauling.ClearHaulJobIntent>(IntentJson.Deserialize("ClearHaulJobIntent",
@@ -468,14 +468,14 @@ public class IntentJsonTests
     [Fact]
     public void CraftEquipmentIntent_RoundTrips()
     {
-        var intent = new CraftEquipmentIntent(new TileCoord(3, 7), Resource.Sword) { PlayerId = 2 };
+        var intent = new CraftEquipmentIntent(new TileCoord(3, 7), Resource.BronzeSword) { PlayerId = 2 };
 
         var (typeName, payload) = IntentJson.Serialize(intent);
         Assert.Equal("CraftEquipmentIntent", typeName);
 
         var replay = Assert.IsType<CraftEquipmentIntent>(IntentJson.Deserialize(typeName, payload));
         Assert.Equal(new TileCoord(3, 7), replay.BarracksTile);
-        Assert.Equal(Resource.Sword, replay.Item);
+        Assert.Equal(Resource.BronzeSword, replay.Item);
         Assert.Equal(2, replay.PlayerId);
     }
 

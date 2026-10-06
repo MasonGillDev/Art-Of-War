@@ -105,7 +105,9 @@ public sealed class ProductionTickEvent : ScheduledEvent
         // room but no whole batch of inputs goes dormant like an empty-
         // handed extractor. Re-arm comes from the haul deposit that brings
         // the missing input (CargoTransfer.DepositInto → ArmIfDormant).
-        if (extractor.IsRefiner && extractor.AffordableBatches() == 0)
+        // M51 — the recipe this tick makes: the best one it can afford.
+        var recipe = extractor.IsRefiner ? extractor.NextRecipe() : null;
+        if (extractor.IsRefiner && recipe is null)
         {
             extractor.TickArmed = false;
             extractor.NextProductionTickSeq = null;
@@ -119,20 +121,23 @@ public sealed class ProductionTickEvent : ScheduledEvent
         var rate = ProductionRate.PerPeriod(world, extractor, At);
 
         var extract = (int)Math.Min(rate, extractor.FreeBuffer());
-        // Refining: every unit of output is one BATCH of inputs, paid in
-        // full from the input store before the output lands. Integer,
-        // all-or-nothing per batch; the guard above promised ≥ 1.
-        if (extractor.IsRefiner)
+        // Refining: every unit of output is one BATCH of the tick's recipe,
+        // paid in full from the input store before the output lands. Integer,
+        // all-or-nothing per batch; the guard above promised ≥ 1. One recipe
+        // a tick (M51).
+        var made = spec.OutputResource;
+        if (recipe is not null)
         {
-            extract = Math.Min(extract, extractor.AffordableBatches());
-            extractor.ConsumeBatches(extract);
+            extract = Math.Min(extract, extractor.AffordableBatches(recipe));
+            extractor.ConsumeBatches(recipe, extract);
+            made = recipe.Output;
         }
-        extractor.Buffer += extract;
+        extractor.AddOutput(made, extract);
         extractor.LastProductionTick = sim.Now;
         // M37 — what a refiner makes counts toward the owner's progress.
-        if (extractor.IsRefiner)
+        if (recipe is not null)
             Sim.Core.Progression.Progression.Bump(sim, extractor.OwnerId,
-                Sim.Core.Progression.ProgressKey.Refined(spec.OutputResource), extract);
+                Sim.Core.Progression.ProgressKey.Refined(made), extract);
 
         if (extractor.CanProduce())
         {

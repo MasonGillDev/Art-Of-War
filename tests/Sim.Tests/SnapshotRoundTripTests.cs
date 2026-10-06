@@ -46,7 +46,7 @@ public class SnapshotRoundTripTests
 
         // Stockpile elsewhere, owned by player 1.
         var stockpile = world.AddStructure(new Stockpile(new TileCoord(7, 0)) { OwnerId = 1 });
-        stockpile.Deposit(Resource.Ore, 5);
+        stockpile.Deposit(Resource.CopperOre, 5);
 
         // Extractor with workers assigned and partial buffer.
         var camp = world.AddStructure(new Extractor(StructureKind.LumberCamp, new TileCoord(2, 2)));
@@ -180,7 +180,7 @@ public class SnapshotRoundTripTests
         // one instead (M44: the Mine; the Quarry claims hills now).
         var grid = new TileGrid(4, 4, Biome.Mountain);
         var w2 = new GameWorld(grid);
-        w2.AddStructure(new Extractor(StructureKind.Mine, new TileCoord(1, 1)));
+        w2.AddStructure(new Extractor(StructureKind.CopperMine, new TileCoord(1, 1)));
         var sim2 = new Simulation(w2, seed: 7);
         var restored2 = Snapshot.Restore(Snapshot.Serialize(sim2), seed: 7);
         Assert.Empty(((Extractor)restored2.World.Structures[new TileCoord(1, 1)]).ClaimTiles);

@@ -11,7 +11,7 @@ namespace Sim.Server.Ai.Rungs;
 public sealed class ArmRung : IRung
 {
     // Cart is hauler gear (docs/cart.md) and lives on CartRung's chain.
-    private static readonly Resource[] Wanted = { Resource.Sword, Resource.Bow, Resource.Shield };
+    private static readonly Resource[] Wanted = { Resource.BronzeSword, Resource.Bow, Resource.Shield };
 
     public Decision? TryClaim(ThinkContext ctx)
     {

@@ -52,7 +52,7 @@ public class ScavengeTests
         var sim = MakeTriad();
         var castle = CastleOf(sim, 2);
         castle.Holdings[Resource.Stone] = 40;
-        castle.Holdings[Resource.Ore] = 15;
+        castle.Holdings[Resource.CopperOre] = 15;
         var vault = new SortedDictionary<Resource, int>(castle.Holdings);
 
         // Faction 1 has a war TELEGRAPHED against 2 — defeat must collapse
@@ -280,7 +280,7 @@ public class ScavengeTests
         victim.Holdings[Resource.Food] = 0;
         victim.Holdings[Resource.Wood] = 0;
         victim.Holdings[Resource.Stone] = 60;
-        victim.Holdings[Resource.Ore] = 25;
+        victim.Holdings[Resource.CopperOre] = 25;
 
         var cfg = new AiConfig
         {

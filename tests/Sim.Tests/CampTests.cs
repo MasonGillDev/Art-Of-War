@@ -74,8 +74,8 @@ public class CampTests
         Assert.Equal(MilestoneCatalog.SmokeOnTheHorizon, camp.SourceMilestoneId);
         Assert.InRange(Cheb(camp.At, Seat), Cc.MinDistance, Cc.MaxDistance);
         Assert.Equal(StructureCatalog.Spec(StructureKind.BanditCamp).BaseHealth, camp.Health);
-        Assert.Equal(Cc.HoardStartIron, camp.AmountOf(Resource.Iron));
-        Assert.Equal(Cc.HoardStartOre, camp.AmountOf(Resource.Ore));
+        Assert.Equal(Cc.HoardStartIron, camp.AmountOf(Resource.Bronze));
+        Assert.Equal(Cc.HoardStartOre, camp.AmountOf(Resource.CopperOre));
         Assert.Equal(Cc.GarrisonStart, Camps.Garrison(sim.World, camp).Count);
 
         var omen = Assert.Single(sim.World.Omens.Values, o => o.Kind == OmenKind.Camp);

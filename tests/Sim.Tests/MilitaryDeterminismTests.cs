@@ -61,18 +61,18 @@ public class MilitaryDeterminismTests
             var barracks = (Barracks)sim.World.AddStructure(
                 new Barracks(new TileCoord(2, 2)) { OwnerId = 0 });
             var smithy = sim.World.AddStructure(new Smithy(new TileCoord(2, 3)) { OwnerId = 0 });
-            foreach (var (r, n) in EquipmentCatalog.Spec(Resource.Sword).CraftCost)
+            foreach (var (r, n) in EquipmentCatalog.Spec(Resource.BronzeSword).CraftCost)
                 smithy.Deposit(r, n);
             // Enemy victim a few tiles away.
             sim.World.AddUnit(new Unit(50, new TileCoord(5, 2)) { Role = UnitRole.Builder, OwnerId = 1 });
             // A hauler carries the finished sword next door to the Barracks.
             sim.World.AddUnit(new Unit(60, smithy.At) { Role = UnitRole.Hauler, OwnerId = 0 });
 
-            sim.SubmitIntent(0, new CraftEquipmentIntent(smithy.At, Resource.Sword));
-            sim.SubmitIntent(1, new HaulIntent(60, smithy.At, barracks.At, Resource.Sword));
+            sim.SubmitIntent(0, new CraftEquipmentIntent(smithy.At, Resource.BronzeSword));
+            sim.SubmitIntent(1, new HaulIntent(60, smithy.At, barracks.At, Resource.BronzeSword));
             sim.SubmitIntent(0, new TrainUnitIntent(1, UnitRole.Soldier));
             // Equip and march once the one-tile haul has had time to land.
-            sim.SubmitIntent(2500, new EquipUnitIntent(1, Resource.Sword));
+            sim.SubmitIntent(2500, new EquipUnitIntent(1, Resource.BronzeSword));
             sim.SubmitIntent(3000, new MoveIntent(1, new TileCoord(5, 2)));
             sim.Run(until: 10000);
             return sim;
@@ -104,7 +104,7 @@ public class MilitaryDeterminismTests
         Simulation BuildScenario(ulong seed)
         {
             var sim = MakeWarSim(seed);
-            var sword = EquipmentCatalog.Spec(Resource.Sword);
+            var sword = EquipmentCatalog.Spec(Resource.BronzeSword);
             var shield = EquipmentCatalog.Spec(Resource.Shield);
             var nextId = 100;
             for (var owner = 0; owner <= 1; owner++)
@@ -150,7 +150,7 @@ public class MilitaryDeterminismTests
         // (the pure-read wall over the new Power/Buffs projections).
         var tile = new TileCoord(10, 10);
         var sim = MakeWarSim(seed: 0xE1);
-        var sword = EquipmentCatalog.Spec(Resource.Sword);
+        var sword = EquipmentCatalog.Spec(Resource.BronzeSword);
         for (var owner = 0; owner <= 1; owner++)
         {
             var u = sim.World.AddUnit(new Unit(100 + owner, tile)

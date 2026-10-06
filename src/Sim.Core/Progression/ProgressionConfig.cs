@@ -62,7 +62,7 @@ public readonly record struct ProgressionConfig(
         ReprisalTrained: 6,
         ReprisalWarningTicks: 7 * Time.Day,
         ReprisalRaidSize: 6,
-        ReprisalChestResource: Resource.Iron,
+        ReprisalChestResource: Resource.Bronze,
         ReprisalChestAmount: 10,
         WordSpreadsRefugees: 4,
         WordSpreadsWarningTicks: 2 * Time.Day,

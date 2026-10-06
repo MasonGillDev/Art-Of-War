@@ -15,7 +15,7 @@ public class TurnResolverTests
 
     // A fielded soldier: sword + shield. A fielded archer: bow.
     private static int SoldierHp => UnitCombatCatalog.Spec(UnitRole.Soldier).BaseHealth + EquipmentCatalog.Spec(Resource.Shield).HealthModifier;
-    private static int SoldierDmg => UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower + EquipmentCatalog.Spec(Resource.Sword).PowerModifier;
+    private static int SoldierDmg => UnitCombatCatalog.Spec(UnitRole.Soldier).BasePower + EquipmentCatalog.Spec(Resource.BronzeSword).PowerModifier;
     private static int ArcherHp => UnitCombatCatalog.Spec(UnitRole.Archer).BaseHealth;
     private static int ArcherDmg => UnitCombatCatalog.Spec(UnitRole.Archer).BasePower + EquipmentCatalog.Spec(Resource.Bow).PowerModifier;
 

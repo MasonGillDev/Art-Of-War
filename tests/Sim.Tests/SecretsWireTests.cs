@@ -29,7 +29,7 @@ public class SecretsWireTests
         var (sim, projector, castle) = Match();
         var far = new TileCoord(castle.At.X + 30, castle.At.Y);
         var cache = sim.World.AddStructure(new Cache(far) { OwnerId = CacheConstants.OwnerId });
-        cache.Deposit(Sim.Core.World.Resource.Sword, 3);
+        cache.Deposit(Sim.Core.World.Resource.BronzeSword, 3);
         sim.World.Charts[0] = new SortedDictionary<TileCoord, ChartEntry>(TileOrder.Instance)
         {
             [far] = new ChartEntry { Tile = far, Hint = SecretHint.Glint, SeenTick = 5 },

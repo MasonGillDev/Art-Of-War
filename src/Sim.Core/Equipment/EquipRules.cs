@@ -38,10 +38,34 @@ public static class EquipRules
             return $"{item} is not an equippable item";
         if (!spec.AllowedRoles.Contains(unit.Role))
             return $"a {unit.Role} cannot equip {item}";
+        // M51 — one item per slot; a better one in the same slot swaps in
+        // (it takes the old one's place, so the slot count is unchanged).
+        if (WornInSlot(unit, spec) is { } worn)
+            return spec.Rank > worn.Spec.Rank ? null
+                : $"already carries {worn.Spec.Item} (a {spec.SlotName} no worse than {item})";
         if (!BuffRules.CanAccept(unit, spec.BuffKind))
             return $"no free slot for {item} " +
                    $"(slots {unit.Buffs.Count}/{BuffRules.MaxBuffsPerUnit}, no duplicate kinds)";
         return null;
+    }
+
+    // The worn item in the slot `spec` fills, if any.
+    private static (Buff Buff, EquipmentSpec Spec)? WornInSlot(Unit unit, EquipmentSpec spec)
+    {
+        foreach (var b in unit.Buffs)
+            if (EquipmentCatalog.TryGetByKind(b.Kind, out var wornSpec) && wornSpec.SlotName == spec.SlotName)
+                return (b, wornSpec);
+        return null;
+    }
+
+    // Take a worn item off: its buff goes, its health is reversed (clamped to 1,
+    // the strip rule in Equipment.DropEquipmentToGround), and the item is returned.
+    private static Resource TakeOff(Unit unit, (Buff Buff, EquipmentSpec Spec) worn)
+    {
+        unit.Buffs.Remove(worn.Buff);
+        unit.Health -= worn.Buff.HealthModifier;
+        if (unit.Health < 1) unit.Health = 1;
+        return worn.Spec.Item;
     }
 
     // The storehouse under this unit, if it is one of the player's own. Null
@@ -67,6 +91,10 @@ public static class EquipRules
         if (storage is null || storage.AmountOf(item) < 1) return false;
 
         storage.Withdraw(item, 1);
+        // M51 — an upgrade: the old item goes back on the shelf the new one
+        // came off (one out, one in, so it always fits).
+        if (WornInSlot(unit, spec) is { } worn)
+            storage.Deposit(TakeOff(unit, worn), 1);
         Wear(unit, spec);
         unit.TrySetActivity(Activity.Idle);
         unit.BumpEpoch();
@@ -81,7 +109,9 @@ public static class EquipRules
     public static string? Grant(Unit unit, Resource item)
     {
         if (BodyBlocker(unit, item) is { } why) return why;
-        Wear(unit, EquipmentCatalog.Spec(item));
+        var spec = EquipmentCatalog.Spec(item);
+        if (WornInSlot(unit, spec) is { } worn) TakeOff(unit, worn);   // composing: no shelf to return it to
+        Wear(unit, spec);
         return null;
     }
 

@@ -166,15 +166,15 @@ public class HaulRouteTests
         // The sword-chain loop from the design talk: ore and wood in, iron
         // back out, one crew, no empty leg.
         var sim = MakeSim(out var world);
-        var mine = Pile(world, new TileCoord(2, 2), Resource.Ore, 100);
+        var mine = Pile(world, new TileCoord(2, 2), Resource.CopperOre, 100);
         var yard = Pile(world, new TileCoord(6, 2), Resource.Wood, 100);
-        var smelter = Pile(world, new TileCoord(10, 2), Resource.Iron, 100);
+        var smelter = Pile(world, new TileCoord(10, 2), Resource.Bronze, 100);
         var smithy = Pile(world, new TileCoord(14, 2));
         var route = SetRoute(sim,
-            Stop(mine.At, Up(Resource.Ore, 40)),
+            Stop(mine.At, Up(Resource.CopperOre, 40)),
             Stop(yard.At, Up(Resource.Wood, 60)),
-            Stop(smelter.At, Down(Resource.Ore, 100), Down(Resource.Wood, 50), Up(Resource.Iron, 40)),
-            Stop(smithy.At, Down(Resource.Iron, 100), Down(Resource.Wood, 100)));
+            Stop(smelter.At, Down(Resource.CopperOre, 100), Down(Resource.Wood, 50), Up(Resource.Bronze, 40)),
+            Stop(smithy.At, Down(Resource.Bronze, 100), Down(Resource.Wood, 100)));
         var hauler = Add(world, 1, mine.At);
         Crew(sim, route, 0, 1);
         var driver = Driver();
@@ -184,9 +184,9 @@ public class HaulRouteTests
         var ore = Cap * 40 / 100;
         var wood = Cap * 60 / 100;
         var woodAtSmelter = Math.Min(wood, Cap * 50 / 100);
-        Assert.Equal(ore, smelter.AmountOf(Resource.Ore));
+        Assert.Equal(ore, smelter.AmountOf(Resource.CopperOre));
         Assert.Equal(woodAtSmelter, smelter.AmountOf(Resource.Wood));
-        Assert.Equal(Cap * 40 / 100, smithy.AmountOf(Resource.Iron));
+        Assert.Equal(Cap * 40 / 100, smithy.AmountOf(Resource.Bronze));
         Assert.Equal(wood - woodAtSmelter, smithy.AmountOf(Resource.Wood));
         Assert.Equal(0, hauler.CargoAmount);
     }
@@ -376,14 +376,14 @@ public class HaulRouteTests
     {
         var sim = MakeSim(out var world);
         var src = Pile(world, new TileCoord(2, 2), amount: 500);
-        var ore = Pile(world, new TileCoord(2, 9), Resource.Ore, 500);
+        var ore = Pile(world, new TileCoord(2, 9), Resource.CopperOre, 500);
         var a = Pile(world, new TileCoord(12, 2));
         var b = Pile(world, new TileCoord(20, 6));
         var route = SetRoute(sim,
             Stop(src.At, Up(Resource.Wood, 50)),
-            Stop(ore.At, Up(Resource.Ore, 50)),
-            Stop(a.At, Down(Resource.Wood, 50), Down(Resource.Ore, 25)),
-            Stop(b.At, Down(Resource.Wood, 100), Down(Resource.Ore, 100)));
+            Stop(ore.At, Up(Resource.CopperOre, 50)),
+            Stop(a.At, Down(Resource.Wood, 50), Down(Resource.CopperOre, 25)),
+            Stop(b.At, Down(Resource.Wood, 100), Down(Resource.CopperOre, 100)));
         Add(world, 1, src.At);
         Add(world, 2, src.At, UnitRole.Soldier);
         Add(world, 3, a.At);

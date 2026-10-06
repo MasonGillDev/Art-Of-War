@@ -158,7 +158,7 @@ public class ArmTests
         }
 
         Assert.NotNull(mineSite);
-        Assert.Equal(StructureKind.Mine, mineSite!.Kind);
+        Assert.Equal(StructureKind.CopperMine, mineSite!.Kind);
         Assert.True(Sim.Core.Mining.Veins.Knows(sim.World, 1, mineSite.Tile));
         Assert.True(mineSite.Resolve(sim).IsApplied, "the server rejected the mine site");
     }
@@ -231,12 +231,12 @@ public class ArmTests
         var cfg = TestCfg;
         var castle = CastleOf(sim, 1);
         Stock(castle);
-        castle.Deposit(Resource.Ore, 50);
+        castle.Deposit(Resource.CopperOre, 50);
         AddGarrison(sim, soldiers: 2);
         var keep = castle.At;
         var smithy = new Smithy(FreeNear(sim, keep, 2)) { OwnerId = 1 };
         sim.World.AddStructure(smithy);
-        var mine = new Extractor(StructureKind.Mine, FreeNear(sim, keep, 3)) { OwnerId = 1 };
+        var mine = new Extractor(StructureKind.CopperMine, FreeNear(sim, keep, 3)) { OwnerId = 1 };
         sim.World.AddStructure(mine);
         var furnace = new Extractor(StructureKind.Smelter, FreeNear(sim, keep, 4)) { OwnerId = 1 };
         sim.World.AddStructure(furnace);
@@ -251,25 +251,25 @@ public class ArmTests
         // 2. Ore in, iron out. The furnace reads empty of ore: the castle
         //    feeds it; its iron buffer is over the haul threshold: it goes
         //    to the smithy, not home.
-        furnace.Buffer = cfg.HaulBufferThreshold;
+        furnace.AddOutput(Resource.Bronze, cfg.HaulBufferThreshold);
         furnace.DepositInput(Resource.Wood, cfg.ArmFeedFloor);   // fuelled, but no ore: ore is the short line
         var hauls = LogisticsLayer.Emit(Ctx(sim, projector, cfg, mem)).OfType<HaulIntent>().ToList();
         var dump = string.Join("; ", hauls.Select(h => h.Describe()));
         Assert.True(hauls.Any(h => h.SourceTile == castle.At && h.DestTile == furnace.At
-            && h.Resource == Resource.Ore), $"no ore feed — hauls: {dump}");
+            && h.Resource == Resource.CopperOre), $"no ore feed — hauls: {dump}");
         Assert.True(hauls.Any(h => h.SourceTile == furnace.At && h.DestTile == smithy.At
-            && h.Resource == Resource.Iron), $"no iron line — hauls: {dump}");
+            && h.Resource == Resource.Bronze), $"no iron line — hauls: {dump}");
 
         // 3. Iron and hafts at the smithy: the sword outranks the shield.
-        var sword = EquipmentCatalog.Spec(Resource.Sword);
+        var sword = EquipmentCatalog.Spec(Resource.BronzeSword);
         foreach (var (r, n) in sword.CraftCost) smithy.Deposit(r, n);
         smithy.Deposit(Resource.Stone, 10);
         d = new ArmRung().TryClaim(Ctx(sim, projector, cfg, mem));
         Assert.NotNull(d);
         var craft = Assert.IsType<CraftEquipmentIntent>(Assert.Single(d!.Intents));
-        Assert.Equal(Resource.Sword, craft.Item);
+        Assert.Equal(Resource.BronzeSword, craft.Item);
         Assert.True(craft.Resolve(sim).IsApplied);
-        Assert.Equal(1, smithy.AmountOf(Resource.Sword));
+        Assert.Equal(1, smithy.AmountOf(Resource.BronzeSword));
     }
 
     [Fact]
@@ -321,7 +321,7 @@ public class ArmTests
         sim.World.AddStructure(new Smithy(FreeNear(sim, keep, 2)) { OwnerId = 0 });
         ctx = Ctx(sim, projector, cfg, mem);
         EnemyIntel.Perceive(ctx);
-        var sword = EquipmentCatalog.Spec(Resource.Sword).PowerModifier;
+        var sword = EquipmentCatalog.Spec(Resource.BronzeSword).PowerModifier;
         Assert.Equal(bare + sword, EnemyIntel.EstimateVisiblePower(ctx, 0, keep, 3));
 
         // The memory keeps the tell once the smithy leaves sight (the
@@ -369,10 +369,10 @@ public class ArmTests
             var haulers = sim.World.Units.Values.Where(u => u.OwnerId == id && u.Role == UnitRole.Hauler).ToList();
             var castle = CastleOf(sim, id);
             rows[id] = new LabRow(sim.World.Players[id].PopulationCount,
-                Kind(StructureKind.Smithy), Kind(StructureKind.Mine), Kind(StructureKind.Smelter),
+                Kind(StructureKind.Smithy), Kind(StructureKind.CopperMine), Kind(StructureKind.Smelter),
                 soldiers.Count,
                 soldiers.Count(u => u.Buffs.Any(b => b.Kind == "shield")),
-                soldiers.Count(u => u.Buffs.Any(b => b.Kind == "sword")),
+                soldiers.Count(u => u.Buffs.Any(b => b.Kind == "bronze-sword")),
                 haulers.Count, haulers.Count(u => u.Buffs.Any(b => b.Kind == "cart")),
                 castle.FoodDebt > 0 || castle.FamineStartTick is not null,
                 drivers.Single(d => d.PlayerId == id).Trace.Dump());

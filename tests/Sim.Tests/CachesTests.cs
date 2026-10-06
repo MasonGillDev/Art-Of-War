@@ -80,7 +80,7 @@ public class CachesTests
     public void Cache_RoundTripsThroughSnapshot_WithLoot()
     {
         var sim = MakeBareSim();
-        PlaceCache(sim, new TileCoord(5, 5), (Resource.Wood, 40), (Resource.Sword, 1));
+        PlaceCache(sim, new TileCoord(5, 5), (Resource.Wood, 40), (Resource.BronzeSword, 1));
 
         var restored = Snapshot.Restore(Snapshot.Serialize(sim), seed: 1);
 
@@ -88,7 +88,7 @@ public class CachesTests
         var cache = Assert.IsType<Cache>(restored.World.Structures[new TileCoord(5, 5)]);
         Assert.Equal(CacheConstants.OwnerId, cache.OwnerId);
         Assert.Equal(40, cache.AmountOf(Resource.Wood));
-        Assert.Equal(1, cache.AmountOf(Resource.Sword));
+        Assert.Equal(1, cache.AmountOf(Resource.BronzeSword));
     }
 
     // ====================================================================
@@ -131,11 +131,11 @@ public class CachesTests
     {
         var sim = MakeBareSim();
         var at = new TileCoord(3, 3);
-        PlaceCache(sim, at, (Resource.Sword, 2));
+        PlaceCache(sim, at, (Resource.BronzeSword, 2));
         sim.World.AddUnit(new Unit(1, at) { Role = UnitRole.Hauler, OwnerId = 0 });
 
-        Assert.True(new LootCacheIntent(1, Resource.Sword) { PlayerId = 0 }.Resolve(sim).IsApplied);
-        Assert.Equal(Resource.Sword, sim.World.Units[1].CargoResource);
+        Assert.True(new LootCacheIntent(1, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim).IsApplied);
+        Assert.Equal(Resource.BronzeSword, sim.World.Units[1].CargoResource);
         Assert.Equal(2, sim.World.Units[1].CargoAmount);
     }
 

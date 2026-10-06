@@ -70,7 +70,7 @@ public static class Biomes
         // M44 — stone is quarried from hills, ore mined from mountain veins
         // (docs/stone-and-ore-land.md).
         Biome.Hills => World.Resource.Stone,
-        Biome.Mountain => World.Resource.Ore,
+        Biome.Mountain => World.Resource.CopperOre,
         Biome.Water => World.Resource.None,
         Biome.Desert => World.Resource.None,
         Biome.None => World.Resource.None,

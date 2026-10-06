@@ -12,8 +12,15 @@ namespace Sim.Core.Mining;
 //                  stream is byte-identical with or without veins.
 //   SurveyTicks  — how long a Miner digs at the slope before he reports.
 //   SurveyRadius — Chebyshev reach of one sweep around the surveyed tile.
+//   SteelSharePercent / IronSharePercent — M51 ore tiers
+//                  (docs/m51-ore-tiers-spec.md): the veins ranked by
+//                  remoteness, the farthest SteelSharePercent hold steel ore,
+//                  the next IronSharePercent iron ore, the rest copper ore.
+//                  Balance dials.
 public sealed record VeinConfig(
     int OneIn = 3,
     ulong Seed = 0,
     long SurveyTicks = Time.Day,
-    int SurveyRadius = 2);
+    int SurveyRadius = 2,
+    int IronSharePercent = 20,
+    int SteelSharePercent = 10);

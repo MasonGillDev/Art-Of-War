@@ -50,7 +50,7 @@ public class SalvageTests
         sim.World.GroundResources[nearPile] = new SortedDictionary<Resource, int>
             { [Resource.Stone] = 12, [Resource.Wood] = 3 };
         sim.World.GroundResources[farPile] = new SortedDictionary<Resource, int>
-            { [Resource.Ore] = 7 };
+            { [Resource.CopperOre] = 7 };
 
         var view = projector.Project(sim, sim.Now, playerId: 0, reveal: false);
         var pile = Assert.Single(view.Piles);
@@ -84,7 +84,7 @@ public class SalvageTests
         var victim = new Unit(9999, new TileCoord(c0.X + 2, c0.Y))
         {
             Role = UnitRole.Farmer, OwnerId = 1,
-            Cargo = { { Resource.Ore, 10 } },
+            Cargo = { { Resource.CopperOre, 10 } },
         };
         sim.World.AddUnit(victim);
         tracker.SnapshotUnits(sim.World);
@@ -251,7 +251,7 @@ public class SalvageTests
         var victim = new Unit(9999, graveTile)
         {
             Role = UnitRole.Farmer, OwnerId = 0,
-            Cargo = { { Resource.Ore, 10 } },
+            Cargo = { { Resource.CopperOre, 10 } },
         };
         sim.World.AddUnit(victim);
         tracker.SnapshotUnits(sim.World);   // baseline INCLUDES the victim — the diff needs to see it vanish
@@ -266,7 +266,7 @@ public class SalvageTests
             tracker.Harvest(sim, 0);   // GameHost's cadence: harvest after every advance
         }
 
-        var ore = CastleOf(sim, 1).Holdings.GetValueOrDefault(Resource.Ore);
+        var ore = CastleOf(sim, 1).Holdings.GetValueOrDefault(Resource.CopperOre);
         _output.WriteLine($"day 6: castle ore={ore}, graves={tracker.Graves.Count}");
         Assert.True(ore >= 10,
             $"loot never reached the castle (ore={ore}) — trace tail:\n{driver.Trace.Dump()}");

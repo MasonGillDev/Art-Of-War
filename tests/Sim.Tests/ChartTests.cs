@@ -26,7 +26,7 @@ public class ChartTests
         world.Players[CacheConstants.OwnerId] = new Player(CacheConstants.OwnerId);
         world.AddStructure(new Lodge(new TileCoord(4, 4)) { OwnerId = 0 });
         var cache = world.AddStructure(new Cache(CacheAt) { OwnerId = CacheConstants.OwnerId });
-        cache.Deposit(Resource.Iron, 5);
+        cache.Deposit(Resource.Bronze, 5);
         var scout = world.AddUnit(new Unit(1, Home) { OwnerId = 0, Role = UnitRole.Scout });
         return (new Simulation(world, seed: 1), scout);
     }
@@ -120,7 +120,7 @@ public class ChartTests
 
         // Someone empties it behind the fog: the marker does not know.
         var thief = sim.World.AddUnit(new Unit(3, CacheAt) { OwnerId = 7 });
-        while (sim.World.Structures.ContainsKey(CacheAt)) { thief.Cargo.Clear(); CacheLooting.TryLoot(sim, thief, Resource.Iron); }
+        while (sim.World.Structures.ContainsKey(CacheAt)) { thief.Cargo.Clear(); CacheLooting.TryLoot(sim, thief, Resource.Bronze); }
         Assert.Equal(ChartState.Known, Entry(sim, CacheAt)!.State);
 
         // The owner's own eyes on the tile strike it.
@@ -142,7 +142,7 @@ public class ChartTests
         sim.World.AddUnit(new Unit(2, new TileCoord(5, 28)) { OwnerId = 0 });   // standing watch
 
         var looter = sim.World.AddUnit(new Unit(3, CacheAt) { OwnerId = 0 });
-        CacheLooting.TryLoot(sim, looter, Resource.Iron);
+        CacheLooting.TryLoot(sim, looter, Resource.Bronze);
 
         Assert.False(sim.World.Structures.ContainsKey(CacheAt));
         Assert.Equal(ChartState.Gone, Entry(sim, CacheAt)!.State);

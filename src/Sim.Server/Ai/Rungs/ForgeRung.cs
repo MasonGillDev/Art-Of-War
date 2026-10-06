@@ -73,7 +73,7 @@ public sealed class ForgeRung : IRung
         // faction 0 staffed the mine to two, then the surplus gate shut
         // for ninety days with the smelter empty and ore piling up).
         var posts = new List<(StructDto Post, int Target)>();
-        if (ctx.OwnStructure(StructureKind.Mine) is { } mine) posts.Add((mine, cfg.ArmMineWorkers));
+        if (ctx.OwnStructure(StructureKind.CopperMine) is { } mine) posts.Add((mine, cfg.ArmMineWorkers));
         if (ctx.OwnStructure(StructureKind.Smelter) is { } furnace) posts.Add((furnace, cfg.ArmSmelterWorkers));
         foreach (var (post, target) in posts.OrderBy(p => p.Post.Workers).ThenBy(p => p.Post.Kind))
             if (ctx.StaffExtractor(post, UnitRole.Miner, target) is { Count: > 0 } st)
@@ -98,7 +98,7 @@ public sealed class ForgeRung : IRung
 
         // 2. The Mine — only on a vein the brain KNOWS (M44). Veins never
         //    run dry, so no DetectExhausted — its buffer cap is the brake.
-        if (ctx.OwnStructure(StructureKind.Mine) is null)
+        if (ctx.OwnStructure(StructureKind.CopperMine) is null)
             return MineOrSurvey(ctx);
         ctx.Mem.OreStarved = false;
 
@@ -116,9 +116,9 @@ public sealed class ForgeRung : IRung
         if (ctx.NearestFreeVein(range) is { } vein)
         {
             ctx.Mem.OreStarved = false;
-            if (!AffordsSite(ctx, StructureCatalog.Spec(StructureKind.Mine))) return null;
+            if (!AffordsSite(ctx, StructureCatalog.Spec(StructureKind.CopperMine))) return null;
             return new Decision("forge", "no mine — placing one on a known vein",
-                new List<Intent> { new PlaceSiteIntent(vein, StructureKind.Mine) { PlayerId = ctx.PlayerId } });
+                new List<Intent> { new PlaceSiteIntent(vein, StructureKind.CopperMine) { PlayerId = ctx.PlayerId } });
         }
         var miners = ctx.OwnUnits.Where(u => (UnitRole)u.Role == UnitRole.Miner).ToList();
         if (miners.Any(u => u.SurveyX >= 0)) return null;   // a sweep is under way — wait for it
@@ -132,7 +132,7 @@ public sealed class ForgeRung : IRung
     }
 
     private static readonly StructureKind[] Chain =
-        { StructureKind.Smithy, StructureKind.Mine, StructureKind.Smelter };
+        { StructureKind.Smithy, StructureKind.CopperMine, StructureKind.Smelter };
 
     private static string Name(StructureKind k) => k.ToString().ToLowerInvariant();
 

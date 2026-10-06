@@ -172,7 +172,7 @@ public static class Lexicon
         StructureKind.Farm       => "farmstead",
         StructureKind.LumberCamp => "logging camp",
         StructureKind.Quarry     => "quarry",
-        StructureKind.Mine       => "mine",
+        StructureKind.CopperMine or StructureKind.IronMine or StructureKind.SteelMine => "mine",
         StructureKind.Dock       => "wharf",
         StructureKind.School     => "hall",
         StructureKind.Barracks   => "barracks",

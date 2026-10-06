@@ -138,6 +138,11 @@ public sealed class PlaceSiteIntent : Intent
         if (spec.RequiresVein && !Sim.Core.Mining.Veins.Knows(sim.World, PlayerId, Tile))
             return IntentOutcome.Reject(
                 $"{Kind} needs a known ore vein at {Tile.X},{Tile.Y}; send a Miner to survey");
+        // M51 — one mine per ore (docs/m51-ore-tiers-spec.md). The vein is known,
+        // so its ore is too (a survey reports it; a seen mine shows it).
+        if (spec.RequiresVein && Sim.Core.Mining.Veins.OreAt(sim.World, Tile) is var ore && ore != spec.RequiredOre)
+            return IntentOutcome.Reject(
+                $"{Kind} mines {spec.RequiredOre}, but the vein at {Tile.X},{Tile.Y} holds {ore}");
 
         // M26 — blocking kinds (the Gate here; Wall rejects above) need a
         // land tile: no fortifications standing in open water.

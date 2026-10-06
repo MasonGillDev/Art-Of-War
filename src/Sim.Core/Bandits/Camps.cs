@@ -32,8 +32,8 @@ public static class Camps
         // "Last raid" set so the first muster is allowed at now + FirstRaidDelay.
         camp.LastRaidTick = sim.Now + cfg.FirstRaidDelayTicks - cfg.RaidPeriodTicks;
         camp.LastRecruitTick = sim.Now;
-        camp.Deposit(Resource.Iron, cfg.HoardStartIron);
-        camp.Deposit(Resource.Ore, cfg.HoardStartOre);
+        camp.Deposit(Resource.Bronze, cfg.HoardStartIron);
+        camp.Deposit(Resource.CopperOre, cfg.HoardStartOre);
         world.AddStructure(camp);
 
         SpawnBanditPartyIntent.Materialize(sim, at, Math.Clamp(cfg.GarrisonStart, 0, cfg.GarrisonCap));

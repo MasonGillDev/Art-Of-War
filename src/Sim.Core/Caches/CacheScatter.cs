@@ -16,9 +16,9 @@ public static class CacheScatter
 {
     // A cache's primary stack is one of these; gear is rolled separately.
     private static readonly Resource[] PrimaryResources =
-        { Resource.Wood, Resource.Stone, Resource.Ore, Resource.Food };
+        { Resource.Wood, Resource.Stone, Resource.CopperOre, Resource.Food };
     private static readonly Resource[] GearResources =
-        { Resource.Sword, Resource.Bow, Resource.Shield };
+        { Resource.BronzeSword, Resource.Bow, Resource.Shield };
 
     public static void Scatter(GameWorld world, Rng rng, CacheConfig config)
     {

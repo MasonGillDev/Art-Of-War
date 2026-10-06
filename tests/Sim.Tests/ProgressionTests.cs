@@ -209,14 +209,15 @@ public class ProgressionTests
         var spec = StructureCatalog.Spec(StructureKind.Smelter);
         var at = new TileCoord(8, 8);
         var smelter = (Extractor)sim.World.AddStructure(new Extractor(StructureKind.Smelter, at) { OwnerId = 0 });
-        foreach (var (r, n) in spec.InputCost) smelter.DepositInput(r, 2 * n);
+        var bronze = spec.Recipes.Single(r => r.Output == Resource.Bronze);
+        foreach (var (r, n) in bronze.Inputs) smelter.DepositInput(r, 2 * n);
         sim.World.AddUnit(new Unit(1, at) { Role = UnitRole.Farmer, OwnerId = 0 });
         sim.SubmitIntent(0, new AssignWorkersIntent(at, new[] { 1 }));
 
         sim.Run(until: 3 * spec.ProductionPeriodTicks);
 
         Assert.True(smelter.Buffer > 0);
-        Assert.Equal(smelter.Buffer, sim.World.Players[0].Progress!.Count(ProgressKey.Refined(spec.OutputResource)));
+        Assert.Equal(smelter.Buffer, sim.World.Players[0].Progress!.Count(ProgressKey.Refined(bronze.Output)));
     }
 
     // -------- persistence and enrolment --------

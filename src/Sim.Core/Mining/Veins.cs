@@ -75,7 +75,38 @@ public static class Veins
         }
     }
 
+    // M51 — which ore each vein holds (docs/m51-ore-tiers-spec.md). Genesis
+    // only, after the wilderness field is measured: rank the veins by
+    // remoteness (a vein no foot reaches is the most remote; ties by (y, x)),
+    // the farthest SteelSharePercent hold steel ore, the next IronSharePercent
+    // iron ore, the rest copper ore. Ranking the VEINS (not the land bands)
+    // gives every tier on every map that has mountains at all. No Rng.
+    internal static void AssignOres(GameWorld world)
+    {
+        var cfg = world.VeinConfig;
+        if (cfg.SteelSharePercent < 0 || cfg.IronSharePercent < 0 || cfg.SteelSharePercent + cfg.IronSharePercent > 100)
+            throw new InvalidOperationException(
+                $"VeinConfig ore shares must be non-negative and sum to at most 100 (steel {cfg.SteelSharePercent}, iron {cfg.IronSharePercent}).");
+        var field = world.Wilderness;
+        var ranked = world.Veins
+            .Select((t, order) => (Tile: t, Minutes: field.MinutesAt(t) ?? int.MaxValue, Order: order))
+            .OrderBy(v => v.Minutes).ThenBy(v => v.Order)
+            .Select(v => v.Tile)
+            .ToList();
+        var n = ranked.Count;
+        var steelFrom = n - (int)((long)n * cfg.SteelSharePercent / 100);
+        var ironFrom = steelFrom - (int)((long)n * cfg.IronSharePercent / 100);
+        for (var i = 0; i < n; i++)
+            world.VeinOre[ranked[i]] = i >= steelFrom ? Resource.SteelOre
+                : i >= ironFrom ? Resource.IronOre
+                : Resource.CopperOre;
+    }
+
     // ---- pure reads --------------------------------------------------------
+
+    // M51 — the ore a vein holds; None off a vein.
+    public static Resource OreAt(GameWorld world, TileCoord tile) =>
+        world.VeinOre.TryGetValue(tile, out var ore) ? ore : Resource.None;
 
     public static bool IsVein(GameWorld world, TileCoord tile) => world.Veins.Contains(tile);
 
@@ -124,10 +155,12 @@ public static class Veins
         }
     }
 
-    private static bool IsMineAt(GameWorld world, TileCoord tile) =>
+    // A mine of any ore (a kind that must stand on a vein), raised or rising.
+    // Pure read; the wire's Mined flag reads it too.
+    public static bool IsMineAt(GameWorld world, TileCoord tile) =>
         world.Structures.TryGetValue(tile, out var s)
-        && (s.Kind == StructureKind.Mine
-            || (s is ConstructionSite c && c.TargetKind == StructureKind.Mine));
+        && StructureCatalog.TryGetSpec(s is ConstructionSite c ? c.TargetKind : s.Kind, out var spec)
+        && spec.RequiresVein;
 
     // ---- the knowledge writers' shared primitives --------------------------
 

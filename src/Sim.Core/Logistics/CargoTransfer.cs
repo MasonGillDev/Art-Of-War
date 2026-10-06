@@ -107,9 +107,8 @@ public static class CargoTransfer
             case StorageStructure ss:
                 taken = ss.Withdraw(resource, amount);
                 break;
-            case Extractor ex when ex.Spec.OutputResource == resource && ex.Buffer > 0:
-                taken = Math.Min(amount, ex.Buffer);
-                ex.Buffer -= taken;
+            case Extractor ex when ex.OutputOf(resource) > 0:
+                taken = ex.TakeOutput(resource, amount);
                 ex.ArmIfDormant(sim);
                 break;
         }

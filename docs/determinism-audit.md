@@ -1876,3 +1876,37 @@ cut-offs come from a sorted integer list. It draws no `Rng`.
 
 **Snapshot v54.** After the route extras: a has-field flag, the cut-offs, then one `ushort` per
 tile in (y, x) order. Pinned by `WildernessTests.TheField_SurvivesASnapshot_AndNeverMoves`.
+
+## M51 — ore tiers (2026-10-06, `docs/m51-ore-tiers-spec.md`)
+
+**New state.**
+- `GameWorld.VeinOre`: tile → ore, keys equal to `Veins`.
+- `VeinConfig.IronSharePercent` and `SteelSharePercent`.
+- `Extractor.Output`: the output store by resource, replacing the single `Buffer` int.
+  `Buffer` is now the derived total.
+
+**Mutation points.**
+- `VeinOre`: `Veins.AssignOres` at genesis (after the wilderness field), and `Snapshot` restore.
+  It is never written after genesis.
+- `Extractor.Output`:
+  - `AddOutput` from `ProductionTickEvent`;
+  - `TakeOutput` from `CargoTransfer` and `HaulPickupEvent`;
+  - the `Buffer` setter, for ordinary extractors only (tests and the host smoke);
+  - razing reads it to spill;
+  - `Snapshot`.
+
+**Determinism.**
+- **Ore assignment:** a stable sort of the veins by wilderness minutes, then their (y, x) order,
+  then integer share cuts. It draws no `Rng`.
+- **The smelter's recipe:** the first affordable recipe in catalog order (best first), one
+  recipe per tick. The integer all-or-nothing batch rule is unchanged.
+- **Equip upgrade:** the old sword is removed and returned to the same store in the same
+  resolve. Health is reversed with the strip rule's clamp to 1.
+
+**Snapshot v55.**
+- Each extractor row writes its output store (count, then resource byte and amount) in place
+  of the buffer int.
+- The vein block gains the two shares, then one ore byte per vein.
+
+Pinned by `OreTierTests`: the ore survives a snapshot, and mixed bars survive a snapshot and
+then run on to the same hash.

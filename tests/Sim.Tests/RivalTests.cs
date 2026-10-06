@@ -769,7 +769,7 @@ public class RivalTests
             State = (int)RelationshipState.Enemy } };
         var mem = new AiMemory { WarTarget = 1 };
         mem.KnownEnemyStructures[(30, 30)] = (100L, (int)StructureKind.Farm, 1);
-        mem.KnownEnemyStructures[(32, 30)] = (100L, (int)StructureKind.Mine, 1);
+        mem.KnownEnemyStructures[(32, 30)] = (100L, (int)StructureKind.CopperMine, 1);
 
         ViewDto Bench(params UnitDto[] units)
         {
@@ -812,7 +812,7 @@ public class RivalTests
         carrierHome.CargoAmount = 5; carrierHome.CargoResource = (int)Resource.Food;
         var carrierAfield = haul.Single(u => u.Id == party[1]);
         carrierAfield.X = 20; carrierAfield.Y = 20;
-        carrierAfield.CargoAmount = 5; carrierAfield.CargoResource = (int)Resource.Ore;
+        carrierAfield.CargoAmount = 5; carrierAfield.CargoResource = (int)Resource.CopperOre;
         d = new RaidRung().TryClaim(ThinkContext.Build(Bench(haul), cfg, mem, now: 440));
         Assert.NotNull(d);
         Assert.Equal(party[0], d!.Intents.OfType<UnloadCargoIntent>().Single().UnitId);

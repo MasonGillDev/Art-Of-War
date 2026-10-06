@@ -46,8 +46,8 @@ public sealed class RaidRung : IRung
         var raidable = ctx.Mem.KnownEnemyStructures
             .Where(kv => kv.Value.OwnerId == target
                 && !ctx.Mem.DryRaidTargets.Contains(kv.Key)
-                && (StructureKind)kv.Value.Kind is StructureKind.Farm
-                    or StructureKind.LumberCamp or StructureKind.Quarry or StructureKind.Mine)
+                && StructureCatalog.TryGetSpec((StructureKind)kv.Value.Kind, out var spec)
+                && spec.RequiredBiome != Biome.None)   // the land-working extractors
             .OrderBy(kv => Cheb(kv.Key, (ctx.CastleTile.X, ctx.CastleTile.Y)))
             .ThenBy(kv => kv.Key.Y).ThenBy(kv => kv.Key.X)
             .ToList();

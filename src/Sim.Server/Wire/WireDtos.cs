@@ -288,11 +288,13 @@ public sealed class OrderDto
 }
 
 // M44 — one known ore vein. Mined: a Mine (or Mine site) stands on it.
+// M51 — Ore: the Resource id of the ore it holds (3 copper, 10 iron, 13 steel).
 public sealed class VeinDto
 {
     public int X { get; set; }
     public int Y { get; set; }
     public bool Mined { get; set; }
+    public int Ore { get; set; }
 }
 
 // M38 — one chart marker. Hint: 1 Glint (a cache or ruin), 2 StoneFigure (an

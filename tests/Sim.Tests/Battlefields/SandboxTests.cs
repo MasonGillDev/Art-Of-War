@@ -20,7 +20,7 @@ public class SandboxTests
     private static CompositionUnit Soldier(int id, int faction, int dx, int dy, int doctrine = CompositionUnit.DefaultDoctrine) => new()
     {
         Id = id, Faction = faction, Role = (int)UnitRole.Soldier, Dx = dx, Dy = dy,
-        Gear = [(int)Resource.Sword, (int)Resource.Shield], Doctrine = doctrine,
+        Gear = [(int)Resource.BronzeSword, (int)Resource.Shield], Doctrine = doctrine,
     };
 
     // Blue's guard two tiles east of the castle; Red's party marches on it.
@@ -100,8 +100,8 @@ public class SandboxTests
     [Fact]
     public void ImpossibleLoadouts_AreRefused_WithTheGamesReason()
     {
-        var twoSwords = new Composition { Units = [new CompositionUnit { Id = 1, Role = (int)UnitRole.Soldier, Gear = [(int)Resource.Sword, (int)Resource.Sword] }] };
-        Assert.Contains("no free slot", twoSwords.Problem());
+        var twoSwords = new Composition { Units = [new CompositionUnit { Id = 1, Role = (int)UnitRole.Soldier, Gear = [(int)Resource.BronzeSword, (int)Resource.BronzeSword] }] };
+        Assert.Contains("already carries", twoSwords.Problem());   // M51: one sword per soldier
         var bowOnSoldier = new Composition { Units = [new CompositionUnit { Id = 1, Role = (int)UnitRole.Soldier, Gear = [(int)Resource.Bow] }] };
         Assert.Contains("cannot equip", bowOnSoldier.Problem());
     }

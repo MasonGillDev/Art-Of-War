@@ -1281,7 +1281,7 @@ static class RefiningDemo
         world.Players[0] = new Player(0);
         world.AddStructure(new Castle(new TileCoord(0, 0)) { OwnerId = 0 });
 
-        var mine = world.AddStructure(new Extractor(StructureKind.Mine, new TileCoord(2, 2)) { OwnerId = 0 });
+        var mine = world.AddStructure(new Extractor(StructureKind.CopperMine, new TileCoord(2, 2)) { OwnerId = 0 });
         var smelter = world.AddStructure(new Extractor(StructureKind.Smelter, new TileCoord(4, 2)) { OwnerId = 0 });
         var woodpile = world.AddStructure(new Stockpile(new TileCoord(4, 3)) { OwnerId = 0 });
         var smithy = world.AddStructure(new Smithy(new TileCoord(6, 2)) { OwnerId = 0 });
@@ -1308,11 +1308,11 @@ static class RefiningDemo
     {
         var mine = new TileCoord(2, 2); var smelter = new TileCoord(4, 2);
         var woodpile = new TileCoord(4, 3); var smithy = new TileCoord(6, 2);
-        sim.SubmitIntent(at, new HaulIntent(10, mine, smelter, Resource.Ore) { PlayerId = 0 });
+        sim.SubmitIntent(at, new HaulIntent(10, mine, smelter, Resource.CopperOre) { PlayerId = 0 });
         sim.SubmitIntent(at, new HaulIntent(11, woodpile, smelter, Resource.Wood) { PlayerId = 0 });
-        sim.SubmitIntent(at, new HaulIntent(12, smelter, smithy, Resource.Iron) { PlayerId = 0 });
+        sim.SubmitIntent(at, new HaulIntent(12, smelter, smithy, Resource.Bronze) { PlayerId = 0 });
         sim.SubmitIntent(at, new HaulIntent(13, woodpile, smithy, Resource.Wood) { PlayerId = 0 });
-        sim.SubmitIntent(at + 1, new Sim.Core.Equipment.CraftEquipmentIntent(smithy, Resource.Sword) { PlayerId = 0 });
+        sim.SubmitIntent(at + 1, new Sim.Core.Equipment.CraftEquipmentIntent(smithy, Resource.BronzeSword) { PlayerId = 0 });
     }
 
     static Simulation Play(int days, Action<string>? log)
@@ -1326,8 +1326,8 @@ static class RefiningDemo
         {
             Legs(sim, sim.Now);
             sim.Run(until: (long)d * Sim.Core.Time.Day);
-            log?.Invoke($"{d,3} | {mine.Buffer,8} | {smelter.InputOf(Resource.Ore),7}/{smelter.InputOf(Resource.Wood),-8} | " +
-                        $"{smelter.Buffer,4} | {smithy.AmountOf(Resource.Iron),11} | {smithy.AmountOf(Resource.Sword),6}");
+            log?.Invoke($"{d,3} | {mine.Buffer,8} | {smelter.InputOf(Resource.CopperOre),7}/{smelter.InputOf(Resource.Wood),-8} | " +
+                        $"{smelter.Buffer,4} | {smithy.AmountOf(Resource.Bronze),11} | {smithy.AmountOf(Resource.BronzeSword),6}");
         }
         return sim;
     }
@@ -1335,10 +1335,10 @@ static class RefiningDemo
     public static void Run()
     {
         var spec = StructureCatalog.Spec(StructureKind.Smelter);
-        var recipe = string.Join(" + ", spec.InputCost.Select(kv => $"{kv.Value} {kv.Key}"));
-        var sword = Sim.Core.Equipment.EquipmentCatalog.Spec(Resource.Sword);
+        var sword = Sim.Core.Equipment.EquipmentCatalog.Spec(Resource.BronzeSword);
         Console.WriteLine("--- Refining Demo (docs/refining-structures.md) ---");
-        Console.WriteLine($"Smelter: {recipe} -> 1 {spec.OutputResource} per worker per day (Miner x2), feed store {spec.InputCap}.");
+        foreach (var r in spec.Recipes)
+            Console.WriteLine($"Smelter: {string.Join(" + ", r.Inputs.Select(kv => $"{kv.Value} {kv.Key}"))} -> 1 {r.Output} per worker per day (Miner x2), feed store {spec.InputCap}.");
         Console.WriteLine($"Sword at the {sword.CraftedAt}: {string.Join(" + ", sword.CraftCost.Select(kv => $"{kv.Value} {kv.Key}"))}.");
         Console.WriteLine("Mine (2 miners) -> ore leg -> Smelter <- fuel leg <- woodpile; iron leg -> Smithy.");
         Console.WriteLine();
@@ -1347,13 +1347,13 @@ static class RefiningDemo
         var smithy = (Smithy)first.World.Structures[new TileCoord(6, 2)];
         var castle = (Castle)first.World.Structures[new TileCoord(0, 0)];
         Console.WriteLine();
-        if (smithy.AmountOf(Resource.Sword) == 0)
+        if (smithy.AmountOf(Resource.BronzeSword) == 0)
         {
             Console.Error.WriteLine("SMOKE FAILURE: no sword forged in 14 days.");
             Environment.Exit(1);
         }
-        Console.WriteLine($"Forged {smithy.AmountOf(Resource.Sword)} sword(s) from ore that never touched the Smithy as ore.");
-        Console.WriteLine($"Castle ore: {castle.AmountOf(Resource.Ore)} (nothing bypassed the smelter).");
+        Console.WriteLine($"Forged {smithy.AmountOf(Resource.BronzeSword)} sword(s) from ore that never touched the Smithy as ore.");
+        Console.WriteLine($"Castle ore: {castle.AmountOf(Resource.CopperOre)} (nothing bypassed the smelter).");
 
         var second = Play(days: 14, log: null);
         if (Snapshot.Hash(first) != Snapshot.Hash(second))

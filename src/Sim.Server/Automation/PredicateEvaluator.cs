@@ -175,7 +175,7 @@ public static class PredicateEvaluator
             // A refiner holds two kinds of stock: its output buffer, and the
             // inputs it burns (M36: a "keep 12 ore at the smelter" job read 0
             // forever and kept delivering into a full input store).
-            Extractor e => e.Spec.OutputResource == r ? e.Buffer : e.IsRefiner ? e.InputOf(r) : 0,
+            Extractor e => e.OutputOf(r) + e.InputOf(r),
             _ => 0,
         };
     }

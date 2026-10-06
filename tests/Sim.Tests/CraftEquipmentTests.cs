@@ -35,13 +35,13 @@ public class CraftEquipmentTests
         // but forges nothing. Materials in a Barracks stay materials.
         var sim = MakeSim();
         var barracks = sim.World.AddStructure(new Barracks(new TileCoord(2, 2)) { OwnerId = 0 });
-        StockExactCost(barracks, Resource.Sword);
+        StockExactCost(barracks, Resource.BronzeSword);
 
-        var outcome = new CraftEquipmentIntent(barracks.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new CraftEquipmentIntent(barracks.At, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim);
 
         Assert.False(outcome.IsApplied);
-        Assert.Equal(0, barracks.AmountOf(Resource.Sword));
-        foreach (var (r, n) in EquipmentCatalog.Spec(Resource.Sword).CraftCost)
+        Assert.Equal(0, barracks.AmountOf(Resource.BronzeSword));
+        foreach (var (r, n) in EquipmentCatalog.Spec(Resource.BronzeSword).CraftCost)
             Assert.Equal(n, barracks.AmountOf(r));
     }
 
@@ -49,14 +49,14 @@ public class CraftEquipmentTests
     public void Sword_CostsIron_NotOre()
     {
         // The two-hop chain: Ore is a Smelter input, never a Sword input.
-        var cost = EquipmentCatalog.Spec(Resource.Sword).CraftCost;
-        Assert.True(cost.ContainsKey(Resource.Iron));
-        Assert.False(cost.ContainsKey(Resource.Ore));
-        Assert.Equal(StructureKind.Smithy, EquipmentCatalog.Spec(Resource.Sword).CraftedAt);
+        var cost = EquipmentCatalog.Spec(Resource.BronzeSword).CraftCost;
+        Assert.True(cost.ContainsKey(Resource.Bronze));
+        Assert.False(cost.ContainsKey(Resource.CopperOre));
+        Assert.Equal(StructureKind.Smithy, EquipmentCatalog.Spec(Resource.BronzeSword).CraftedAt);
     }
 
     [Theory]
-    [InlineData(Resource.Sword)]
+    [InlineData(Resource.BronzeSword)]
     [InlineData(Resource.Bow)]
     [InlineData(Resource.Shield)]
     public void Craft_ConsumesInputs_DepositsItem(Resource item)
@@ -80,7 +80,7 @@ public class CraftEquipmentTests
         // holding untouched (fail-clean: no partial withdrawal).
         var sim = MakeSim();
         var barracks = AddSmithy(sim, new TileCoord(2, 2));
-        var cost = EquipmentCatalog.Spec(Resource.Sword).CraftCost;
+        var cost = EquipmentCatalog.Spec(Resource.BronzeSword).CraftCost;
         var before = new Dictionary<Resource, int>();
         var first = true;
         foreach (var (r, n) in cost)
@@ -91,12 +91,12 @@ public class CraftEquipmentTests
             first = false;
         }
 
-        var outcome = new CraftEquipmentIntent(barracks.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new CraftEquipmentIntent(barracks.At, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim);
 
         Assert.False(outcome.IsApplied);
         foreach (var (r, n) in before)
             Assert.Equal(n, barracks.AmountOf(r));
-        Assert.Equal(0, barracks.AmountOf(Resource.Sword));
+        Assert.Equal(0, barracks.AmountOf(Resource.BronzeSword));
     }
 
     [Fact]
@@ -105,13 +105,13 @@ public class CraftEquipmentTests
         // A Castle with the materials is still not a crafting site.
         var sim = MakeSim();
         var castle = sim.World.AddStructure(new Castle(new TileCoord(2, 2)));
-        foreach (var (r, n) in EquipmentCatalog.Spec(Resource.Sword).CraftCost)
+        foreach (var (r, n) in EquipmentCatalog.Spec(Resource.BronzeSword).CraftCost)
             castle.Deposit(r, n);
 
-        var outcome = new CraftEquipmentIntent(castle.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new CraftEquipmentIntent(castle.At, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim);
 
         Assert.False(outcome.IsApplied);
-        Assert.Equal(0, castle.AmountOf(Resource.Sword));
+        Assert.Equal(0, castle.AmountOf(Resource.BronzeSword));
     }
 
     [Fact]
@@ -119,12 +119,12 @@ public class CraftEquipmentTests
     {
         var sim = MakeSim();
         var barracks = AddSmithy(sim, new TileCoord(2, 2), owner: 1);
-        StockExactCost(barracks, Resource.Sword);
+        StockExactCost(barracks, Resource.BronzeSword);
 
-        var outcome = new CraftEquipmentIntent(barracks.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
+        var outcome = new CraftEquipmentIntent(barracks.At, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim);
 
         Assert.False(outcome.IsApplied);
-        Assert.Equal(0, barracks.AmountOf(Resource.Sword));
+        Assert.Equal(0, barracks.AmountOf(Resource.BronzeSword));
     }
 
     [Fact]
@@ -149,17 +149,17 @@ public class CraftEquipmentTests
         {
             var sim = MakeSim();
             var barracks = AddSmithy(sim, new TileCoord(2, 2));
-            StockExactCost(barracks, Resource.Sword);
+            StockExactCost(barracks, Resource.BronzeSword);
 
-            var a = new CraftEquipmentIntent(barracks.At, Resource.Sword);
-            var b = new CraftEquipmentIntent(barracks.At, Resource.Sword);
+            var a = new CraftEquipmentIntent(barracks.At, Resource.BronzeSword);
+            var b = new CraftEquipmentIntent(barracks.At, Resource.BronzeSword);
             sim.SubmitIntent(0, swap == 0 ? a : b);
             sim.SubmitIntent(0, swap == 0 ? b : a);
             sim.Run();
 
             // Exactly one sword crafted; the second intent rejected on
             // missing inputs.
-            Assert.Equal(1, barracks.AmountOf(Resource.Sword));
+            Assert.Equal(1, barracks.AmountOf(Resource.BronzeSword));
             var outcomes = sim.ResolvedLog.OfType<Sim.Core.Intents.IntentEvent>()
                 .Where(e => e.Intent is CraftEquipmentIntent)
                 .ToList();
@@ -177,14 +177,14 @@ public class CraftEquipmentTests
         var sim = MakeSim();
         var barracks = AddSmithy(sim, new TileCoord(0, 0));
         var stockpile = sim.World.AddStructure(new Stockpile(new TileCoord(3, 0)));
-        StockExactCost(barracks, Resource.Sword);
+        StockExactCost(barracks, Resource.BronzeSword);
         sim.World.AddUnit(new Unit(1, new TileCoord(0, 0)) { Role = UnitRole.Hauler });
 
-        new CraftEquipmentIntent(barracks.At, Resource.Sword) { PlayerId = 0 }.Resolve(sim);
-        sim.SubmitIntent(0, new HaulIntent(1, barracks.At, stockpile.At, Resource.Sword));
+        new CraftEquipmentIntent(barracks.At, Resource.BronzeSword) { PlayerId = 0 }.Resolve(sim);
+        sim.SubmitIntent(0, new HaulIntent(1, barracks.At, stockpile.At, Resource.BronzeSword));
         sim.Run();
 
-        Assert.Equal(0, barracks.AmountOf(Resource.Sword));
-        Assert.Equal(1, stockpile.AmountOf(Resource.Sword));
+        Assert.Equal(0, barracks.AmountOf(Resource.BronzeSword));
+        Assert.Equal(1, stockpile.AmountOf(Resource.BronzeSword));
     }
 }

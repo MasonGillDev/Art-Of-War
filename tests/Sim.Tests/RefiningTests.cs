@@ -14,6 +14,10 @@ namespace Sim.Tests;
 public class RefiningTests
 {
     private static StructureSpec SmelterSpec => StructureCatalog.Spec(StructureKind.Smelter);
+    // M51 — these pins run the bronze recipe (copper ore + wood); the ladder's
+    // own pins are in OreTierTests.
+    private static IReadOnlyDictionary<Resource, int> BronzeInputs =>
+        SmelterSpec.Recipes.Single(r => r.Output == Resource.Bronze).Inputs;
     private static long Period => SmelterSpec.ProductionPeriodTicks;
 
     private static (Simulation sim, Extractor smelter) MakeSmelter(int workers = 1, UnitRole role = UnitRole.Farmer)
@@ -34,7 +38,7 @@ public class RefiningTests
 
     private static void Feed(Extractor smelter, int ore, int wood)
     {
-        Assert.Equal(ore, smelter.DepositInput(Resource.Ore, ore));
+        Assert.Equal(ore, smelter.DepositInput(Resource.CopperOre, ore));
         Assert.Equal(wood, smelter.DepositInput(Resource.Wood, wood));
     }
 
@@ -44,11 +48,11 @@ public class RefiningTests
         Assert.True(SmelterSpec.IsRefiner);
         Assert.Equal(Biome.None, SmelterSpec.RequiredBiome);
         Assert.Equal(0, SmelterSpec.ClaimCount);
-        Assert.Equal(Resource.Iron, SmelterSpec.OutputResource);
-        Assert.True(SmelterSpec.InputCost.ContainsKey(Resource.Ore));
-        Assert.True(SmelterSpec.InputCost.ContainsKey(Resource.Wood));
+        Assert.Equal(Resource.None, SmelterSpec.OutputResource);   // its recipes name the outputs
+        Assert.True(BronzeInputs.ContainsKey(Resource.CopperOre));
+        Assert.True(BronzeInputs.ContainsKey(Resource.Wood));
         // Ordinary extractors carry no recipe.
-        Assert.False(StructureCatalog.Spec(StructureKind.Mine).IsRefiner);
+        Assert.False(StructureCatalog.Spec(StructureKind.CopperMine).IsRefiner);
     }
 
     [Fact]
@@ -57,14 +61,14 @@ public class RefiningTests
         // One worker at base rate 1: one batch per period. Stock exactly
         // two batches of ore and one of wood — wood is the binding input.
         var (sim, smelter) = MakeSmelter();
-        var oreCost = SmelterSpec.InputCost[Resource.Ore];
-        var woodCost = SmelterSpec.InputCost[Resource.Wood];
+        var oreCost = BronzeInputs[Resource.CopperOre];
+        var woodCost = BronzeInputs[Resource.Wood];
         Feed(smelter, ore: 2 * oreCost, wood: 1 * woodCost);
 
         sim.Run(until: Period);
 
         Assert.Equal(1, smelter.Buffer);
-        Assert.Equal(oreCost, smelter.InputOf(Resource.Ore));
+        Assert.Equal(oreCost, smelter.InputOf(Resource.CopperOre));
         Assert.Equal(0, smelter.InputOf(Resource.Wood));
         // Wood ran out: no batch affordable, so the tick did NOT reschedule.
         Assert.False(smelter.TickArmed);
@@ -80,7 +84,7 @@ public class RefiningTests
         sim.Run(until: Period * 3);
 
         Assert.Equal(0, smelter.Buffer);
-        Assert.Equal(10, smelter.InputOf(Resource.Ore));
+        Assert.Equal(10, smelter.InputOf(Resource.CopperOre));
         Assert.False(smelter.TickArmed);
     }
 
@@ -96,9 +100,9 @@ public class RefiningTests
         Assert.False(smelter.TickArmed);
 
         // A hauler drops a full batch on it via the shared deposit path.
-        var oreCost = SmelterSpec.InputCost[Resource.Ore];
-        var woodCost = SmelterSpec.InputCost[Resource.Wood];
-        Assert.Equal(oreCost, CargoTransfer.DepositInto(sim, smelter, Resource.Ore, oreCost));
+        var oreCost = BronzeInputs[Resource.CopperOre];
+        var woodCost = BronzeInputs[Resource.Wood];
+        Assert.Equal(oreCost, CargoTransfer.DepositInto(sim, smelter, Resource.CopperOre, oreCost));
         Assert.False(smelter.TickArmed); // half a batch is not a batch
         Assert.Equal(woodCost, CargoTransfer.DepositInto(sim, smelter, Resource.Wood, woodCost));
         Assert.True(smelter.TickArmed);   // the completing delivery armed it
@@ -114,8 +118,8 @@ public class RefiningTests
         // next door. The next tick fires one full period after the DEPOSIT,
         // never immediately and never on the old cadence.
         var (sim, smelter) = MakeSmelter();
-        var oreCost = SmelterSpec.InputCost[Resource.Ore];
-        var woodCost = SmelterSpec.InputCost[Resource.Wood];
+        var oreCost = BronzeInputs[Resource.CopperOre];
+        var woodCost = BronzeInputs[Resource.Wood];
         Feed(smelter, ore: 4 * oreCost, wood: woodCost);
         sim.Run(until: Period);
         Assert.Equal(1, smelter.Buffer);
@@ -144,15 +148,15 @@ public class RefiningTests
     {
         // Two Miners (preferred role, 2x) would make 4/period; room for 1.
         var (sim, smelter) = MakeSmelter(workers: 2, role: UnitRole.Miner);
-        var oreCost = SmelterSpec.InputCost[Resource.Ore];
-        var woodCost = SmelterSpec.InputCost[Resource.Wood];
+        var oreCost = BronzeInputs[Resource.CopperOre];
+        var woodCost = BronzeInputs[Resource.Wood];
         Feed(smelter, ore: 10 * oreCost, wood: 10 * woodCost);
-        smelter.Buffer = SmelterSpec.BufferCap - 1;
+        smelter.AddOutput(Resource.Bronze, SmelterSpec.BufferCap - 1);
 
         sim.Run(until: Period);
 
         Assert.Equal(SmelterSpec.BufferCap, smelter.Buffer);
-        Assert.Equal(9 * oreCost, smelter.InputOf(Resource.Ore));
+        Assert.Equal(9 * oreCost, smelter.InputOf(Resource.CopperOre));
         Assert.Equal(9 * woodCost, smelter.InputOf(Resource.Wood));
         Assert.False(smelter.TickArmed); // buffer full → dormant
     }
@@ -162,12 +166,12 @@ public class RefiningTests
     {
         var (_, smelter) = MakeSmelter(workers: 0);
         Assert.Equal(0, smelter.DepositInput(Resource.Stone, 5));
-        Assert.Equal(0, smelter.DepositInput(Resource.Iron, 5));
+        Assert.Equal(0, smelter.DepositInput(Resource.Bronze, 5));
         Assert.Equal(0, smelter.InputTotal());
 
-        var accepted = smelter.DepositInput(Resource.Ore, SmelterSpec.InputCap + 7);
+        var accepted = smelter.DepositInput(Resource.CopperOre, SmelterSpec.InputCap + 7);
         Assert.Equal(SmelterSpec.InputCap, accepted);
-        Assert.Equal(0, smelter.FreeInputSpace(Resource.Ore));
+        Assert.Equal(0, smelter.FreeInputSpace(Resource.CopperOre));
         // The cap is PER INPUT: a store full of ore still has room for fuel,
         // so the fuel leg can never be starved out by the ore leg (or vice
         // versa — the first host smoke wedged exactly that way).
@@ -181,10 +185,10 @@ public class RefiningTests
     {
         var grid = new TileGrid(4, 4, Biome.Mountain);
         var world = new GameWorld(grid);
-        var mine = (Extractor)world.AddStructure(new Extractor(StructureKind.Mine, new TileCoord(1, 1)));
+        var mine = (Extractor)world.AddStructure(new Extractor(StructureKind.CopperMine, new TileCoord(1, 1)));
         Assert.False(mine.IsRefiner);
-        Assert.Equal(0, mine.DepositInput(Resource.Ore, 5));
-        Assert.Equal(0, mine.AffordableBatches());
+        Assert.Equal(0, mine.DepositInput(Resource.CopperOre, 5));
+        Assert.Null(mine.NextRecipe());
     }
 
     [Fact]
@@ -192,13 +196,13 @@ public class RefiningTests
     {
         var (sim, smelter) = MakeSmelter(workers: 0);
         Feed(smelter, ore: 6, wood: 3);
-        smelter.Buffer = 4;
+        smelter.AddOutput(Resource.Bronze, 4);
 
         SiegeDamage.RazeStructure(sim, smelter);
 
         var pile = sim.World.GroundResources[smelter.At];
-        Assert.Equal(4, pile[Resource.Iron]);
-        Assert.Equal(6, pile[Resource.Ore]);
+        Assert.Equal(4, pile[Resource.Bronze]);
+        Assert.Equal(6, pile[Resource.CopperOre]);
         Assert.Equal(3, pile[Resource.Wood]);
         Assert.IsType<Rubble>(sim.World.Structures[smelter.At]);
     }
@@ -241,7 +245,7 @@ public class RefiningTests
         Assert.True(StructureCatalog.Spec(StructureKind.Workshop).IsPlayerBuildable);
         Assert.True(StructureCatalog.Spec(StructureKind.Smithy).IsPlayerBuildable);
         // The Smithy must be affordable before the first ingot exists.
-        Assert.False(StructureCatalog.Spec(StructureKind.Smithy).BuildCost.ContainsKey(Resource.Iron));
+        Assert.False(StructureCatalog.Spec(StructureKind.Smithy).BuildCost.ContainsKey(Resource.Bronze));
     }
 
     // ---- persistence ----
@@ -258,16 +262,16 @@ public class RefiningTests
         var armed = (Extractor)world.AddStructure(new Extractor(StructureKind.Smelter, armedAt) { OwnerId = 0 });
         var dormant = (Extractor)world.AddStructure(new Extractor(StructureKind.Smelter, dormantAt) { OwnerId = 0 });
         world.AddStructure(new Workshop(new TileCoord(6, 1)) { OwnerId = 0 }).Deposit(Resource.Cart, 1);
-        world.AddStructure(new Smithy(new TileCoord(1, 6)) { OwnerId = 0 }).Deposit(Resource.Iron, 3);
+        world.AddStructure(new Smithy(new TileCoord(1, 6)) { OwnerId = 0 }).Deposit(Resource.Bronze, 3);
         var sim = new Simulation(world, seed: 7);
 
-        armed.DepositInput(Resource.Ore, 4 * SmelterSpec.InputCost[Resource.Ore]);
-        armed.DepositInput(Resource.Wood, 4 * SmelterSpec.InputCost[Resource.Wood]);
+        armed.DepositInput(Resource.CopperOre, 4 * BronzeInputs[Resource.CopperOre]);
+        armed.DepositInput(Resource.Wood, 4 * BronzeInputs[Resource.Wood]);
         // A Farmer, not a Miner: base rate 1, so exactly one batch per period.
         world.AddUnit(new Unit(1, armedAt) { Role = UnitRole.Farmer, OwnerId = 0 });
         sim.SubmitIntent(0, new AssignWorkersIntent(armedAt, new[] { 1 }));
-        dormant.DepositInput(Resource.Ore, 1); // half a batch — dormant on purpose
-        dormant.Buffer = 2;
+        dormant.DepositInput(Resource.CopperOre, 1); // half a batch — dormant on purpose
+        dormant.AddOutput(Resource.Bronze, 2);
         sim.Run(until: 0);
         Assert.True(armed.TickArmed);
         Assert.False(dormant.TickArmed);
@@ -277,12 +281,12 @@ public class RefiningTests
         Assert.Equal(Snapshot.Hash(sim), Snapshot.Hash(restored));
 
         var rArmed = Assert.IsType<Extractor>(restored.World.Structures[armedAt]);
-        Assert.Equal(4 * SmelterSpec.InputCost[Resource.Ore], rArmed.InputOf(Resource.Ore));
-        Assert.Equal(4 * SmelterSpec.InputCost[Resource.Wood], rArmed.InputOf(Resource.Wood));
+        Assert.Equal(4 * BronzeInputs[Resource.CopperOre], rArmed.InputOf(Resource.CopperOre));
+        Assert.Equal(4 * BronzeInputs[Resource.Wood], rArmed.InputOf(Resource.Wood));
         Assert.True(rArmed.TickArmed);
         Assert.Equal(armed.NextProductionTickSeq, rArmed.NextProductionTickSeq);
         var rDormant = Assert.IsType<Extractor>(restored.World.Structures[dormantAt]);
-        Assert.Equal(1, rDormant.InputOf(Resource.Ore));
+        Assert.Equal(1, rDormant.InputOf(Resource.CopperOre));
         Assert.Equal(2, rDormant.Buffer);
 
         // Both worlds produce the same iron on the same tick after restore.
@@ -302,7 +306,7 @@ public class RefiningTests
             var stockAt = new TileCoord(4, 3);
             sim.World.AddStructure(new Stockpile(stockAt) { OwnerId = 0 });
             sim.World.AddUnit(new Unit(50, smelter.At) { Role = UnitRole.Hauler, OwnerId = 0 });
-            sim.SubmitIntent(Period + 1, new HaulIntent(50, smelter.At, stockAt, Resource.Iron));
+            sim.SubmitIntent(Period + 1, new HaulIntent(50, smelter.At, stockAt, Resource.Bronze));
             sim.Run(until: Period * 6);
             return Snapshot.Hash(sim);
         }

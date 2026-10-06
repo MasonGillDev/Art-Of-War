@@ -12,8 +12,17 @@ namespace Sim.Core.Equipment;
 public sealed record EquipmentSpec
 {
     public required Resource Item { get; init; }
-    // Stable buff identity. One buff per Kind per unit (BuffRules).
+    // Stable buff identity: which item a worn buff turns back into when it is
+    // stripped (death, retrain), so every item has its own. One buff per Kind
+    // per unit (BuffRules).
     public required string BuffKind { get; init; }
+    // M51 — the gear slot it fills: one item per slot. Unset = its own BuffKind
+    // (every other item is its own slot). The three swords share "sword": a
+    // soldier carries one, and a higher Rank swaps in for a lower one, the old
+    // sword going back to the store (docs/m51-ore-tiers-spec.md).
+    public string? Slot { get; init; }
+    public string SlotName => Slot ?? BuffKind;
+    public int Rank { get; init; }
     public int PowerModifier { get; init; }
     // Applied to current Health at equip time; reversed (clamped to
     // min 1) when the equipment is stripped. See docs/equipment-model.md.
@@ -45,21 +54,12 @@ public static class EquipmentCatalog
     // Barracks trains and holds gear but forges nothing.
     private static readonly Dictionary<Resource, EquipmentSpec> Specs = new()
     {
-        [Resource.Sword] = new EquipmentSpec
-        {
-            Item = Resource.Sword,
-            CraftedAt = StructureKind.Smithy,
-            BuffKind = "sword",
-            PowerModifier = 3,
-            AllowedRoles = new HashSet<UnitRole> { UnitRole.Soldier },
-            // The two-hop chain: Ore + fuel → Iron at the Smelter, then
-            // Iron + haft here. Ore itself is no longer a craft input.
-            CraftCost = new SortedDictionary<Resource, int>
-            {
-                [Resource.Wood] = 2,
-                [Resource.Iron] = 3,
-            },
-        },
+        // M51 — the sword ladder (docs/m51-ore-tiers-spec.md): each metal a
+        // straight stronger sword. The two-hop chain: ore + fuel → a bar at the
+        // Smelter, then bars + haft here. Ore itself is never a craft input.
+        [Resource.BronzeSword] = Sword(Resource.BronzeSword, "bronze-sword", rank: 1, power: 3, Resource.Bronze),
+        [Resource.IronSword] = Sword(Resource.IronSword, "iron-sword", rank: 2, power: 5, Resource.Iron),
+        [Resource.SteelSword] = Sword(Resource.SteelSword, "steel-sword", rank: 3, power: 7, Resource.Steel),
         [Resource.Bow] = new EquipmentSpec
         {
             Item = Resource.Bow,
@@ -106,6 +106,22 @@ public static class EquipmentCatalog
                 [Resource.Wood] = 20,
                 [Resource.Stone] = 10,
             },
+        },
+    };
+
+    private static EquipmentSpec Sword(Resource item, string buffKind, int rank, int power, Resource metal) => new()
+    {
+        Item = item,
+        CraftedAt = StructureKind.Smithy,
+        BuffKind = buffKind,
+        Slot = "sword",
+        Rank = rank,
+        PowerModifier = power,
+        AllowedRoles = new HashSet<UnitRole> { UnitRole.Soldier },
+        CraftCost = new SortedDictionary<Resource, int>
+        {
+            [Resource.Wood] = 2,
+            [metal] = 3,
         },
     };
 

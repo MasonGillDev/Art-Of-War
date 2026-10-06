@@ -54,7 +54,7 @@ public static class MilestoneCatalog
             Condition.Gauge(ProgressGauge.TilesExplored, cfg.FarHorizonsTiles),
             new Effect[]
             {
-                new Rumour(new[] { (Resource.Iron, cfg.FarHorizonsIron), (Resource.Sword, cfg.FarHorizonsSwords) }),
+                new Rumour(new[] { (Resource.Bronze, cfg.FarHorizonsIron), (Resource.BronzeSword, cfg.FarHorizonsSwords) }),
             }),
         new Milestone(AGoodHome, "A good home",
             Condition.AtLeast(cfg.GoodHomeHouses, ProgressKey.Completed(StructureKind.House)),
