@@ -1858,3 +1858,21 @@ identically. Pinned by `MarchFormationTests.TwinRun_AndMidMarchRestore_EndTheSam
 - The wire's step in flight for a marching member (`ViewProjector.FillSubtileStep`)
 
 **Snapshot v53.** Each group row gains `MarchMode`, `MarchStepTicks` and its formation.
+
+## Wilderness bands (2026-10-05, `docs/wilderness-bands.md`)
+
+**New state:** `GameWorld.Wilderness`, a `WildernessField`: per-tile walking minutes from the
+nearest starting castle, plus three band cut-offs.
+
+**Mutation points.** `Genesis.Build`, once, after the castles stand
+(`WildernessField.Compute`), and `Snapshot` restore. Nothing else writes it. The field is
+frozen on purpose: a canal or a fallen castle doesn't move it.
+
+**Determinism.** Integer Dijkstra over the foot movement cost (`MovementCost.TerrainCostFor`).
+Shortest distances are unique, so the queue's tie order can't change the result. The
+cut-offs come from a sorted integer list. It draws no `Rng`.
+
+**Pure reads:** `BandAt`, `MinutesAt`.
+
+**Snapshot v54.** After the route extras: a has-field flag, the cut-offs, then one `ushort` per
+tile in (y, x) order. Pinned by `WildernessTests.TheField_SurvivesASnapshot_AndNeverMoves`.

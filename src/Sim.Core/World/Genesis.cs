@@ -58,6 +58,9 @@ public sealed record GenesisSpec
     // M44 — ore veins: density, layout seed, survey knobs. Seeding draws no
     // sim Rng (docs/stone-and-ore-land.md).
     public Sim.Core.Mining.VeinConfig Veins { get; init; } = new();
+    // Wilderness bands: where Frontier, Wild and Deep start, as shares of the reachable land
+    // (docs/wilderness-bands.md).
+    public Sim.Core.Wilderness.WildernessConfig Wilderness { get; init; } = new();
     // M39 — bandit camp knobs.
     public Sim.Core.Bandits.CampConfig Camps { get; init; } = new();
     // Two-act pacing — the landing (day X). Default = no landing, a one-act
@@ -261,6 +264,11 @@ public static class Genesis
         // M41 — wars in force from the start (scenarios only).
         foreach (var (a, b) in spec.StartingWars)
             world.Diplomacy.SetState(Diplomacy.FactionPair.Of(a, b), Diplomacy.RelationshipState.Enemy);
+
+        // Wilderness bands: measured from the starting castles once they stand, then frozen
+        // (docs/wilderness-bands.md).
+        world.RestoreWilderness(Sim.Core.Wilderness.WildernessField.Compute(
+            world, spec.FactionStarts.OrderBy(f => f.OwnerId).Select(f => f.CastlePosition).ToList(), spec.Wilderness));
 
         // M8: seed the monotonic unit-id counter so BirthEvent allocates
         // ids that don't collide with any spawned unit.

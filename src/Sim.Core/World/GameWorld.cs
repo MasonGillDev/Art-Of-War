@@ -200,6 +200,12 @@ public sealed class GameWorld
     public SortedDictionary<int, SortedSet<TileCoord>> KnownVeins { get; } = new();
     public SortedDictionary<int, SortedSet<TileCoord>> SurveyedBarren { get; } = new();
 
+    // Wilderness bands (docs/wilderness-bands.md): every tile's walking time from the
+    // nearest starting castle and the band it falls in. Measured once at genesis, frozen,
+    // snapshotted (v54). Empty for a world built without genesis.
+    public Sim.Core.Wilderness.WildernessField Wilderness { get; private set; } = Sim.Core.Wilderness.WildernessField.Empty;
+    internal void RestoreWilderness(Sim.Core.Wilderness.WildernessField field) => Wilderness = field;
+
     // M39 — bandit camp knobs (genesis-set, snapshotted v39).
     public Sim.Core.Bandits.CampConfig CampConfig { get; private set; } = new();
     internal void RestoreCampConfig(Sim.Core.Bandits.CampConfig config) => CampConfig = config;

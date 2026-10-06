@@ -218,7 +218,11 @@ public static class Snapshot
     //       row gains MarchMode (byte), MarchStepTicks (long) and its saved formation
     //       (has-flag; front byte, count, then per slot unit id, role byte, A, B) after
     //       ReturnTo.
-    public const int FormatVersion = 53;
+    // v54 — wilderness bands (docs/wilderness-bands.md): after the route extras, a has-field
+    //       flag, then the three band cut-offs (int minutes) and one ushort per tile in
+    //       (y, x) order: walking minutes from the nearest starting castle, or the Water /
+    //       BeyondReach markers.
+    public const int FormatVersion = 54;
 
     public static string Hash(Simulation sim)
     {
@@ -258,6 +262,7 @@ public static class Snapshot
             WriteBattlefields(bw, sim.World);   // M41 battlefield grid (v41)
             WriteVeins(bw, sim.World);          // M44 stone and ore (v45)
             WriteRouteExtras(bw, sim.World);    // M45 haul route UX (v46)
+            WriteWilderness(bw, sim.World);     // wilderness bands (v54)
         }
         return ms.ToArray();
     }
@@ -305,6 +310,7 @@ public static class Snapshot
         ReadBattlefields(br, world);        // M41 battlefield grid (v41); unit subtiles (v43)
         ReadVeins(br, world);               // M44 stone and ore (v45)
         ReadRouteExtras(br, world);         // M45 haul route UX (v46)
+        ReadWilderness(br, world);          // wilderness bands (v54)
         world.Restoring = false;
 
         var sim = new Simulation(world, seed);
@@ -972,6 +978,34 @@ public static class Snapshot
         var rng = br.ReadUInt64();
         var nextSeq = br.ReadInt64();
         return (now, rng, nextSeq);
+    }
+
+    // ----- wilderness bands (v54) -------------------------------------------
+    //
+    // Frozen at genesis, so written whole: the cut-offs, then every tile's minutes in the
+    // grid's (y, x) order. The grid's own width and height size it.
+
+    private static void WriteWilderness(BinaryWriter bw, GameWorld world)
+    {
+        var f = world.Wilderness;
+        bw.Write(!f.IsEmpty);
+        if (f.IsEmpty) return;
+        bw.Write(f.FrontierFrom);
+        bw.Write(f.WildFrom);
+        bw.Write(f.DeepFrom);
+        for (var i = 0; i < f.Width * f.Height; i++) bw.Write(f.RawAt(i));
+    }
+
+    private static void ReadWilderness(BinaryReader br, GameWorld world)
+    {
+        if (!br.ReadBoolean()) return;
+        var frontierFrom = br.ReadInt32();
+        var wildFrom = br.ReadInt32();
+        var deepFrom = br.ReadInt32();
+        int w = world.Grid.Width, h = world.Grid.Height;
+        var minutes = new ushort[w * h];
+        for (var i = 0; i < minutes.Length; i++) minutes[i] = br.ReadUInt16();
+        world.RestoreWilderness(Sim.Core.Wilderness.WildernessField.FromRaw(w, h, minutes, frontierFrom, wildFrom, deepFrom));
     }
 
     // ----- grid ----------------------------------------------------------
